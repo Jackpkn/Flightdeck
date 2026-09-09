@@ -5,18 +5,82 @@ struct ProcessMonitorPanel: View {
     @Environment(ProcessMonitor.self) private var monitor
     @Environment(ActivityWatcher.self) private var activityWatcher
 
+    enum ProcessFilter: String, CaseIterable {
+        case apps = "APPS"
+        case hogs = "HEAVY (>10%)"
+        case all = "ALL"
+    }
+
+    @State private var filter: ProcessFilter = .apps
+    @State private var selectedProcess: ProcessUsage? = nil
+
     private var hottest: ProcessUsage? {
         monitor.usages.max(by: { $0.cpuPercent < $1.cpuPercent })
     }
 
+    private var filteredUsages: [ProcessUsage] {
+        switch filter {
+        case .apps:
+            return monitor.usages.filter { !$0.bundleId.isEmpty }
+        case .hogs:
+            return monitor.usages.filter { $0.cpuPercent >= 10.0 || $0.memoryBytes >= 500_000_000 }
+        case .all:
+            return monitor.usages
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 LiveDot(color: Theme.warning)
                 Text("RESOURCE USAGE · LIVE").font(Theme.display(11)).tracking(0.6).foregroundStyle(Theme.ink3)
                 Spacer()
                 ThermalChip(state: monitor.thermalState)
-                Text("\(monitor.usages.count) apps").font(Theme.mono(11)).foregroundStyle(Theme.ink3)
+
+                // Quick Launcher: Open macOS Activity Monitor
+                Button {
+                    CockpitAudio.playPing()
+                    DevAppLauncher.openSystemActivityMonitor()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.up.forward.app")
+                            .font(.system(size: 8.5))
+                        Text("SYSTEM MONITOR")
+                            .font(Theme.mono(8.5, weight: .bold))
+                    }
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 3.5))
+                }
+                .buttonStyle(.plain)
+                .help("Launch native macOS Activity Monitor")
+            }
+
+            // Process View Filters
+            HStack(spacing: 5) {
+                ForEach(ProcessFilter.allCases, id: \.self) { f in
+                    Button {
+                        CockpitAudio.playPing()
+                        filter = f
+                    } label: {
+                        Text(f.rawValue)
+                            .font(Theme.mono(8.5, weight: filter == f ? .bold : .medium))
+                            .foregroundStyle(filter == f ? Theme.ink1 : Theme.ink3)
+                            .padding(.horizontal, 6.5).padding(.vertical, 2.5)
+                            .background(filter == f ? Theme.track.opacity(0.9) : Color.clear, in: RoundedRectangle(cornerRadius: 3))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 3)
+                                    .stroke(filter == f ? Theme.warning.opacity(0.4) : Color.clear, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer()
+
+                Text("\(filteredUsages.count) of \(monitor.usages.count)")
+                    .font(Theme.mono(9))
+                    .foregroundStyle(Theme.ink3)
             }
 
             if monitor.usages.isEmpty {
@@ -27,7 +91,7 @@ struct ProcessMonitorPanel: View {
                 }
                 .padding(.vertical, 10)
             } else {
-                if let hottest {
+                if let hottest, filter != .apps || !hottest.bundleId.isEmpty {
                     let peakColor = gaugeColor(for: hottest.cpuPercent)
                     HStack(spacing: 16) {
                         RingGauge(
@@ -59,15 +123,21 @@ struct ProcessMonitorPanel: View {
                     .padding(.bottom, 2)
                 }
 
-                let maxMemory = monitor.usages.map(\.memoryBytes).max() ?? 1
+                let maxMemory = filteredUsages.map(\.memoryBytes).max() ?? 1
                 ScrollView {
                     LazyVStack(spacing: 10) {
-                        ForEach(monitor.usages) { row in
+                        ForEach(filteredUsages) { row in
                             let killable = row.id != ProcessInfo.processInfo.processIdentifier
                             ProcessRow(
                                 usage: row,
                                 memoryFraction: Double(row.memoryBytes) / Double(maxMemory),
-                                onQuit: killable ? { monitor.killProcess(pid: row.id, bundleId: row.bundleId) } : nil,
+                                onQuit: killable ? {
+                                    if NSEvent.modifierFlags.contains(.option) {
+                                        monitor.killProcess(pid: row.id, bundleId: row.bundleId)
+                                    } else {
+                                        selectedProcess = row
+                                    }
+                                } : nil,
                                 onForceQuit: killable ? { monitor.killProcess(pid: row.id, bundleId: row.bundleId) } : nil
                             )
                         }
@@ -80,6 +150,26 @@ struct ProcessMonitorPanel: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .glassPanel(accent: Theme.warning)
         .cornerBracket(color: Theme.warning)
+        .overlay {
+            if let p = selectedProcess {
+                ProcessActionModal(
+                    usage: p,
+                    onDismiss: { selectedProcess = nil },
+                    onGracefulQuit: {
+                        if let app = NSRunningApplication(processIdentifier: p.id) {
+                            app.terminate()
+                        } else {
+                            kill(p.id, SIGTERM)
+                        }
+                    },
+                    onForceKill: {
+                        monitor.killProcess(pid: p.id, bundleId: p.bundleId)
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+        }
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: selectedProcess?.id)
     }
 
     private func gaugeColor(for percent: Double) -> Color {

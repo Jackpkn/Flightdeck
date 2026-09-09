@@ -95,4 +95,16 @@ enum DevAppLauncher {
     static func openInDefaultApp(_ url: URL) {
         NSWorkspace.shared.open(url)
     }
+
+    static func openSystemActivityMonitor() {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.ActivityMonitor") {
+            let config = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.openApplication(at: url, configuration: config)
+        } else {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            process.arguments = ["-a", "Activity Monitor"]
+            try? process.run()
+        }
+    }
 }
