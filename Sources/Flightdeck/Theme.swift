@@ -27,6 +27,7 @@ enum Theme {
     static let claudeColor  = Color(hex: 0x00f0ff) // cyan
     static let cursorColor  = Color(hex: 0xb026ff) // purple
     static let copilotColor = Color(hex: 0x39ff88) // neon green
+    static let gpuColor     = Color(hex: 0xff2a85) // neon magenta/pink
 
     private static let projectPalette = [claudeColor, cursorColor, copilotColor]
 

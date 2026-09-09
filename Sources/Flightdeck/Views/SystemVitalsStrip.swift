@@ -5,10 +5,12 @@ import SwiftUI
 /// Apple Silicon chip identity, system uptime, and local network status.
 struct SystemVitalsStrip: View {
     @Environment(HardwareVitals.self) private var vitals
+    @Environment(ProcessMonitor.self) private var monitor
 
     var body: some View {
         HStack(spacing: 12) {
             batteryCard
+            gpuCard
             swapCard
             chipCard
             networkCard
@@ -83,7 +85,57 @@ struct SystemVitalsStrip: View {
         .help("Battery Condition: \(b.condition)")
     }
 
-    // MARK: - 2. Swap Memory & Pressure Card
+    // MARK: - 2. Hardware GPU & VRAM Card
+
+    private var gpuCard: some View {
+        let gpu = monitor.currentGPU
+        let util = gpu.utilizationPercent
+        let color: Color = {
+            if util < 40 { return Theme.gpuColor }
+            if util < 75 { return Theme.warning }
+            return Theme.critical
+        }()
+
+        let vramFormatted = ByteCountFormatter.string(fromByteCount: gpu.memoryBytes, countStyle: .memory)
+
+        return HStack(spacing: 10) {
+            RingGauge(
+                fraction: util / 100.0,
+                color: color,
+                diameter: 28
+            )
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text(String(format: "GPU %.0f%%", util))
+                        .font(Theme.mono(12, weight: .bold))
+                        .foregroundStyle(Theme.ink1)
+
+                    if util >= 70 {
+                        Text("HEAVY")
+                            .font(Theme.mono(8, weight: .bold))
+                            .foregroundStyle(Theme.critical)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
+                            .background(Theme.critical.opacity(0.18), in: RoundedRectangle(cornerRadius: 2.5))
+                    }
+                }
+
+                Text(gpu.memoryBytes > 0 ? "VRAM: \(vramFormatted)" : "METAL ENGINE ACTIVE")
+                    .font(Theme.mono(9.5))
+                    .foregroundStyle(Theme.ink3)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .glassPanel(accent: color)
+        .cornerBracket(color: color)
+        .help("Apple Silicon / Metal GPU Utilization & Allocated Unified Memory")
+    }
+
+    // MARK: - 3. Swap Memory & Pressure Card
 
     private var swapCard: some View {
         let s = vitals.swap

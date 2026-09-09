@@ -199,4 +199,76 @@ public final class SystemTelemetry: @unchecked Sendable {
         let bytesPerSec = Double(totalBytes - prev.total) / elapsed
         return bytesPerSec / 1024.0 // KB/s
     }
+
+    // MARK: - 5. Real GPU Hardware Utilization & VRAM (IOKit IOAccelerator)
+
+    public struct GPUTelemetry: Equatable, Sendable {
+        public let utilizationPercent: Double
+        public let rendererPercent: Double
+        public let tilerPercent: Double
+        public let memoryBytes: Int64
+
+        public init(
+            utilizationPercent: Double = 0,
+            rendererPercent: Double = 0,
+            tilerPercent: Double = 0,
+            memoryBytes: Int64 = 0
+        ) {
+            self.utilizationPercent = utilizationPercent
+            self.rendererPercent = rendererPercent
+            self.tilerPercent = tilerPercent
+            self.memoryBytes = memoryBytes
+        }
+    }
+
+    /// Returns the true system GPU utilization % and VRAM allocated across all accelerators (Apple Silicon & Intel).
+    public func currentGPUTelemetry() -> GPUTelemetry {
+        var iterator: io_iterator_t = 0
+        let matching = IOServiceMatching("IOAccelerator")
+        let mainPort: mach_port_t = 0
+
+        guard IOServiceGetMatchingServices(mainPort, matching, &iterator) == kIOReturnSuccess else {
+            return GPUTelemetry()
+        }
+
+        var maxDeviceUtil: Double = 0
+        var maxRenderUtil: Double = 0
+        var maxTilerUtil: Double = 0
+        var totalMemory: Int64 = 0
+
+        var service = IOIteratorNext(iterator)
+        while service != 0 {
+            var props: Unmanaged<CFMutableDictionary>?
+            if IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == kIOReturnSuccess,
+               let dict = props?.takeRetainedValue() as? [String: Any],
+               let stats = dict["PerformanceStatistics"] as? [String: Any] {
+
+                if let u = stats["Device Utilization %"] as? NSNumber {
+                    maxDeviceUtil = max(maxDeviceUtil, u.doubleValue)
+                }
+                if let r = stats["Renderer Utilization %"] as? NSNumber {
+                    maxRenderUtil = max(maxRenderUtil, r.doubleValue)
+                }
+                if let t = stats["Tiler Utilization %"] as? NSNumber {
+                    maxTilerUtil = max(maxTilerUtil, t.doubleValue)
+                }
+                if let mem = stats["In use system memory"] as? NSNumber {
+                    totalMemory += mem.int64Value
+                } else if let memAlloc = stats["Alloc system memory"] as? NSNumber {
+                    totalMemory += memAlloc.int64Value
+                }
+            }
+            IOObjectRelease(service)
+            service = IOIteratorNext(iterator)
+        }
+        IOObjectRelease(iterator)
+
+        return GPUTelemetry(
+            utilizationPercent: min(100.0, max(0.0, maxDeviceUtil)),
+            rendererPercent: min(100.0, max(0.0, maxRenderUtil)),
+            tilerPercent: min(100.0, max(0.0, maxTilerUtil)),
+            memoryBytes: max(0, totalMemory)
+        )
+    }
 }
+

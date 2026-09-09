@@ -23,12 +23,15 @@ final class ProcessMonitor {
     private(set) var netHistory: [Double] = []
     /// Real storage disk I/O throughput in KB/sec from IOKit IOBlockStorageDriver.
     private(set) var diskHistory: [Double] = []
+    /// Real hardware GPU utilization % from IOKit IOAccelerator, capped to last 2 minutes.
+    private(set) var gpuHistory: [Double] = []
     /// Latest detailed system memory breakdown.
     private(set) var memorySnapshot: SystemTelemetry.MemorySnapshot?
     /// Latest real-time metrics.
     private(set) var currentSystemCPU: Double = 0
     private(set) var currentNetKB: Double = 0
     private(set) var currentDiskKB: Double = 0
+    private(set) var currentGPU = SystemTelemetry.GPUTelemetry()
 
     /// Real system thermal pressure — free, no permission, and the honest
     /// stand-in for per-app "energy impact" (which needs root).
@@ -152,5 +155,12 @@ final class ProcessMonitor {
         currentDiskKB = diskKB
         diskHistory.append(diskKB)
         if diskHistory.count > 60 { diskHistory.removeFirst(diskHistory.count - 60) }
+
+        // 5. Real GPU hardware utilization from IOKit IOAccelerator (%)
+        let gpu = telemetry.currentGPUTelemetry()
+        currentGPU = gpu
+        gpuHistory.append(gpu.utilizationPercent)
+        if gpuHistory.count > 60 { gpuHistory.removeFirst(gpuHistory.count - 60) }
     }
 }
+

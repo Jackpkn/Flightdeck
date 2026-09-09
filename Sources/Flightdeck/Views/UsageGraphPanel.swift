@@ -7,6 +7,7 @@ import SwiftUI
 struct UsageGraphPanel: View {
     @Environment(ProcessMonitor.self) private var monitor
     @State private var showCPU = true
+    @State private var showGPU = true
     @State private var showMem = true
     @State private var showNet = false
     @State private var showDisk = false
@@ -44,7 +45,17 @@ struct UsageGraphPanel: View {
                                     }
                                 }
                             )
-                            .frame(height: showMem || showNet || showDisk ? 124 : 180)
+                            .frame(height: showGPU || showMem || showNet || showDisk ? 116 : 180)
+                        }
+
+                        if showGPU {
+                            SeriesChart(
+                                values: monitor.gpuHistory,
+                                color: Theme.gpuColor,
+                                floorMax: 20,
+                                markPeak: true
+                            )
+                            .frame(height: showCPU || showMem || showNet || showDisk ? 72 : 180)
                         }
 
                         if showMem {
@@ -112,7 +123,9 @@ struct UsageGraphPanel: View {
 
     private var computedGraphHeight: CGFloat {
         var h: CGFloat = 0
-        if showCPU { h += (showMem || showNet || showDisk ? 124 : 180) }
+        let others = showGPU || showMem || showNet || showDisk
+        if showCPU { h += (others ? 116 : 180) }
+        if showGPU { h += ((showCPU || showMem || showNet || showDisk) ? 72 : 180) + (showCPU ? 8 : 0) }
         if showMem { h += 54 + 8 }
         if showNet { h += 48 + 8 }
         if showDisk { h += 48 + 8 }
@@ -138,6 +151,7 @@ struct UsageGraphPanel: View {
             // Metric Toggle Pills
             HStack(spacing: 4) {
                 metricToggle(title: "CPU", color: Theme.accent, isOn: $showCPU)
+                metricToggle(title: "GPU", color: Theme.gpuColor, isOn: $showGPU)
                 metricToggle(title: "MEM", color: Theme.copilotColor, isOn: $showMem)
                 metricToggle(title: "NET", color: Theme.accentSecondary, isOn: $showNet)
                 metricToggle(title: "DISK", color: Theme.warning, isOn: $showDisk)
@@ -192,6 +206,14 @@ struct UsageGraphPanel: View {
             HStack(spacing: 3) {
                 Text("CPU:").font(Theme.mono(9.5)).foregroundStyle(Theme.ink3)
                 Text(String(format: "%.0f%%", cpuVal)).font(Theme.mono(10, weight: .bold)).foregroundStyle(Theme.accent)
+            }
+
+            if showGPU {
+                let gpuVal = monitor.gpuHistory.indices.contains(index) ? monitor.gpuHistory[index] : monitor.currentGPU.utilizationPercent
+                HStack(spacing: 3) {
+                    Text("GPU:").font(Theme.mono(9.5)).foregroundStyle(Theme.ink3)
+                    Text(String(format: "%.0f%%", gpuVal)).font(Theme.mono(10, weight: .bold)).foregroundStyle(Theme.gpuColor)
+                }
             }
 
             HStack(spacing: 3) {

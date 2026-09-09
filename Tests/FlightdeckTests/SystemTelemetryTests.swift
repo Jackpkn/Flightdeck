@@ -42,4 +42,15 @@ struct SystemTelemetryTests {
         let kb = telemetry.currentDiskThroughputKB()
         #expect(kb >= 0.0)
     }
+
+    @Test("GPU telemetry returns valid utilization and memory metrics")
+    func gpuTelemetry() {
+        let telemetry = SystemTelemetry()
+        let gpu = telemetry.currentGPUTelemetry()
+        #expect(gpu.utilizationPercent >= 0.0 && gpu.utilizationPercent <= 100.0)
+        #expect(gpu.rendererPercent >= 0.0 && gpu.rendererPercent <= 100.0)
+        #expect(gpu.tilerPercent >= 0.0 && gpu.tilerPercent <= 100.0)
+        #expect(gpu.memoryBytes >= 0)
+    }
 }
+
