@@ -44,7 +44,7 @@ struct UsageGraphPanel: View {
                                     }
                                 }
                             )
-                            .frame(height: showMem || showNet || showDisk ? 84 : 140)
+                            .frame(height: showMem || showNet || showDisk ? 124 : 180)
                         }
 
                         if showMem {
@@ -54,7 +54,7 @@ struct UsageGraphPanel: View {
                                 floorMax: 1_073_741_824, // 1 GB
                                 markPeak: false
                             )
-                            .frame(height: 44)
+                            .frame(height: 54)
                         }
 
                         if showNet {
@@ -64,7 +64,7 @@ struct UsageGraphPanel: View {
                                 floorMax: 40,
                                 markPeak: false
                             )
-                            .frame(height: 40)
+                            .frame(height: 48)
                         }
 
                         if showDisk {
@@ -74,7 +74,7 @@ struct UsageGraphPanel: View {
                                 floorMax: 30,
                                 markPeak: false
                             )
-                            .frame(height: 40)
+                            .frame(height: 48)
                         }
                     }
 
@@ -112,11 +112,11 @@ struct UsageGraphPanel: View {
 
     private var computedGraphHeight: CGFloat {
         var h: CGFloat = 0
-        if showCPU { h += (showMem || showNet || showDisk ? 84 : 140) }
-        if showMem { h += 44 + 8 }
-        if showNet { h += 40 + 8 }
-        if showDisk { h += 40 + 8 }
-        return max(80, h)
+        if showCPU { h += (showMem || showNet || showDisk ? 124 : 180) }
+        if showMem { h += 54 + 8 }
+        if showNet { h += 48 + 8 }
+        if showDisk { h += 48 + 8 }
+        return max(100, h)
     }
 
     private var header: some View {
@@ -236,8 +236,12 @@ private struct SeriesChart: View {
 
     var body: some View {
         Canvas { context, size in
+            let topInset: CGFloat = markPeak ? 22 : 6
+            let bottomInset: CGFloat = 4
+            let usableHeight = max(10, size.height - topInset - bottomInset)
+
             for fraction in [0.0, 0.5, 1.0] {
-                let y = size.height * (1 - fraction)
+                let y = topInset + usableHeight * (1 - fraction)
                 var line = Path()
                 line.move(to: CGPoint(x: 0, y: y))
                 line.addLine(to: CGPoint(x: size.width, y: y))
@@ -250,7 +254,7 @@ private struct SeriesChart: View {
             let points = values.enumerated().map { i, v in
                 CGPoint(
                     x: CGFloat(i) * stepX,
-                    y: size.height - CGFloat(min(v / maxV, 1)) * size.height
+                    y: topInset + (1.0 - CGFloat(min(v / maxV, 1.0))) * usableHeight
                 )
             }
 
@@ -277,12 +281,35 @@ private struct SeriesChart: View {
                 context.stroke(
                     Path(ellipseIn: CGRect(x: p.x - 5, y: p.y - 5, width: 10, height: 10)),
                     with: .color(color),
-                    lineWidth: 1.6
+                    lineWidth: 1.8
                 )
-                let label = Text(String(format: "peak %.0f%%", values[peakIndex]))
+                context.fill(
+                    Path(ellipseIn: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4)),
+                    with: .color(Theme.warning)
+                )
+
+                let label = Text(String(format: "PEAK %.0f%%", values[peakIndex]))
                     .font(Theme.mono(9.5, weight: .bold))
                     .foregroundStyle(Theme.warning)
-                context.draw(label, at: CGPoint(x: min(p.x + 36, size.width - 28), y: max(p.y - 12, 8)))
+
+                // Place horizontally without overflowing canvas edges
+                let labelWidth: CGFloat = 64
+                let textX: CGFloat
+                if p.x + labelWidth + 8 > size.width {
+                    textX = max(p.x - 42, 34)
+                } else {
+                    textX = p.x + 36
+                }
+
+                // Place vertically so it never hides on top
+                let textY: CGFloat = p.y < 24 ? p.y + 16 : p.y - 12
+
+                // Floating contrast badge background for crisp visibility
+                let badgeRect = CGRect(x: textX - 30, y: textY - 8, width: 60, height: 16)
+                context.fill(Path(roundedRect: badgeRect, cornerRadius: 3.5), with: .color(Theme.panel.opacity(0.92)))
+                context.stroke(Path(roundedRect: badgeRect, cornerRadius: 3.5), with: .color(Theme.warning.opacity(0.5)), lineWidth: 0.8)
+
+                context.draw(label, at: CGPoint(x: textX, y: textY))
             }
 
             let end = points[points.count - 1]
