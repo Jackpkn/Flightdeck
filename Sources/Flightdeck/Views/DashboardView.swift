@@ -87,6 +87,7 @@ struct DashboardView: View {
                     .overlay(EmitterTrailOverlay(particles: particles, color: Theme.accent).allowsHitTesting(false))
                     .onPreferenceChange(FramePreferenceKey.self) { frames = $0 }
             }
+            .scrollIndicators(.hidden)
         }
         .padding(EdgeInsets(top: 22, leading: 28, bottom: 28, trailing: 28))
         .background(ambientGround)

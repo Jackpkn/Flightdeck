@@ -36,7 +36,14 @@ struct VitalsDetailModal: View {
             }
             .padding(22)
             .frame(width: 540)
-            .background(Theme.panel.opacity(0.96))
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Theme.panel.opacity(0.75))
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12)

@@ -63,6 +63,7 @@ struct DownloadsPanel: View {
                             }
                         }
                     }
+                    .scrollIndicators(.hidden)
                     .frame(maxHeight: .infinity)
 
                     // Floating Bulk Actions Bar

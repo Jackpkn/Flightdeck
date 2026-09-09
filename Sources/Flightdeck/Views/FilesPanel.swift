@@ -85,6 +85,7 @@ struct FilesPanel: View {
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
                 .frame(maxHeight: 460)
             }
 

@@ -247,6 +247,7 @@ struct DiskRadarPanel: View {
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
                 .frame(maxHeight: 280)
             } else {
                 cleanablesList
@@ -288,6 +289,7 @@ struct DiskRadarPanel: View {
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
                 .frame(maxHeight: 280)
             }
         }

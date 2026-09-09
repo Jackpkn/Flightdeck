@@ -152,6 +152,7 @@ struct ProcessMonitorPanel: View {
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
                 .frame(maxHeight: .infinity)
             }
         }

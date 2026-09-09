@@ -94,12 +94,35 @@ struct GlassPanel: ViewModifier {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .fill(.ultraThinMaterial)
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Theme.panel.opacity(0.62))
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Theme.panel.opacity(0.35),
+                                    Theme.panel.opacity(0.22)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    if let accent {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(accent.opacity(0.025))
+                    }
                 }
             }
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(accent?.opacity(0.4) ?? Theme.hairline, lineWidth: 1)
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                (accent ?? Color.white).opacity(0.32),
+                                (accent ?? Color.white).opacity(0.08)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }

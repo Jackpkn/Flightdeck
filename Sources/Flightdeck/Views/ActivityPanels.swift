@@ -140,6 +140,7 @@ struct ActivityFeedPanel: View {
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
                 .frame(maxHeight: .infinity)
             }
         }

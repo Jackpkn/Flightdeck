@@ -104,6 +104,7 @@ struct ActivityWatcherPanel: View {
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
                 .frame(maxHeight: .infinity)
 
                 Divider().background(Theme.hairline2)
