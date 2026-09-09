@@ -80,6 +80,7 @@ struct DashboardView: View {
         case .activity:
             VStack(spacing: 14) {
                 UsageGraphPanel()
+                SystemVitalsStrip()
                 HStack(alignment: .top, spacing: 14) {
                     VStack(spacing: 14) {
                         ActivityFeedPanel()
