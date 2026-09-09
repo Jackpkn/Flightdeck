@@ -3,6 +3,36 @@ import Foundation
 import IOKit
 import IOKit.ps
 
+public enum VitalCategory: String, CaseIterable, Identifiable, Sendable {
+    case battery = "BATTERY & POWER"
+    case gpu = "GPU & METAL"
+    case swap = "MEMORY & SWAP"
+    case chip = "PROCESSOR & UPTIME"
+    case network = "NETWORK & INTERFACE"
+
+    public var id: String { rawValue }
+
+    public var shortTitle: String {
+        switch self {
+        case .battery: return "BATTERY"
+        case .gpu: return "GPU"
+        case .swap: return "RAM & SWAP"
+        case .chip: return "PROCESSOR"
+        case .network: return "NETWORK"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .battery: return "bolt.batteryblock.fill"
+        case .gpu: return "sparkles"
+        case .swap: return "memorychip"
+        case .chip: return "cpu"
+        case .network: return "wifi"
+        }
+    }
+}
+
 public struct BatteryStatus: Equatable, Sendable {
     public let hasBattery: Bool
     public let percent: Int
@@ -12,6 +42,44 @@ public struct BatteryStatus: Equatable, Sendable {
     public let cycleCount: Int?
     public let healthPercent: Int?
     public let condition: String
+    public let voltageMV: Int?
+    public let amperageMA: Int?
+    public let temperatureC: Double?
+    public let designCapacityMAh: Int?
+    public let nominalCapacityMAh: Int?
+    public let adapterWatts: Int?
+
+    public init(
+        hasBattery: Bool,
+        percent: Int,
+        isCharging: Bool,
+        isPluggedIn: Bool,
+        timeRemainingMinutes: Int? = nil,
+        cycleCount: Int? = nil,
+        healthPercent: Int? = nil,
+        condition: String = "Normal",
+        voltageMV: Int? = nil,
+        amperageMA: Int? = nil,
+        temperatureC: Double? = nil,
+        designCapacityMAh: Int? = nil,
+        nominalCapacityMAh: Int? = nil,
+        adapterWatts: Int? = nil
+    ) {
+        self.hasBattery = hasBattery
+        self.percent = percent
+        self.isCharging = isCharging
+        self.isPluggedIn = isPluggedIn
+        self.timeRemainingMinutes = timeRemainingMinutes
+        self.cycleCount = cycleCount
+        self.healthPercent = healthPercent
+        self.condition = condition
+        self.voltageMV = voltageMV
+        self.amperageMA = amperageMA
+        self.temperatureC = temperatureC
+        self.designCapacityMAh = designCapacityMAh
+        self.nominalCapacityMAh = nominalCapacityMAh
+        self.adapterWatts = adapterWatts
+    }
 
     public var statusDescription: String {
         if !hasBattery { return "DESKTOP · AC POWER" }
@@ -48,12 +116,38 @@ public struct SwapStatus: Equatable, Sendable {
 public struct ChipInfo: Equatable, Sendable {
     public let name: String
     public let cores: Int
+    public let perfCores: Int
+    public let efficiencyCores: Int
     public let uptimeString: String
+    public let bootDate: Date?
+
+    public init(
+        name: String,
+        cores: Int,
+        perfCores: Int = 0,
+        efficiencyCores: Int = 0,
+        uptimeString: String = "0m",
+        bootDate: Date? = nil
+    ) {
+        self.name = name
+        self.cores = cores
+        self.perfCores = perfCores
+        self.efficiencyCores = efficiencyCores
+        self.uptimeString = uptimeString
+        self.bootDate = bootDate
+    }
 }
 
 public struct NetworkVitals: Equatable, Sendable {
     public let interface: String
     public let ipAddress: String
+    public let ipv6Address: String?
+
+    public init(interface: String, ipAddress: String, ipv6Address: String? = nil) {
+        self.interface = interface
+        self.ipAddress = ipAddress
+        self.ipv6Address = ipv6Address
+    }
 }
 
 /// Real-time native macOS hardware & system health sampler.
@@ -116,7 +210,7 @@ public final class HardwareVitals: @unchecked Sendable {
             )
         }
 
-        let (cycles, health, cond) = fetchSmartBatteryDetails()
+        let details = fetchSmartBatteryDetails()
 
         return BatteryStatus(
             hasBattery: true,
@@ -124,9 +218,15 @@ public final class HardwareVitals: @unchecked Sendable {
             isCharging: isCharging,
             isPluggedIn: isPlugged,
             timeRemainingMinutes: timeLeft,
-            cycleCount: cycles,
-            healthPercent: health,
-            condition: cond
+            cycleCount: details.cycles,
+            healthPercent: details.healthPercent,
+            condition: details.condition,
+            voltageMV: details.voltageMV,
+            amperageMA: details.amperageMA,
+            temperatureC: details.temperatureC,
+            designCapacityMAh: details.designCap,
+            nominalCapacityMAh: details.nominalCap,
+            adapterWatts: details.adapterWatts
         )
     }
 
@@ -168,36 +268,70 @@ public final class HardwareVitals: @unchecked Sendable {
         return (false, 100, false, true, nil)
     }
 
-    private static func fetchSmartBatteryDetails() -> (cycles: Int?, healthPercent: Int?, condition: String) {
+    private static func fetchSmartBatteryDetails() -> (
+        cycles: Int?,
+        healthPercent: Int?,
+        condition: String,
+        voltageMV: Int?,
+        amperageMA: Int?,
+        temperatureC: Double?,
+        designCap: Int?,
+        nominalCap: Int?,
+        adapterWatts: Int?
+    ) {
         let matching = IOServiceMatching("AppleSmartBattery")
         var iterator: io_iterator_t = 0
         let mainPort: mach_port_t = 0
         guard IOServiceGetMatchingServices(mainPort, matching, &iterator) == kIOReturnSuccess else {
-            return (nil, nil, "Normal")
+            return (nil, nil, "Normal", nil, nil, nil, nil, nil, nil)
         }
         defer { IOObjectRelease(iterator) }
 
         let service = IOIteratorNext(iterator)
-        guard service != 0 else { return (nil, nil, "Normal") }
+        guard service != 0 else { return (nil, nil, "Normal", nil, nil, nil, nil, nil, nil) }
         defer { IOObjectRelease(service) }
 
         var props: Unmanaged<CFMutableDictionary>?
         guard IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == kIOReturnSuccess,
               let dict = props?.takeRetainedValue() as? [String: Any] else {
-            return (nil, nil, "Normal")
+            return (nil, nil, "Normal", nil, nil, nil, nil, nil, nil)
         }
 
         let cycles = dict["CycleCount"] as? Int ?? (dict["CycleCount"] as? NSNumber)?.intValue
         let maxCap = dict["MaxCapacity"] as? Double ?? (dict["MaxCapacity"] as? NSNumber)?.doubleValue
         let designCap = dict["DesignCapacity"] as? Double ?? (dict["DesignCapacity"] as? NSNumber)?.doubleValue
+        let nominalCap = dict["NominalChargeCapacity"] as? Double ?? (dict["NominalChargeCapacity"] as? NSNumber)?.doubleValue
+        let voltage = dict["Voltage"] as? Int ?? (dict["Voltage"] as? NSNumber)?.intValue
+        let amperage = dict["Amperage"] as? Int ?? (dict["Amperage"] as? NSNumber)?.intValue
+
+        var tempC: Double? = nil
+        if let rawT = dict["Temperature"] as? Double ?? (dict["Temperature"] as? NSNumber)?.doubleValue {
+            tempC = rawT / 100.0 // AppleSmartBattery is in hundredths of °C
+        }
+
+        var watts: Int? = nil
+        if let adapter = dict["AdapterDetails"] as? [String: Any], let w = adapter["Watts"] as? Int {
+            watts = w
+        }
 
         var health: Int? = nil
-        if let maxCap, let designCap, designCap > 0 {
-            health = min(100, max(0, Int(round((maxCap / designCap) * 100))))
+        let bestCap = nominalCap ?? maxCap
+        if let bestCap, let designCap, designCap > 0 {
+            health = min(100, max(0, Int(round((bestCap / designCap) * 100))))
         }
 
         let condition = (dict["PermanentFailureStatus"] as? Int ?? 0) == 0 ? "Normal" : "Service"
-        return (cycles, health, condition)
+        return (
+            cycles,
+            health,
+            condition,
+            voltage,
+            amperage,
+            tempC,
+            designCap != nil ? Int(designCap!) : nil,
+            nominalCap != nil ? Int(nominalCap!) : nil,
+            watts
+        )
     }
 
     // MARK: - 2. Native macOS Memory Swap & Pressure
@@ -229,9 +363,31 @@ public final class HardwareVitals: @unchecked Sendable {
         }
 
         let cores = ProcessInfo.processInfo.activeProcessorCount
+        var pCores: Int32 = 0
+        var pSize = MemoryLayout<Int32>.size
+        sysctlbyname("hw.perflevel0.logicalcpu", &pCores, &pSize, nil, 0)
+
+        var eCores: Int32 = 0
+        var eSize = MemoryLayout<Int32>.size
+        sysctlbyname("hw.perflevel1.logicalcpu", &eCores, &eSize, nil, 0)
+
+        var bootTime = timeval()
+        var bSize = MemoryLayout<timeval>.size
+        var bootDate: Date? = nil
+        if sysctlbyname("kern.boottime", &bootTime, &bSize, nil, 0) == 0 {
+            bootDate = Date(timeIntervalSince1970: TimeInterval(bootTime.tv_sec))
+        }
+
         let uptime = formatUptime(ProcessInfo.processInfo.systemUptime)
 
-        return ChipInfo(name: name, cores: cores, uptimeString: uptime)
+        return ChipInfo(
+            name: name,
+            cores: cores,
+            perfCores: Int(pCores),
+            efficiencyCores: Int(eCores),
+            uptimeString: uptime,
+            bootDate: bootDate
+        )
     }
 
     public static func formatUptime(_ seconds: TimeInterval) -> String {
@@ -256,24 +412,44 @@ public final class HardwareVitals: @unchecked Sendable {
         guard getifaddrs(&ifap) == 0, let first = ifap else { return NetworkVitals(interface: "en0", ipAddress: "Online") }
         defer { freeifaddrs(ifap) }
 
+        var ipv4: String?
+        var ipv6: String?
+        var primaryName = "en0"
+
         var cursor: UnsafeMutablePointer<ifaddrs>? = first
         while let ptr = cursor {
             let name = String(cString: ptr.pointee.ifa_name)
             if !name.hasPrefix("lo") && ptr.pointee.ifa_addr != nil {
-                if ptr.pointee.ifa_addr.pointee.sa_family == UInt8(AF_INET) {
+                let family = ptr.pointee.ifa_addr.pointee.sa_family
+                if family == UInt8(AF_INET) && ipv4 == nil {
                     var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
                     if getnameinfo(ptr.pointee.ifa_addr, socklen_t(ptr.pointee.ifa_addr.pointee.sa_len),
                                    &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
                         let ip = String(cString: host)
                         if ip != "127.0.0.1" && !ip.isEmpty {
-                            let label = name.hasPrefix("en0") ? "Wi-Fi (\(name))" : name
-                            return NetworkVitals(interface: label, ipAddress: ip)
+                            ipv4 = ip
+                            primaryName = name
+                        }
+                    }
+                } else if family == UInt8(AF_INET6) && ipv6 == nil {
+                    var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    if getnameinfo(ptr.pointee.ifa_addr, socklen_t(ptr.pointee.ifa_addr.pointee.sa_len),
+                                   &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                        let ip = String(cString: host)
+                        if !ip.hasPrefix("fe80:") && !ip.hasPrefix("::1") && !ip.isEmpty {
+                            ipv6 = ip
                         }
                     }
                 }
             }
             cursor = ptr.pointee.ifa_next
         }
-        return NetworkVitals(interface: "Wi-Fi", ipAddress: "Online")
+
+        let label = primaryName.hasPrefix("en0") ? "Wi-Fi (\(primaryName))" : primaryName
+        return NetworkVitals(
+            interface: label,
+            ipAddress: ipv4 ?? "Online",
+            ipv6Address: ipv6
+        )
     }
 }

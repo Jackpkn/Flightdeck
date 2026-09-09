@@ -16,6 +16,7 @@ struct DashboardView: View {
     @State private var particles: [FountainParticle] = []
     @State private var editing: FileEditTarget?
     @State private var processActionTarget: ProcessUsage?
+    @State private var selectedVitalCategory: VitalCategory?
 
     var body: some View {
         ZStack {
@@ -50,8 +51,13 @@ struct DashboardView: View {
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
+            if let cat = selectedVitalCategory {
+                VitalsDetailModal(category: cat, onDismiss: { selectedVitalCategory = nil })
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: processActionTarget?.id)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: selectedVitalCategory?.id)
         // Window level, not panel level: a delete triggered from any list gets
         // the same confirmation in the same place.
         .overlay(alignment: .bottom) {
@@ -101,7 +107,7 @@ struct DashboardView: View {
         case .activity:
             VStack(spacing: 14) {
                 UsageGraphPanel()
-                SystemVitalsStrip()
+                SystemVitalsStrip(selectedCategory: $selectedVitalCategory)
                 HStack(alignment: .top, spacing: 14) {
                     VStack(spacing: 14) {
                         ActivityFeedPanel()

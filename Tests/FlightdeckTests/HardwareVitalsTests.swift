@@ -56,4 +56,20 @@ struct HardwareVitalsTests {
         let daysAndHours = HardwareVitals.formatUptime(90000) // 1d 1h
         #expect(daysAndHours == "1d 1h")
     }
+
+    @Test("VitalCategory enum cases, titles, and symbols are well-formed")
+    func vitalCategoryVerification() {
+        let allCases = VitalCategory.allCases
+        #expect(allCases.count == 5)
+        for cat in allCases {
+            #expect(!cat.shortTitle.isEmpty)
+            #expect(!cat.icon.isEmpty)
+            #expect(!cat.id.isEmpty)
+        }
+        #expect(VitalCategory.battery.shortTitle == "BATTERY")
+        #expect(VitalCategory.gpu.shortTitle == "GPU")
+        #expect(VitalCategory.swap.shortTitle == "RAM & SWAP")
+        #expect(VitalCategory.chip.shortTitle == "PROCESSOR")
+        #expect(VitalCategory.network.shortTitle == "NETWORK")
+    }
 }
