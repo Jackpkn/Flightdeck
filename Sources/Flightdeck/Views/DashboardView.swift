@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct DashboardView: View {
     enum Tab: String, CaseIterable { case overview = "Overview", sessions = "Sessions", activity = "Activity", timeline = "Timeline", files = "Files", spend = "Spend" }
@@ -7,12 +8,14 @@ struct DashboardView: View {
     @Environment(DiskScanner.self) private var diskScanner
     @Environment(ActionCenter.self) private var actions
     @Environment(FileBrowser.self) private var browser
+    @Environment(ProcessMonitor.self) private var processMonitor
     @State private var showGraph = false
     @State private var showPalette = false
     @State private var tab: Tab = .overview
     @State private var frames: [String: CGRect] = [:]
     @State private var particles: [FountainParticle] = []
     @State private var editing: FileEditTarget?
+    @State private var processActionTarget: ProcessUsage?
 
     var body: some View {
         ZStack {
@@ -30,7 +33,25 @@ struct DashboardView: View {
             if let preview = browser.previewEntry {
                 FilePreviewOverlay(entry: preview, onDismiss: { browser.previewEntry = nil })
             }
+            if let process = processActionTarget {
+                ProcessActionModal(
+                    usage: process,
+                    onDismiss: { processActionTarget = nil },
+                    onGracefulQuit: {
+                        if let app = NSRunningApplication(processIdentifier: process.id) {
+                            app.terminate()
+                        } else {
+                            kill(process.id, SIGTERM)
+                        }
+                    },
+                    onForceKill: {
+                        processMonitor.killProcess(pid: process.id, bundleId: process.bundleId)
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
         }
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: processActionTarget?.id)
         // Window level, not panel level: a delete triggered from any list gets
         // the same confirmation in the same place.
         .overlay(alignment: .bottom) {
@@ -93,7 +114,7 @@ struct DashboardView: View {
                     VStack(spacing: 14) {
                         ActivityWatcherPanel()
                             .frame(height: 340)
-                        ProcessMonitorPanel()
+                        ProcessMonitorPanel(actionTarget: $processActionTarget)
                             .frame(height: 340)
                     }
                     .frame(width: 500)

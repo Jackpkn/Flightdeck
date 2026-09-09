@@ -88,6 +88,7 @@ struct ProcessActionModal: View {
             }
             .buttonStyle(.plain)
             .help("Close (Esc)")
+            .keyboardShortcut(.escape, modifiers: [])
         }
     }
 

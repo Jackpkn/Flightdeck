@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 struct ProcessMonitorPanel: View {
+    @Binding var actionTarget: ProcessUsage?
     @Environment(ProcessMonitor.self) private var monitor
     @Environment(ActivityWatcher.self) private var activityWatcher
 
@@ -12,7 +13,10 @@ struct ProcessMonitorPanel: View {
     }
 
     @State private var filter: ProcessFilter = .apps
-    @State private var selectedProcess: ProcessUsage? = nil
+
+    init(actionTarget: Binding<ProcessUsage?> = .constant(nil)) {
+        self._actionTarget = actionTarget
+    }
 
     private var hottest: ProcessUsage? {
         monitor.usages.max(by: { $0.cpuPercent < $1.cpuPercent })
@@ -131,14 +135,15 @@ struct ProcessMonitorPanel: View {
                             ProcessRow(
                                 usage: row,
                                 memoryFraction: Double(row.memoryBytes) / Double(maxMemory),
-                                onQuit: killable ? {
+                                onKill: killable ? {
                                     if NSEvent.modifierFlags.contains(.option) {
+                                        CockpitAudio.playAlert()
                                         monitor.killProcess(pid: row.id, bundleId: row.bundleId)
                                     } else {
-                                        selectedProcess = row
+                                        CockpitAudio.playPing()
+                                        actionTarget = row
                                     }
-                                } : nil,
-                                onForceQuit: killable ? { monitor.killProcess(pid: row.id, bundleId: row.bundleId) } : nil
+                                } : nil
                             )
                         }
                     }
@@ -150,26 +155,6 @@ struct ProcessMonitorPanel: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .glassPanel(accent: Theme.warning)
         .cornerBracket(color: Theme.warning)
-        .overlay {
-            if let p = selectedProcess {
-                ProcessActionModal(
-                    usage: p,
-                    onDismiss: { selectedProcess = nil },
-                    onGracefulQuit: {
-                        if let app = NSRunningApplication(processIdentifier: p.id) {
-                            app.terminate()
-                        } else {
-                            kill(p.id, SIGTERM)
-                        }
-                    },
-                    onForceKill: {
-                        monitor.killProcess(pid: p.id, bundleId: p.bundleId)
-                    }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-            }
-        }
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: selectedProcess?.id)
     }
 
     private func gaugeColor(for percent: Double) -> Color {
@@ -216,8 +201,7 @@ private struct ThermalChip: View {
 private struct ProcessRow: View {
     let usage: ProcessUsage
     let memoryFraction: Double
-    let onQuit: (() -> Void)?
-    let onForceQuit: (() -> Void)?
+    let onKill: (() -> Void)?
 
     private var energyColor: Color {
         if usage.cpuPercent < 15 { return Theme.good }
@@ -275,11 +259,10 @@ private struct ProcessRow: View {
                 .font(Theme.mono(11)).foregroundStyle(Theme.ink1)
                 .frame(width: 62, alignment: .trailing)
 
-            // 1-Click Kill Button
-            if let onQuit {
+            // 1-Click Kill Button (opens safe controller dialog; ⌥-click for instant force kill)
+            if let onKill {
                 Button {
-                    CockpitAudio.playAlert()
-                    onForceQuit?() ?? onQuit()
+                    onKill()
                 } label: {
                     HStack(spacing: 2) {
                         Image(systemName: "xmark").font(.system(size: 7.5, weight: .black))
@@ -290,7 +273,7 @@ private struct ProcessRow: View {
                     .background(Theme.critical.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))
                 }
                 .buttonStyle(.plain)
-                .help("Force terminate \(usage.name)")
+                .help("Inspect & terminate \(usage.name) (⌥-click for instant force kill)")
             } else {
                 Color.clear.frame(width: 36, height: 12)
             }
