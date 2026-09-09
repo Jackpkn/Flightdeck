@@ -5,11 +5,13 @@ struct ProcessMonitorPanel: View {
     @Binding var actionTarget: ProcessUsage?
     @Environment(ProcessMonitor.self) private var monitor
     @Environment(ActivityWatcher.self) private var activityWatcher
+    @Environment(ZombieDetector.self) private var zombieDetector
 
     enum ProcessFilter: String, CaseIterable {
         case apps = "APPS"
         case energy = "ENERGY"
-        case hogs = "HEAVY (>10%)"
+        case hogs = "HEAVY"
+        case orphans = "ORPHANS"
         case all = "ALL"
     }
 
@@ -32,6 +34,8 @@ struct ProcessMonitorPanel: View {
             return list.isEmpty ? monitor.usages : list.sorted { $0.energyImpact > $1.energyImpact }
         case .hogs:
             return monitor.usages.filter { $0.cpuPercent >= 10.0 || $0.memoryBytes >= 500_000_000 || $0.isNotResponding }
+        case .orphans:
+            return []
         case .all:
             return monitor.usages
         }
@@ -71,9 +75,10 @@ struct ProcessMonitorPanel: View {
                         CockpitAudio.playPing()
                         filter = f
                     } label: {
-                        Text(f.rawValue)
+                        let badge = (f == .orphans && !zombieDetector.orphans.isEmpty) ? " (\(zombieDetector.orphans.count))" : ""
+                        Text("\(f.rawValue)\(badge)")
                             .font(Theme.mono(8.5, weight: filter == f ? .bold : .medium))
-                            .foregroundStyle(filter == f ? Theme.ink1 : Theme.ink3)
+                            .foregroundStyle(filter == f ? (f == .orphans && !zombieDetector.orphans.isEmpty ? Theme.warning : Theme.ink1) : (f == .orphans && !zombieDetector.orphans.isEmpty ? Theme.warning.opacity(0.85) : Theme.ink3))
                             .padding(.horizontal, 6.5).padding(.vertical, 2.5)
                             .background(filter == f ? Theme.track.opacity(0.9) : Color.clear, in: RoundedRectangle(cornerRadius: 3))
                             .overlay(
@@ -86,12 +91,112 @@ struct ProcessMonitorPanel: View {
 
                 Spacer()
 
-                Text("\(filteredUsages.count) of \(monitor.usages.count)")
-                    .font(Theme.mono(9))
-                    .foregroundStyle(Theme.ink3)
+                if filter == .orphans {
+                    Text("\(zombieDetector.orphans.count) orphans")
+                        .font(Theme.mono(9))
+                        .foregroundStyle(Theme.warning)
+                } else {
+                    Text("\(filteredUsages.count) of \(monitor.usages.count)")
+                        .font(Theme.mono(9))
+                        .foregroundStyle(Theme.ink3)
+                }
             }
 
-            if monitor.usages.isEmpty {
+            // Orphan Alert Banner
+            if !zombieDetector.orphans.isEmpty && filter != .orphans {
+                HStack(spacing: 7) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(Theme.warning)
+
+                    let wasted = ByteCountFormatter.string(fromByteCount: zombieDetector.totalWastedBytes, countStyle: .memory)
+                    Text("\(zombieDetector.orphans.count) ORPHANS DETECTED · \(wasted)")
+                        .font(Theme.mono(8.5, weight: .bold))
+                        .foregroundStyle(Theme.warning)
+
+                    Spacer()
+
+                    Button {
+                        CockpitAudio.playPing()
+                        filter = .orphans
+                    } label: {
+                        Text("INSPECT")
+                            .font(Theme.mono(8, weight: .bold))
+                            .foregroundStyle(Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        CockpitAudio.playPing()
+                        zombieDetector.purgeAllOrphans()
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "flame.fill").font(.system(size: 7.5))
+                            Text("PURGE").font(Theme.mono(8, weight: .bold))
+                        }
+                        .foregroundStyle(Theme.critical)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Theme.critical.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 7).padding(.vertical, 3.5)
+                .background(Theme.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.warning.opacity(0.25), lineWidth: 0.8))
+            }
+
+            if filter == .orphans {
+                if zombieDetector.orphans.isEmpty {
+                    VStack(spacing: 8) {
+                        Spacer()
+                        Image(systemName: "checkmark.shield.fill")
+                            .font(.system(size: 26))
+                            .foregroundStyle(Theme.good)
+                        Text("NO ORPHAN PROCESSES")
+                            .font(Theme.mono(11, weight: .bold))
+                            .foregroundStyle(Theme.ink1)
+                        Text("All running developer tools have active controlling terminals.")
+                            .font(Theme.ui(11))
+                            .foregroundStyle(Theme.ink3)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    HStack {
+                        let wasted = ByteCountFormatter.string(fromByteCount: zombieDetector.totalWastedBytes, countStyle: .memory)
+                        Text("TOTAL WASTED: \(wasted)")
+                            .font(Theme.mono(8.5, weight: .bold))
+                            .foregroundStyle(Theme.warning)
+                        Spacer()
+                        Button {
+                            CockpitAudio.playPing()
+                            zombieDetector.purgeAllOrphans()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "flame.fill").font(.system(size: 8))
+                                Text("PURGE ALL ORPHANS").font(Theme.mono(8.5, weight: .bold))
+                            }
+                            .foregroundStyle(Color.white)
+                            .padding(.horizontal, 8).padding(.vertical, 3.5)
+                            .background(Theme.critical.opacity(0.85), in: RoundedRectangle(cornerRadius: 4))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 4).padding(.vertical, 2)
+
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach(zombieDetector.orphans) { orphan in
+                                OrphanRow(orphan: orphan) {
+                                    zombieDetector.killOrphan(pid: orphan.pid)
+                                }
+                            }
+                        }
+                    }
+                    .scrollIndicators(.hidden)
+                    .frame(maxHeight: .infinity)
+                }
+            } else if monitor.usages.isEmpty {
                 VStack(spacing: 8) {
                     SkeletonBar(height: 50)
                     SkeletonBar(height: 16)
@@ -309,5 +414,67 @@ private struct ProcessRow: View {
 
     private static func memoryString(_ bytes: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .memory)
+    }
+}
+
+private struct OrphanRow: View {
+    let orphan: OrphanProcess
+    let onKill: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(orphan.name)
+                        .font(Theme.ui(12, weight: .semibold))
+                        .foregroundStyle(Theme.ink1)
+
+                    Text("PID \(orphan.pid)")
+                        .font(Theme.mono(9))
+                        .foregroundStyle(Theme.ink3)
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(Theme.track.opacity(0.8), in: RoundedRectangle(cornerRadius: 3))
+
+                    Text(orphan.isZombie ? "ZOMBIE" : "ORPHAN")
+                        .font(Theme.mono(7.5, weight: .bold))
+                        .foregroundStyle(orphan.isZombie ? Theme.critical : Theme.warning)
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background((orphan.isZombie ? Theme.critical : Theme.warning).opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                }
+
+                Text(orphan.path)
+                    .font(Theme.mono(9))
+                    .foregroundStyle(Theme.ink3.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer()
+
+            Text(ByteCountFormatter.string(fromByteCount: orphan.memoryBytes, countStyle: .memory))
+                .font(Theme.mono(10.5, weight: .semibold))
+                .foregroundStyle(Theme.ink2)
+
+            Button {
+                CockpitAudio.playPing()
+                onKill()
+            } label: {
+                Text("KILL")
+                    .font(Theme.mono(8.5, weight: .bold))
+                    .foregroundStyle(isHovered ? Color.white : Theme.critical)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(isHovered ? Theme.critical : Theme.critical.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.critical.opacity(0.4), lineWidth: 0.8))
+            }
+            .buttonStyle(.plain)
+            .help("Terminate orphaned PID \(orphan.pid)")
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(isHovered ? Theme.track.opacity(0.5) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.hairline2, lineWidth: 0.5))
+        .onHover { isHovered = $0 }
     }
 }
