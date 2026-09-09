@@ -10,17 +10,20 @@ struct SystemVitalsStrip: View {
     @Environment(ProcessMonitor.self) private var monitor
     @State private var hoveredCategory: VitalCategory?
 
+    @State private var sleepPreventer = SleepPreventer.shared
+
     init(selectedCategory: Binding<VitalCategory?> = .constant(nil)) {
         self._selectedCategory = selectedCategory
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             batteryCard
             gpuCard
             swapCard
             chipCard
             networkCard
+            keepAwakeToggle
         }
         .frame(maxWidth: .infinity)
     }
@@ -305,5 +308,42 @@ struct SystemVitalsStrip: View {
                     .foregroundStyle(Theme.ink3.opacity(0.5))
             }
         }
+    }
+
+    // MARK: - 6. Keep Awake / Caffeine Toggle
+
+    private var keepAwakeToggle: some View {
+        let isAwake = sleepPreventer.isAwake
+
+        return Button {
+            CockpitAudio.playPing()
+            sleepPreventer.toggle()
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: isAwake ? "cup.and.saucer.fill" : "cup.and.saucer")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(isAwake ? Theme.accent : Theme.ink3)
+
+                HStack(spacing: 3) {
+                    if isAwake {
+                        LiveDot(color: Theme.accent)
+                    }
+                    Text(isAwake ? "AWAKE" : "SLEEP")
+                        .font(Theme.mono(8.5, weight: .bold))
+                        .foregroundStyle(isAwake ? Theme.accent : Theme.ink3)
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .frame(width: 72)
+            .glassPanel(accent: isAwake ? Theme.accent : Theme.track)
+            .cornerBracket(color: isAwake ? Theme.accent : Theme.track)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isAwake ? Theme.accent.opacity(0.6) : Color.clear, lineWidth: 1.2)
+            )
+            .shadow(color: isAwake ? Theme.accent.opacity(0.3) : Color.clear, radius: 8)
+        }
+        .buttonStyle(.plain)
+        .help(isAwake ? "Keep Awake is ACTIVE (Preventing macOS idle sleep)" : "Click to prevent macOS from sleeping during builds or downloads")
     }
 }

@@ -33,4 +33,30 @@ struct ProcessActionTests {
         let isKillable = row.id != ProcessInfo.processInfo.processIdentifier
         #expect(!isKillable)
     }
+
+    @Test("Energy impact and responsiveness attributes are tracked on processes")
+    func energyAndResponsivenessTracking() {
+        let heavyApp = ProcessUsage(
+            id: 105,
+            name: "Heavy3D",
+            bundleId: "com.heavy.render",
+            cpuPercent: 88.0,
+            memoryBytes: 2_000_000_000,
+            energyImpact: 92.4,
+            isNotResponding: false
+        )
+        let hungApp = ProcessUsage(
+            id: 106,
+            name: "FrozenApp",
+            bundleId: "com.hung.app",
+            cpuPercent: 0.0,
+            memoryBytes: 100_000_000,
+            energyImpact: 0.0,
+            isNotResponding: true
+        )
+
+        #expect(heavyApp.energyImpact > 50.0)
+        #expect(!heavyApp.isNotResponding)
+        #expect(hungApp.isNotResponding)
+    }
 }

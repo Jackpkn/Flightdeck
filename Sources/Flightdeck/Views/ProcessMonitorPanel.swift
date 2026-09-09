@@ -8,6 +8,7 @@ struct ProcessMonitorPanel: View {
 
     enum ProcessFilter: String, CaseIterable {
         case apps = "APPS"
+        case energy = "ENERGY"
         case hogs = "HEAVY (>10%)"
         case all = "ALL"
     }
@@ -26,8 +27,11 @@ struct ProcessMonitorPanel: View {
         switch filter {
         case .apps:
             return monitor.usages.filter { !$0.bundleId.isEmpty }
+        case .energy:
+            let list = monitor.usages.filter { $0.energyImpact > 0.5 }
+            return list.isEmpty ? monitor.usages : list.sorted { $0.energyImpact > $1.energyImpact }
         case .hogs:
-            return monitor.usages.filter { $0.cpuPercent >= 10.0 || $0.memoryBytes >= 500_000_000 }
+            return monitor.usages.filter { $0.cpuPercent >= 10.0 || $0.memoryBytes >= 500_000_000 || $0.isNotResponding }
         case .all:
             return monitor.usages
         }
@@ -218,32 +222,54 @@ private struct ProcessRow: View {
     var body: some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(usage.name)
-                    .font(Theme.ui(12.5)).foregroundStyle(Theme.ink1)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(usage.name)
+                        .font(Theme.ui(12.5)).foregroundStyle(Theme.ink1)
+                        .lineLimit(1)
+                    if usage.isNotResponding {
+                        Text("HUNG")
+                            .font(Theme.mono(7, weight: .black))
+                            .foregroundStyle(Theme.critical)
+                            .padding(.horizontal, 3.5).padding(.vertical, 1)
+                            .background(Theme.critical.opacity(0.2), in: RoundedRectangle(cornerRadius: 2))
+                    }
+                }
                 Text("PID·\(usage.id)")
                     .font(Theme.mono(9)).foregroundStyle(Theme.ink3.opacity(0.6))
             }
             .frame(width: 126, alignment: .leading)
 
-            // Dynamic load gauge + CPU % + Energy leaf
+            // Dynamic load gauge + CPU % + Energy score
             HStack(spacing: 4) {
                 RingGauge(
                     fraction: usage.cpuPercent / 100,
-                    color: rowGaugeColor,
+                    color: usage.isNotResponding ? Theme.critical : rowGaugeColor,
                     diameter: 20
                 )
                 Text(String(format: "%.0f%%", usage.cpuPercent))
                     .font(Theme.mono(10.5, weight: .semibold))
                     .foregroundStyle(Theme.ink2)
 
-                // Energy impact leaf
-                Image(systemName: "leaf.fill")
-                    .font(.system(size: 8))
+                // Energy impact badge
+                if usage.energyImpact > 0.5 {
+                    HStack(spacing: 1.5) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 7))
+                        Text(String(format: "%.0f", usage.energyImpact))
+                            .font(Theme.mono(8, weight: .bold))
+                    }
                     .foregroundStyle(energyColor)
-                    .help(usage.cpuPercent < 15 ? "Low Energy Drain" : (usage.cpuPercent < 50 ? "Moderate Energy Drain" : "High Energy Drain"))
+                    .padding(.horizontal, 3).padding(.vertical, 1)
+                    .background(energyColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 2))
+                    .help("Energy Impact score: \(String(format: "%.1f", usage.energyImpact))")
+                } else {
+                    Image(systemName: "leaf.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(energyColor)
+                        .help("Low Energy Drain")
+                }
             }
-            .frame(width: 74, alignment: .leading)
+            .frame(width: 82, alignment: .leading)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {

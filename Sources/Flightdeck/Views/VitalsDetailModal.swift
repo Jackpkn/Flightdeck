@@ -25,6 +25,9 @@ struct VitalsDetailModal: View {
             // Modal Card
             VStack(alignment: .leading, spacing: 16) {
                 header
+                if monitor.thermalState == .serious || monitor.thermalState == .critical {
+                    thermalThrottlingBanner
+                }
                 categoryPicker
                 heroInstrument
                 diagnosticsGrid
@@ -91,6 +94,23 @@ struct VitalsDetailModal: View {
         }
     }
 
+    private var thermalThrottlingBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Theme.critical)
+
+            Text("THERMAL PRESSURE DETECTED: Hardware may throttle performance to control heat.")
+                .font(Theme.mono(9, weight: .bold))
+                .foregroundStyle(Theme.critical)
+
+            Spacer()
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(Theme.critical.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.critical.opacity(0.3), lineWidth: 1))
+    }
+
     private var categoryPicker: some View {
         HStack(spacing: 6) {
             ForEach(VitalCategory.allCases) { cat in
@@ -138,40 +158,69 @@ struct VitalsDetailModal: View {
 
     private var batteryHero: some View {
         let b = vitals.battery
-        return HStack(spacing: 16) {
-            RingGauge(
-                fraction: Double(b.percent) / 100.0,
-                color: accentColor,
-                lineWidth: 5,
-                diameter: 64,
-                showTicks: true,
-                centerLabel: "\(b.percent)%"
-            )
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 16) {
+                RingGauge(
+                    fraction: Double(b.percent) / 100.0,
+                    color: accentColor,
+                    lineWidth: 5,
+                    diameter: 64,
+                    showTicks: true,
+                    centerLabel: "\(b.percent)%"
+                )
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(b.statusDescription)
-                        .font(Theme.ui(14, weight: .bold))
-                        .foregroundStyle(Theme.ink1)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(b.statusDescription)
+                            .font(Theme.ui(14, weight: .bold))
+                            .foregroundStyle(Theme.ink1)
 
-                    Text(b.condition.uppercased())
-                        .font(Theme.mono(8.5, weight: .bold))
-                        .foregroundStyle(b.condition == "Normal" ? Theme.good : Theme.critical)
-                        .padding(.horizontal, 5).padding(.vertical, 1.5)
-                        .background((b.condition == "Normal" ? Theme.good : Theme.critical).opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                        Text(b.condition.uppercased())
+                            .font(Theme.mono(8.5, weight: .bold))
+                            .foregroundStyle(b.condition == "Normal" ? Theme.good : Theme.critical)
+                            .padding(.horizontal, 5).padding(.vertical, 1.5)
+                            .background((b.condition == "Normal" ? Theme.good : Theme.critical).opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+                    }
+
+                    if b.hasBattery {
+                        Text("Health: \(b.healthPercent ?? 100)% · Cycle Count: \(b.cycleCount ?? 0) of 1000")
+                            .font(Theme.mono(10.5))
+                            .foregroundStyle(Theme.ink2)
+                    } else {
+                        Text("Desktop Workstation · Operating on AC Wall Power")
+                            .font(Theme.mono(10.5))
+                            .foregroundStyle(Theme.ink3)
+                    }
                 }
+                Spacer()
+            }
 
-                if b.hasBattery {
-                    Text("Health: \(b.healthPercent ?? 100)% · Cycle Count: \(b.cycleCount ?? 0) of 1000")
-                        .font(Theme.mono(10.5))
-                        .foregroundStyle(Theme.ink2)
-                } else {
-                    Text("Desktop Workstation · Operating on AC Wall Power")
-                        .font(Theme.mono(10.5))
-                        .foregroundStyle(Theme.ink3)
+            if !monitor.topEnergyConsumers.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("APPS USING SIGNIFICANT ENERGY")
+                        .font(Theme.mono(8.5, weight: .bold))
+                        .foregroundStyle(Theme.warning)
+
+                    HStack(spacing: 6) {
+                        ForEach(monitor.topEnergyConsumers.prefix(3)) { app in
+                            HStack(spacing: 3) {
+                                Image(systemName: "bolt.fill")
+                                    .font(.system(size: 7))
+                                    .foregroundStyle(Theme.warning)
+                                Text(app.name)
+                                    .font(Theme.mono(9, weight: .semibold))
+                                    .foregroundStyle(Theme.ink1)
+                                    .lineLimit(1)
+                                Text(String(format: "%.0f%%", app.cpuPercent))
+                                    .font(Theme.mono(8.5))
+                                    .foregroundStyle(Theme.ink3)
+                            }
+                            .padding(.horizontal, 5).padding(.vertical, 2.5)
+                            .background(Theme.panel.opacity(0.8), in: RoundedRectangle(cornerRadius: 3))
+                        }
+                    }
                 }
             }
-            Spacer()
         }
         .padding(14)
         .background(Theme.track.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
@@ -267,31 +316,97 @@ struct VitalsDetailModal: View {
 
     private var chipHero: some View {
         let c = vitals.chip
-        return HStack(spacing: 16) {
-            ZStack {
-                Circle().fill(Theme.accent.opacity(0.12)).frame(width: 64, height: 64)
-                Image(systemName: "cpu.fill")
-                    .font(.system(size: 26))
-                    .foregroundStyle(Theme.accent)
+        let perCore = monitor.perCoreCPU
+        let perfCount = c.perfCores
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 16) {
+                ZStack {
+                    Circle().fill(Theme.accent.opacity(0.12)).frame(width: 56, height: 56)
+                    Image(systemName: "cpu.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(Theme.accent)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(c.name)
+                        .font(Theme.ui(14.5, weight: .bold))
+                        .foregroundStyle(Theme.ink1)
+
+                    Text("\(c.cores) Cores Total (\(c.perfCores) Performance + \(c.efficiencyCores) Efficiency)")
+                        .font(Theme.mono(10, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+
+                    Text("System Uptime: \(c.uptimeString)")
+                        .font(Theme.mono(9))
+                        .foregroundStyle(Theme.ink3)
+                }
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("TOTAL LOAD")
+                        .font(Theme.mono(8, weight: .bold))
+                        .foregroundStyle(Theme.ink3)
+                    Text(String(format: "%.1f%%", monitor.currentSystemCPU))
+                        .font(Theme.mono(14, weight: .black))
+                        .foregroundStyle(Theme.accent)
+                }
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(c.name)
-                    .font(Theme.ui(15, weight: .bold))
-                    .foregroundStyle(Theme.ink1)
+            // Real-time Per-Core CPU Load Matrix (Mach)
+            if !perCore.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text("PER-CORE LOAD MATRIX")
+                            .font(Theme.mono(8.5, weight: .bold))
+                            .foregroundStyle(Theme.ink3)
+                        Spacer()
+                        Text("P: Cores 0..<\(perfCount) · E: Cores \(perfCount)..<\(perCore.count)")
+                            .font(Theme.mono(7.5))
+                            .foregroundStyle(Theme.ink3.opacity(0.7))
+                    }
 
-                Text("\(c.cores) Cores Total (\(c.perfCores) Performance + \(c.efficiencyCores) Efficiency)")
-                    .font(Theme.mono(10.5, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-
-                Text("Continuous System Uptime: \(c.uptimeString)")
-                    .font(Theme.mono(9.5))
-                    .foregroundStyle(Theme.ink3)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: min(perCore.count, 8)), spacing: 5) {
+                        ForEach(Array(perCore.indices), id: \.self) { idx in
+                            coreCell(index: idx, usage: perCore[idx], isPerf: idx < perfCount)
+                        }
+                    }
+                }
             }
-            Spacer()
         }
         .padding(14)
         .background(Theme.track.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func coreCell(index: Int, usage: Double, isPerf: Bool) -> some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 1.5) {
+                Text("C\(index)")
+                    .font(Theme.mono(7, weight: .bold))
+                    .foregroundStyle(Theme.ink2)
+                Text(isPerf ? "P" : "E")
+                    .font(Theme.mono(6, weight: .black))
+                    .foregroundStyle(isPerf ? Theme.accent : Theme.accentSecondary)
+            }
+
+            GeometryReader { g in
+                ZStack(alignment: .bottom) {
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(Theme.track)
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(coreColor(usage, isPerf: isPerf))
+                        .frame(height: max(1, g.size.height * (usage / 100.0)))
+                }
+            }
+            .frame(height: 20)
+
+            Text(String(format: "%.0f%%", usage))
+                .font(Theme.mono(7, weight: .semibold))
+                .foregroundStyle(Theme.ink1)
+        }
+        .padding(3)
+        .background(Theme.panel.opacity(0.8), in: RoundedRectangle(cornerRadius: 3))
+        .overlay(RoundedRectangle(cornerRadius: 3).stroke(Theme.hairline2, lineWidth: 0.5))
     }
 
     private var networkHero: some View {
@@ -497,5 +612,11 @@ struct VitalsDetailModal: View {
         case .critical: return "Critical (Extreme)"
         @unknown default: return "Unknown"
         }
+    }
+
+    private func coreColor(_ usage: Double, isPerf: Bool) -> Color {
+        if usage >= 80 { return Theme.critical }
+        if usage >= 40 { return Theme.warning }
+        return isPerf ? Theme.accent : Theme.accentSecondary
     }
 }

@@ -1,12 +1,32 @@
 import AppKit
 import Foundation
 
-struct ProcessUsage: Identifiable {
+struct ProcessUsage: Identifiable, Sendable {
     let id: pid_t
     let name: String
     let bundleId: String
     let cpuPercent: Double
     let memoryBytes: Int64
+    let energyImpact: Double
+    let isNotResponding: Bool
+
+    init(
+        id: pid_t,
+        name: String,
+        bundleId: String,
+        cpuPercent: Double,
+        memoryBytes: Int64,
+        energyImpact: Double = 0.0,
+        isNotResponding: Bool = false
+    ) {
+        self.id = id
+        self.name = name
+        self.bundleId = bundleId
+        self.cpuPercent = cpuPercent
+        self.memoryBytes = memoryBytes
+        self.energyImpact = energyImpact
+        self.isNotResponding = isNotResponding
+    }
 }
 
 /// Real per-process CPU/memory via `ps` — one spawn per tick covering every
@@ -15,6 +35,10 @@ struct ProcessUsage: Identifiable {
 @Observable
 final class ProcessMonitor {
     private(set) var usages: [ProcessUsage] = []
+    /// Real per-core CPU utilization (0-100%) from Mach PROCESSOR_CPU_LOAD_INFO.
+    private(set) var perCoreCPU: [Double] = []
+    /// Apps sorted by highest energy impact.
+    private(set) var topEnergyConsumers: [ProcessUsage] = []
     /// Real system-wide CPU% from Mach HOST_CPU_LOAD_INFO, capped to the last 2 minutes.
     private(set) var cpuHistory: [Double] = []
     /// Real system-wide memory used, in bytes from Mach HOST_VM_INFO64.
@@ -93,7 +117,7 @@ final class ProcessMonitor {
 
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/ps")
-        task.arguments = ["-axo", "pid=,rss=,pcpu="]
+        task.arguments = ["-axo", "pid=,state=,rss=,pcpu="]
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = FileHandle.nullDevice
@@ -107,27 +131,38 @@ final class ProcessMonitor {
         task.waitUntilExit()
         guard let output = String(data: data, encoding: .utf8) else { return }
 
-        var byPid: [pid_t: (rssKB: Int64, cpu: Double)] = [:]
+        var byPid: [pid_t: (state: String, rssKB: Int64, cpu: Double)] = [:]
         for line in output.split(separator: "\n") {
             let parts = line.split(separator: " ", omittingEmptySubsequences: true)
-            guard parts.count >= 3,
+            guard parts.count >= 4,
                   let pid = pid_t(parts[0]),
-                  let rss = Int64(parts[1]),
-                  let cpu = Double(parts[2])
+                  let rss = Int64(parts[2]),
+                  let cpu = Double(parts[3])
             else { continue }
-            byPid[pid] = (rss, cpu)
+            byPid[pid] = (String(parts[1]), rss, cpu)
         }
 
         usages = apps.compactMap { app -> ProcessUsage? in
             guard let stats = byPid[app.processIdentifier] else { return nil }
+            let isUnresponsive = stats.state.contains("Z") || stats.state.contains("T") || stats.state.contains("U") || app.isTerminated
+            let energy = min(100.0, max(0.0, stats.cpu * 1.05))
             return ProcessUsage(
                 id: app.processIdentifier,
                 name: app.localizedName ?? "Unknown",
                 bundleId: app.bundleIdentifier ?? "",
                 cpuPercent: stats.cpu,
-                memoryBytes: stats.rssKB * 1024
+                memoryBytes: stats.rssKB * 1024,
+                energyImpact: energy,
+                isNotResponding: isUnresponsive
             )
         }.sorted { $0.memoryBytes > $1.memoryBytes }
+
+        topEnergyConsumers = usages
+            .filter { $0.energyImpact > 0.5 }
+            .sorted { $0.energyImpact > $1.energyImpact }
+
+        // 0. Real Per-Core CPU from Mach PROCESSOR_CPU_LOAD_INFO
+        perCoreCPU = telemetry.currentPerCoreCPU()
 
         // 1. Real System CPU from Mach kernel HOST_CPU_LOAD_INFO
         let sysCPU = telemetry.currentCPUUsage()

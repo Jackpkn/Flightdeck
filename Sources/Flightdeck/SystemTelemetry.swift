@@ -13,6 +13,7 @@ public final class SystemTelemetry: @unchecked Sendable {
     public static let shared = SystemTelemetry()
 
     private var previousCpuTicks: (user: UInt32, sys: UInt32, idle: UInt32, nice: UInt32)?
+    private var previousPerCoreTicks: [[UInt32]]?
     private var previousNetBytes: (rx: UInt64, tx: UInt64, time: Date)?
     private var previousDiskBytes: (total: UInt64, time: Date)?
 
@@ -55,6 +56,59 @@ public final class SystemTelemetry: @unchecked Sendable {
 
         let active = userDelta + sysDelta + niceDelta
         return min(100.0, max(0.0, (active / total) * 100.0))
+    }
+
+    /// Returns real-time per-core CPU utilization (0.0 to 100.0%) across each individual core.
+    public func currentPerCoreCPU() -> [Double] {
+        var numCPUs: natural_t = 0
+        var cpuInfo: processor_info_array_t?
+        var numCpuInfo: mach_msg_type_number_t = 0
+
+        let kerr = host_processor_info(
+            mach_host_self(),
+            PROCESSOR_CPU_LOAD_INFO,
+            &numCPUs,
+            &cpuInfo,
+            &numCpuInfo
+        )
+
+        guard kerr == KERN_SUCCESS, let cpuInfo = cpuInfo else { return [] }
+        defer {
+            vm_deallocate(
+                mach_task_self_,
+                vm_address_t(UInt(bitPattern: cpuInfo)),
+                vm_size_t(numCpuInfo * UInt32(MemoryLayout<integer_t>.size))
+            )
+        }
+
+        var results: [Double] = []
+        var currentTicks: [[UInt32]] = []
+
+        for i in 0..<Int(numCPUs) {
+            let offset = Int(CPU_STATE_MAX) * i
+            let user = UInt32(cpuInfo[offset + Int(CPU_STATE_USER)])
+            let sys = UInt32(cpuInfo[offset + Int(CPU_STATE_SYSTEM)])
+            let idle = UInt32(cpuInfo[offset + Int(CPU_STATE_IDLE)])
+            let nice = UInt32(cpuInfo[offset + Int(CPU_STATE_NICE)])
+            currentTicks.append([user, sys, idle, nice])
+
+            if let prev = previousPerCoreTicks, i < prev.count {
+                let userDelta = user >= prev[i][0] ? Double(user - prev[i][0]) : 0
+                let sysDelta = sys >= prev[i][1] ? Double(sys - prev[i][1]) : 0
+                let idleDelta = idle >= prev[i][2] ? Double(idle - prev[i][2]) : 0
+                let niceDelta = nice >= prev[i][3] ? Double(nice - prev[i][3]) : 0
+
+                let total = userDelta + sysDelta + idleDelta + niceDelta
+                let active = userDelta + sysDelta + niceDelta
+                let percent = total > 0 ? (active / total) * 100.0 : 0.0
+                results.append(min(100.0, max(0.0, percent)))
+            } else {
+                results.append(0.0)
+            }
+        }
+
+        previousPerCoreTicks = currentTicks
+        return results
     }
 
     // MARK: - 2. Real System Memory (Mach VM Info)
