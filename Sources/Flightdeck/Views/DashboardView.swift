@@ -125,6 +125,8 @@ struct DashboardView: View {
                             .frame(height: 340)
                         ProcessMonitorPanel(actionTarget: $processActionTarget)
                             .frame(height: 340)
+                        DevCleanerPanel()
+                            .frame(height: 340)
                     }
                     .frame(width: 500)
                 }

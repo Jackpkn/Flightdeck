@@ -13,6 +13,7 @@ struct FlightdeckApp: App {
     @State private var hardwareVitals = HardwareVitals()
     @State private var portScanner = PortScanner()
     @State private var zombieDetector = ZombieDetector()
+    @State private var devCleaner = DevCleaner()
 
     init() {
         FontLoader.registerBundledFonts()
@@ -32,6 +33,7 @@ struct FlightdeckApp: App {
                 .environment(hardwareVitals)
                 .environment(portScanner)
                 .environment(zombieDetector)
+                .environment(devCleaner)
                 .frame(minWidth: 1180, minHeight: 780)
                 .background(Theme.page)
                 .preferredColorScheme(.dark)
@@ -44,6 +46,7 @@ struct FlightdeckApp: App {
                     hardwareVitals.start()
                     portScanner.start()
                     zombieDetector.start()
+                    devCleaner.start()
                 }
         }
         .windowResizability(.contentSize)
