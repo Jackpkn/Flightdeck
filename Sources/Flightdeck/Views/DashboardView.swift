@@ -113,6 +113,8 @@ struct DashboardView: View {
                     VStack(spacing: 14) {
                         ActivityFeedPanel()
                             .frame(height: 340)
+                        PortHunterPanel()
+                            .frame(height: 340)
                         DownloadsPanel(editing: $editing)
                             .frame(height: 340)
                     }

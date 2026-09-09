@@ -11,6 +11,7 @@ struct FlightdeckApp: App {
     @State private var dayTimeline = DayTimeline()
     @State private var actions = ActionCenter()
     @State private var hardwareVitals = HardwareVitals()
+    @State private var portScanner = PortScanner()
 
     init() {
         FontLoader.registerBundledFonts()
@@ -28,6 +29,7 @@ struct FlightdeckApp: App {
                 .environment(dayTimeline)
                 .environment(actions)
                 .environment(hardwareVitals)
+                .environment(portScanner)
                 .frame(minWidth: 1180, minHeight: 780)
                 .background(Theme.page)
                 .preferredColorScheme(.dark)
@@ -38,6 +40,7 @@ struct FlightdeckApp: App {
                     processMonitor.start()
                     fileBrowser.start()
                     hardwareVitals.start()
+                    portScanner.start()
                 }
         }
         .windowResizability(.contentSize)
