@@ -56,8 +56,15 @@ struct FlightdeckApp: App {
         // is what makes the persisted history continuous instead of only
         // covering the times someone had a big window open.
         MenuBarExtra {
-            MenuBarPanel(store: store, watcher: activityWatcher, monitor: processMonitor)
-                .preferredColorScheme(.dark)
+            MenuBarPanel(
+                store: store,
+                watcher: activityWatcher,
+                monitor: processMonitor,
+                portScanner: portScanner,
+                zombieDetector: zombieDetector,
+                devCleaner: devCleaner
+            )
+            .preferredColorScheme(.dark)
         } label: {
             // Icon-only on purpose: a wide label gets pushed behind the notch
             // on a busy menu bar and then simply never shows up.

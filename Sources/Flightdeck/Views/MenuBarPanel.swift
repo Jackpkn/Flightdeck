@@ -2,17 +2,15 @@ import SwiftUI
 import AppKit
 import ServiceManagement
 
-/// The menu bar popover — the whole point of it is that Flightdeck can sit
-/// running all day (so tracking is continuous and the SQLite history is
-/// unbroken) without a dashboard window taking up a screen.
-///
-/// Observables are passed in directly rather than through the environment:
-/// scene-level environment propagation into a MenuBarExtra label is fiddly,
-/// and @Observable tracking works the same either way.
+/// The menu bar popover — allows Flightdeck to sit running all day in the macOS menu bar
+/// with instant quick-access telemetry, dev port management, cruft purging, and RAM flushing.
 struct MenuBarPanel: View {
     let store: DashboardStore
     let watcher: ActivityWatcher
     let monitor: ProcessMonitor
+    let portScanner: PortScanner
+    let zombieDetector: ZombieDetector
+    let devCleaner: DevCleaner
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
@@ -20,14 +18,21 @@ struct MenuBarPanel: View {
         watcher.timeByApp.first
     }
 
+    private var devPorts: [ListeningPort] {
+        portScanner.ports.filter(\.isDevPort)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Header
             HStack(spacing: 8) {
                 LiveDot(color: Theme.accent)
                 Text("FLIGHTDECK").font(Theme.display(11)).tracking(1).foregroundStyle(Theme.ink2)
                 Spacer()
                 if watcher.isIdle {
                     Text("IDLE").font(Theme.mono(9, weight: .semibold)).foregroundStyle(Theme.ink3)
+                } else {
+                    Text("ACTIVE").font(Theme.mono(9, weight: .bold)).foregroundStyle(Theme.accent)
                 }
             }
             .padding(.horizontal, 14)
@@ -36,24 +41,108 @@ struct MenuBarPanel: View {
 
             Divider().background(Theme.hairline)
 
-            VStack(spacing: 9) {
+            // System & Dev Telemetry
+            VStack(spacing: 8) {
                 row(label: "24H SPEND", value: Formatters.usd(store.last24hSpend), color: Theme.ink1)
                 row(label: "BURN RATE", value: Formatters.usd(store.burnRatePerMin) + "/min", color: Theme.warning)
-                row(label: "ACTIVE SESSIONS", value: "\(store.activeCount)", color: Theme.ink1)
                 row(
                     label: "SYSTEM CPU",
                     value: String(format: "%.0f%%", monitor.cpuHistory.last ?? 0),
                     color: Theme.accent
                 )
+                if let mem = monitor.memorySnapshot {
+                    row(
+                        label: "SYSTEM RAM",
+                        value: "\(ByteCountFormatter.string(fromByteCount: mem.usedBytes, countStyle: .memory)) (\(String(format: "%.0f%%", mem.fraction * 100)))",
+                        color: Theme.copilotColor
+                    )
+                }
+
+                if !devPorts.isEmpty {
+                    let portsSummary = devPorts.prefix(3).map { ":\($0.port)" }.joined(separator: " ")
+                    row(
+                        label: "LISTENING PORTS",
+                        value: "\(devPorts.count) (\(portsSummary))",
+                        color: Theme.accent
+                    )
+                }
+
+                if devCleaner.totalCruftBytes > 0 {
+                    let cruftStr = ByteCountFormatter.string(fromByteCount: devCleaner.totalCruftBytes, countStyle: .file)
+                    row(
+                        label: "DEV BUILD CRUFT",
+                        value: cruftStr,
+                        color: Theme.warning
+                    )
+                }
+
+                if !zombieDetector.orphans.isEmpty {
+                    let wasted = ByteCountFormatter.string(fromByteCount: zombieDetector.totalWastedBytes, countStyle: .memory)
+                    row(
+                        label: "ORPHAN RUNAWAYS",
+                        value: "\(zombieDetector.orphans.count) (\(wasted))",
+                        color: Theme.critical
+                    )
+                }
+
                 if let topApp {
-                    row(label: "TOP APP TODAY", value: "\(topApp.name) · \(Self.format(topApp.seconds))", color: Theme.copilotColor)
+                    row(label: "TOP APP TODAY", value: "\(topApp.name) · \(Self.format(topApp.seconds))", color: Theme.ink2)
                 }
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.vertical, 11)
+
+            // Quick Actions Cockpit Strip
+            if devCleaner.totalCruftBytes > 0 || !devPorts.isEmpty || !zombieDetector.orphans.isEmpty {
+                Divider().background(Theme.hairline)
+
+                VStack(spacing: 4) {
+                    if devCleaner.totalCruftBytes > 0 {
+                        let cruftStr = ByteCountFormatter.string(fromByteCount: devCleaner.totalCruftBytes, countStyle: .file)
+                        quickActionButton(
+                            title: "Purge All Dev Cruft (\(cruftStr))",
+                            icon: "trash.fill",
+                            color: Theme.critical
+                        ) {
+                            devCleaner.purgeAll()
+                        }
+                    }
+
+                    if !devPorts.isEmpty {
+                        quickActionButton(
+                            title: "Free All Dev Ports (\(devPorts.count) Active)",
+                            icon: "xmark.octagon.fill",
+                            color: Theme.warning
+                        ) {
+                            portScanner.freeAllDevPorts()
+                        }
+                    }
+
+                    if !zombieDetector.orphans.isEmpty {
+                        quickActionButton(
+                            title: "Purge All Orphans (\(zombieDetector.orphans.count) Runaway)",
+                            icon: "flame.fill",
+                            color: Theme.critical
+                        ) {
+                            zombieDetector.purgeAllOrphans()
+                        }
+                    }
+
+                    quickActionButton(
+                        title: "Flush Inactive RAM",
+                        icon: "memorychip",
+                        color: Theme.accent
+                    ) {
+                        devCleaner.flushRAM()
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+            }
 
             Divider().background(Theme.hairline)
 
+            // Navigation & App Lifecycle
             VStack(spacing: 2) {
                 menuButton("Open Dashboard", icon: "macwindow", action: openDashboard)
                 menuButton(
@@ -65,37 +154,59 @@ struct MenuBarPanel: View {
             }
             .padding(8)
         }
-        .frame(width: 268)
+        .frame(width: 290)
         .background(Theme.panel)
         .foregroundStyle(Theme.ink1)
     }
 
     private func row(label: String, value: String, color: Color) -> some View {
         HStack {
-            Text(label).font(Theme.mono(9.5, weight: .semibold)).tracking(0.4).foregroundStyle(Theme.ink3)
+            Text(label).font(Theme.mono(9, weight: .semibold)).tracking(0.4).foregroundStyle(Theme.ink3)
             Spacer()
-            Text(value).font(Theme.mono(11.5, weight: .semibold)).foregroundStyle(color).lineLimit(1)
+            Text(value).font(Theme.mono(11, weight: .semibold)).foregroundStyle(color).lineLimit(1)
         }
+    }
+
+    private func quickActionButton(title: String, icon: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button {
+            CockpitAudio.playPing()
+            action()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: icon)
+                    .font(.system(size: 10))
+                    .foregroundStyle(color)
+                    .frame(width: 14)
+                Text(title)
+                    .font(Theme.mono(9.5, weight: .semibold))
+                    .foregroundStyle(Theme.ink1)
+                Spacer()
+                Image(systemName: "bolt.fill")
+                    .font(.system(size: 8))
+                    .foregroundStyle(color.opacity(0.8))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(color.opacity(0.25), lineWidth: 0.8))
+        }
+        .buttonStyle(.plain)
     }
 
     private func menuButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: icon).font(.system(size: 11)).frame(width: 14)
-                Text(title).font(Theme.ui(12.5))
+                Text(title).font(Theme.ui(12))
                 Spacer()
             }
-            .padding(.horizontal, 8).padding(.vertical, 6)
+            .padding(.horizontal, 8).padding(.vertical, 5.5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(Theme.ink2)
     }
 
-    /// Continuous tracking only works if the app is actually running, so this
-    /// belongs next to the persistence work. Registration can legitimately fail
-    /// for an ad-hoc-signed debug build — the state is re-read either way
-    /// rather than assumed.
     private func toggleLaunchAtLogin() {
         do {
             if launchAtLogin {
@@ -109,7 +220,6 @@ struct MenuBarPanel: View {
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
-    /// The menu bar popover is itself an NSWindow, so pick the titled one.
     private func openDashboard() {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.windows
