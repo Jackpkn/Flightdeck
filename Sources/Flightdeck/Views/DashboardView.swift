@@ -88,8 +88,6 @@ struct DashboardView: View {
                     .onPreferenceChange(FramePreferenceKey.self) { frames = $0 }
             }
             .scrollIndicators(.hidden)
-
-            TimelineScrubber()
         }
         .padding(EdgeInsets(top: 22, leading: 28, bottom: 28, trailing: 28))
         .background(ambientGround)
@@ -130,7 +128,10 @@ struct DashboardView: View {
                 }
             }
         case .timeline:
-            TimelinePanel()
+            VStack(spacing: 14) {
+                TimelinePanel()
+                TimelineScrubber()
+            }
         case .files:
             VStack(spacing: 14) {
                 HStack(alignment: .top, spacing: 14) {
