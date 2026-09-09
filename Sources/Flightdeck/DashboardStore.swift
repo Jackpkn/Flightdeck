@@ -27,10 +27,33 @@ final class DashboardStore {
             .appendingPathComponent(".claude/projects", isDirectory: true)
     }
 
+    private let shellFeed = ShellFeed.shared
+
     func start() {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             self?.refresh()
+        }
+        shellFeed.start { [weak self] cmd in
+            self?.addShellCommand(cmd)
+        }
+    }
+
+    private func addShellCommand(_ item: ShellFeed.ShellCommand) {
+        let entry = ActivityEntry(
+            timestamp: item.timestamp,
+            project: "shell",
+            sessionId: "local-terminal",
+            kind: .forCommand(item.command),
+            text: "ran `\(item.command.prefix(56))`"
+        )
+        // Deduplicate
+        if !activity.contains(where: { abs($0.timestamp.timeIntervalSince(entry.timestamp)) < 0.5 && $0.text == entry.text }) {
+            activity.insert(entry, at: 0)
+            activity.sort { $0.timestamp > $1.timestamp }
+            if activity.count > 200 {
+                activity.removeLast(activity.count - 200)
+            }
         }
     }
 

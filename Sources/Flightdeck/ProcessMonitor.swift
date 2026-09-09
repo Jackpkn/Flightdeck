@@ -216,6 +216,13 @@ final class ProcessMonitor {
             self.currentGPU = gpu
             self.gpuHistory.append(gpu.utilizationPercent)
             if self.gpuHistory.count > 60 { self.gpuHistory.removeFirst(self.gpuHistory.count - 60) }
+
+            TimelineStore.shared.append(
+                cpu: finalCPU,
+                gpu: gpu.utilizationPercent,
+                memBytes: Int64(finalMem),
+                netKB: netKB
+            )
         }
     }
 }
