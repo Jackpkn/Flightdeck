@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 struct ProcessUsage: Identifiable, Sendable {
@@ -64,6 +65,12 @@ final class ProcessMonitor {
     private var thermalObserver: NSObjectProtocol?
     private let telemetry = SystemTelemetry.shared
 
+    /// High-resolution nanosecond timestamps per PID to compute accurate CPU % deltas.
+    private var previousPidTimes: [pid_t: (timeNs: UInt64, date: Date)] = [:]
+    /// Dedicated background serial queue with QoS .utility — Apple Silicon automatically
+    /// schedules this exclusively on the Efficiency cores (E-Cores).
+    private let telemetryQueue = DispatchQueue(label: "com.flightdeck.telemetry", qos: .utility)
+
     func start() {
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
@@ -101,6 +108,7 @@ final class ProcessMonitor {
 
         // 3. Immediately pull from UI for instant visual feedback
         usages.removeAll { $0.id == pid }
+        previousPidTimes.removeValue(forKey: pid)
 
         // 4. Trigger fresh sweep shortly after
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
@@ -109,93 +117,106 @@ final class ProcessMonitor {
     }
 
     func refresh() {
+        telemetryQueue.async { [weak self] in
+            self?.sampleTelemetry()
+        }
+    }
+
+    /// Pure in-process Darwin kernel C telemetry — zero subprocesses (`/bin/ps`), zero fork overhead.
+    /// Runs on Apple Silicon Efficiency cores via `qos: .utility`.
+    private func sampleTelemetry() {
         let apps = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
-        guard !apps.isEmpty else {
-            usages = []
-            return
-        }
+        let now = Date()
 
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/ps")
-        task.arguments = ["-axo", "pid=,state=,rss=,pcpu="]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = FileHandle.nullDevice
+        var newUsages: [ProcessUsage] = []
+        var nextPidTimes: [pid_t: (timeNs: UInt64, date: Date)] = [:]
 
-        do {
-            try task.run()
-        } catch {
-            return
-        }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-        guard let output = String(data: data, encoding: .utf8) else { return }
+        for app in apps {
+            let pid = app.processIdentifier
+            var info = proc_taskinfo()
+            let size = Int32(MemoryLayout<proc_taskinfo>.size)
+            guard proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, size) == size else { continue }
 
-        var byPid: [pid_t: (state: String, rssKB: Int64, cpu: Double)] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(separator: " ", omittingEmptySubsequences: true)
-            guard parts.count >= 4,
-                  let pid = pid_t(parts[0]),
-                  let rss = Int64(parts[2]),
-                  let cpu = Double(parts[3])
-            else { continue }
-            byPid[pid] = (String(parts[1]), rss, cpu)
-        }
+            let residentBytes = Int64(info.pti_resident_size)
+            let totalCpuNs = info.pti_total_user + info.pti_total_system
 
-        usages = apps.compactMap { app -> ProcessUsage? in
-            guard let stats = byPid[app.processIdentifier] else { return nil }
-            let isUnresponsive = stats.state.contains("Z") || stats.state.contains("T") || stats.state.contains("U") || app.isTerminated
-            let energy = min(100.0, max(0.0, stats.cpu * 1.05))
-            return ProcessUsage(
-                id: app.processIdentifier,
+            let cpuPercent: Double
+            if let prev = previousPidTimes[pid] {
+                let deltaNs = totalCpuNs >= prev.timeNs ? Double(totalCpuNs - prev.timeNs) : 0
+                let deltaSec = max(0.2, now.timeIntervalSince(prev.date))
+                cpuPercent = min(800.0, max(0.0, (deltaNs / (1_000_000_000.0 * deltaSec)) * 100.0))
+            } else {
+                cpuPercent = 0.0
+            }
+            nextPidTimes[pid] = (totalCpuNs, now)
+
+            let isUnresponsive = app.isTerminated || kill(pid, 0) != 0
+            let energy = min(100.0, max(0.0, cpuPercent * 1.05))
+
+            newUsages.append(ProcessUsage(
+                id: pid,
                 name: app.localizedName ?? "Unknown",
                 bundleId: app.bundleIdentifier ?? "",
-                cpuPercent: stats.cpu,
-                memoryBytes: stats.rssKB * 1024,
+                cpuPercent: cpuPercent,
+                memoryBytes: residentBytes,
                 energyImpact: energy,
                 isNotResponding: isUnresponsive
-            )
-        }.sorted { $0.memoryBytes > $1.memoryBytes }
+            ))
+        }
 
-        topEnergyConsumers = usages
+        previousPidTimes = nextPidTimes
+        newUsages.sort { $0.memoryBytes > $1.memoryBytes }
+
+        let topEnergy = newUsages
             .filter { $0.energyImpact > 0.5 }
             .sorted { $0.energyImpact > $1.energyImpact }
 
         // 0. Real Per-Core CPU from Mach PROCESSOR_CPU_LOAD_INFO
-        perCoreCPU = telemetry.currentPerCoreCPU()
+        let cores = telemetry.currentPerCoreCPU()
 
         // 1. Real System CPU from Mach kernel HOST_CPU_LOAD_INFO
         let sysCPU = telemetry.currentCPUUsage()
-        let appCPU = usages.reduce(0) { $0 + $1.cpuPercent }
+        let appCPU = newUsages.reduce(0) { $0 + $1.cpuPercent }
         let finalCPU = sysCPU > 0 ? sysCPU : appCPU
-        currentSystemCPU = finalCPU
-        cpuHistory.append(finalCPU)
-        if cpuHistory.count > 60 { cpuHistory.removeFirst(cpuHistory.count - 60) }
 
         // 2. Real System Memory from Mach kernel HOST_VM_INFO64
         let mem = telemetry.currentMemory()
-        memorySnapshot = mem
-        let finalMem = mem.usedBytes > 0 ? Double(mem.usedBytes) : usages.reduce(0) { $0 + Double($1.memoryBytes) }
-        memoryHistory.append(finalMem)
-        if memoryHistory.count > 60 { memoryHistory.removeFirst(memoryHistory.count - 60) }
+        let finalMem = mem.usedBytes > 0 ? Double(mem.usedBytes) : newUsages.reduce(0) { $0 + Double($1.memoryBytes) }
 
         // 3. Real Network throughput from BSD getifaddrs (KB/sec)
         let netKB = telemetry.currentNetworkThroughputKB()
-        currentNetKB = netKB
-        netHistory.append(netKB)
-        if netHistory.count > 60 { netHistory.removeFirst(netHistory.count - 60) }
 
         // 4. Real Disk I/O throughput from IOKit (KB/sec)
         let diskKB = telemetry.currentDiskThroughputKB()
-        currentDiskKB = diskKB
-        diskHistory.append(diskKB)
-        if diskHistory.count > 60 { diskHistory.removeFirst(diskHistory.count - 60) }
 
         // 5. Real GPU hardware utilization from IOKit IOAccelerator (%)
         let gpu = telemetry.currentGPUTelemetry()
-        currentGPU = gpu
-        gpuHistory.append(gpu.utilizationPercent)
-        if gpuHistory.count > 60 { gpuHistory.removeFirst(gpuHistory.count - 60) }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.usages = newUsages
+            self.topEnergyConsumers = topEnergy
+            self.perCoreCPU = cores
+            self.currentSystemCPU = finalCPU
+            self.cpuHistory.append(finalCPU)
+            if self.cpuHistory.count > 60 { self.cpuHistory.removeFirst(self.cpuHistory.count - 60) }
+
+            self.memorySnapshot = mem
+            self.memoryHistory.append(finalMem)
+            if self.memoryHistory.count > 60 { self.memoryHistory.removeFirst(self.memoryHistory.count - 60) }
+
+            self.currentNetKB = netKB
+            self.netHistory.append(netKB)
+            if self.netHistory.count > 60 { self.netHistory.removeFirst(self.netHistory.count - 60) }
+
+            self.currentDiskKB = diskKB
+            self.diskHistory.append(diskKB)
+            if self.diskHistory.count > 60 { self.diskHistory.removeFirst(self.diskHistory.count - 60) }
+
+            self.currentGPU = gpu
+            self.gpuHistory.append(gpu.utilizationPercent)
+            if self.gpuHistory.count > 60 { self.gpuHistory.removeFirst(self.gpuHistory.count - 60) }
+        }
     }
 }
 
