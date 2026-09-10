@@ -579,6 +579,15 @@ final class DashboardStore {
 
     // MARK: - Derived stats consumed by the views
 
+    var todaySpend: Double {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: Date())
+        let ledgerSpend = sessions.values.flatMap(\.costLedger).filter { $0.0 >= startOfDay }.reduce(0) { $0 + $1.1 }
+        if ledgerSpend > 0 { return ledgerSpend }
+        let activeTodaySpend = sessions.values.filter { ($0.lastSeen ?? .distantPast) >= startOfDay }.map(\.totalCost).reduce(0, +)
+        return max(ledgerSpend, activeTodaySpend)
+    }
+
     var last24hSpend: Double {
         let cutoff = Date().addingTimeInterval(-24 * 3600)
         return sessions.values.flatMap(\.costLedger).filter { $0.0 > cutoff }.reduce(0) { $0 + $1.1 }
@@ -596,7 +605,12 @@ final class DashboardStore {
     }
 
     var contextAlertCount: Int {
-        sessions.values.filter { $0.contextFraction > 0.7 }.count
+        highContextSessions.count
+    }
+
+    var highContextSessions: [SessionAgg] {
+        sessions.values.filter { $0.contextFraction > 0.7 }
+            .sorted { $0.contextFraction > $1.contextFraction }
     }
 
     /// Most recent real tool-call failure across every tracked session, not just
