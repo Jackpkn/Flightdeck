@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 struct DashboardView: View {
-    enum Tab: String, CaseIterable { case overview = "Overview", sessions = "Sessions", activity = "Activity", timeline = "Timeline", files = "Files", spend = "Spend" }
+    enum Tab: String, CaseIterable { case overview = "Overview", cockpit = "Cockpit", sessions = "Sessions", activity = "Activity", timeline = "Timeline", files = "Files", spend = "Spend" }
 
     @Environment(DashboardStore.self) private var store
     @Environment(DiskScanner.self) private var diskScanner
@@ -16,6 +16,21 @@ struct DashboardView: View {
     @State private var particles: [FountainParticle] = []
     @State private var editing: FileEditTarget?
     @State private var processActionTarget: ProcessUsage?
+    enum FilesSubMode: String, CaseIterable {
+        case radar = "RADAR & BROWSER"
+        case duplicates = "DUPLICATE HUNTER"
+        case uninstaller = "APP UNINSTALLER"
+
+        var icon: String {
+            switch self {
+            case .radar: return "circle.dashed"
+            case .duplicates: return "doc.on.doc.fill"
+            case .uninstaller: return "trash.circle.fill"
+            }
+        }
+    }
+
+    @State private var filesSubMode: FilesSubMode = .radar
     @State private var selectedVitalCategory: VitalCategory?
 
     var body: some View {
@@ -100,6 +115,7 @@ struct DashboardView: View {
         switch tab {
         case .overview:
             VStack(alignment: .leading, spacing: 18) {
+                CockpitCarePanel()
                 StatRow()
                 SessionBoard()
             }
@@ -138,27 +154,65 @@ struct DashboardView: View {
             }
         case .files:
             VStack(spacing: 14) {
-                HStack(alignment: .top, spacing: 14) {
-                    FilesPanel(editing: $editing)
-                        .frame(maxWidth: .infinity)
-                    DiskRadarPanel()
-                        .frame(width: 500)
-                }
-                // Only meaningful once a scan has produced numbers. Three
-                // separate instruments rather than one crowded strip.
-                if diskScanner.result.filesScanned > 0 {
-                    DiskExplorerPanel()
-                    HStack(alignment: .top, spacing: 14) {
-                        DiskTypePanel()
-                            .frame(maxWidth: .infinity)
-                        DiskDistributionPanel()
-                            .frame(maxWidth: .infinity)
+                // Sub-mode segmented selector
+                HStack(spacing: 2) {
+                    ForEach(FilesSubMode.allCases, id: \.self) { subMode in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                filesSubMode = subMode
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: subMode.icon)
+                                    .font(.system(size: 10))
+                                Text(subMode.rawValue)
+                                    .font(Theme.mono(9.5, weight: .bold))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(filesSubMode == subMode ? Theme.accent.opacity(0.18) : Color.white.opacity(0.03))
+                            .foregroundStyle(filesSubMode == subMode ? Theme.accent : Theme.ink3)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .frame(height: 252)
+                    Spacer()
+                }
+                .padding(2)
+                .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+
+                switch filesSubMode {
+                case .radar:
+                    HStack(alignment: .top, spacing: 14) {
+                        FilesPanel(editing: $editing)
+                            .frame(maxWidth: .infinity)
+                        DiskRadarPanel()
+                            .frame(width: 500)
+                    }
+                    // Only meaningful once a scan has produced numbers. Three
+                    // separate instruments rather than one crowded strip.
+                    if diskScanner.result.filesScanned > 0 {
+                        DiskExplorerPanel()
+                        HStack(alignment: .top, spacing: 14) {
+                            DiskTypePanel()
+                                .frame(maxWidth: .infinity)
+                            DiskDistributionPanel()
+                                .frame(maxWidth: .infinity)
+                        }
+                        .frame(height: 252)
+                    }
+                case .duplicates:
+                    DuplicateHunterPanel()
+                        .frame(minHeight: 560)
+                case .uninstaller:
+                    AppUninstallerPanel()
+                        .frame(minHeight: 560)
                 }
             }
         case .spend:
             SpendByProjectPanel()
+        case .cockpit:
+            CockpitView()
         }
     }
 

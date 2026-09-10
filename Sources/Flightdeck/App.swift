@@ -14,13 +14,15 @@ struct FlightdeckApp: App {
     @State private var portScanner = PortScanner()
     @State private var zombieDetector = ZombieDetector()
     @State private var devCleaner = DevCleaner()
+    @State private var appUninstaller = AppUninstaller.shared
+    @State private var duplicateScanner = DuplicateScanner.shared
 
     init() {
         FontLoader.registerBundledFonts()
     }
 
     var body: some Scene {
-        WindowGroup("Flightdeck") {
+        WindowGroup("Flightdeck", id: "dashboard") {
             DashboardView()
                 .environment(store)
                 .environment(activityWatcher)
@@ -34,6 +36,8 @@ struct FlightdeckApp: App {
                 .environment(portScanner)
                 .environment(zombieDetector)
                 .environment(devCleaner)
+                .environment(appUninstaller)
+                .environment(duplicateScanner)
                 .frame(minWidth: 1180, minHeight: 780)
                 .background(Theme.page)
                 .preferredColorScheme(.dark)
@@ -47,6 +51,8 @@ struct FlightdeckApp: App {
                     portScanner.start()
                     zombieDetector.start()
                     devCleaner.start()
+                    appUninstaller.scan()
+                    duplicateScanner.scan()
                 }
         }
         .windowResizability(.contentSize)
