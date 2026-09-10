@@ -153,87 +153,251 @@ struct CockpitHubView: View {
         .cornerBracket(color: Theme.accent)
     }
 
-    // MARK: - Idle Avionics Bay (Lightweight, 0% CPU)
+    // MARK: - Idle Avionics Bay (Cockpit Mission Readiness & Telemetry HUD)
 
     private var idleAvionicsBay: some View {
-        VStack(spacing: 10) {
-            // Upper Bay: Threat Radar Scope
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("THREAT RADAR")
-                        .font(Theme.mono(8, weight: .bold))
-                        .foregroundStyle(Theme.accent.opacity(0.8))
-                        .tracking(0.8)
-                    Text("PPI BOGEY SCAN")
-                        .font(Theme.mono(7))
-                        .foregroundStyle(Theme.ink3)
-
-                    Spacer()
-
-                    let orphans = zombies.orphans.count
-                    let devPorts = ports.ports.filter(\.isDevPort).count
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(orphans > 0 ? Theme.critical : Theme.good)
-                            .frame(width: 5, height: 5)
-                        Text(orphans > 0 ? "\(orphans) LOCKED" : "ALL CLEAR")
-                            .font(Theme.mono(8.5, weight: .bold))
-                            .foregroundStyle(orphans > 0 ? Theme.critical : Theme.good)
-                    }
-
-                    Text("\(devPorts) DEV PORTS ACTIVE")
-                        .font(Theme.mono(7.5))
-                        .foregroundStyle(Theme.ink3)
-                }
-                .frame(width: 110, height: 160)
-
-                RadarSweepView(date: Date())
-                    .frame(width: 160, height: 160)
-                    .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.accent.opacity(0.35), lineWidth: 1))
-                    .cornerBracket(color: Theme.accent)
-            }
-            .frame(height: 165)
+        VStack(spacing: 8) {
+            // Mission Readiness & Host Status Banner
+            readinessBanner
 
             Divider().background(Theme.hairline)
 
-            // Lower Bay: Horizon + Speed Tape + Engine Gauges
-            HStack(spacing: 8) {
-                // Horizon
-                VStack(spacing: 2) {
-                    Text("ATTITUDE")
-                        .font(Theme.mono(7, weight: .bold))
-                        .foregroundStyle(Theme.ink3)
-                    ArtificialHorizonView(date: Date())
-                        .frame(width: 140, height: 120)
-                }
-                .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline, lineWidth: 0.5))
+            // Primary Hardware Telemetry Bars (CPU, GPU, RAM)
+            telemetryBars
 
-                // Speed Tape
-                VStack(spacing: 2) {
-                    Text("NET TAPE")
-                        .font(Theme.mono(7, weight: .bold))
-                        .foregroundStyle(Theme.ink3)
-                    SpeedTapeView(date: Date())
-                        .frame(width: 60, height: 120)
-                }
-                .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline, lineWidth: 0.5))
+            Divider().background(Theme.hairline)
 
-                // Compact Engine Tachometers
-                VStack(spacing: 2) {
-                    Text("THRUST")
-                        .font(Theme.mono(7, weight: .bold))
-                        .foregroundStyle(Theme.ink3)
-                    EngineGaugesView(date: Date(), layout: .grid2x2)
-                        .frame(width: 165, height: 120)
-                }
-                .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline, lineWidth: 0.5))
-            }
-            .frame(height: 145)
+            // Subsystem Status Matrix (2x2 Grid: Threats, Ports, Caches, I/O)
+            subsystemMatrix
+
+            Spacer(minLength: 0)
+
+            // Pre-Flight Diagnostic Callout
+            preflightDirective
         }
+    }
+
+    private var readinessBanner: some View {
+        let orphans = zombies.orphans.count
+        let isClear = orphans == 0
+
+        return HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(isClear ? Theme.good.opacity(0.15) : Theme.critical.opacity(0.15))
+                    .frame(width: 28, height: 28)
+                Image(systemName: isClear ? "airplane.circle.fill" : "exclamationmark.shield.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(isClear ? Theme.good : Theme.critical)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("MISSION READINESS")
+                        .font(Theme.mono(8.5, weight: .bold))
+                        .foregroundStyle(Theme.ink3)
+                    Text("•")
+                        .font(Theme.mono(8.5))
+                        .foregroundStyle(Theme.hairline)
+                    Text(ProcessInfo.processInfo.hostName.uppercased())
+                        .font(Theme.mono(8.5))
+                        .foregroundStyle(Theme.ink2)
+                        .lineLimit(1)
+                }
+
+                Text(isClear ? "ALL SYSTEMS NOMINAL · READY FOR SCAN" : "\(orphans) RUNAWAY THREAT(S) DETECTED")
+                    .font(Theme.display(10.5, weight: .bold))
+                    .foregroundStyle(isClear ? Theme.ink1 : Theme.critical)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            // Status Badge
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(isClear ? Theme.good : Theme.critical)
+                    .frame(width: 5, height: 5)
+                Text(isClear ? "STANDBY" : "ALERT")
+                    .font(Theme.mono(8, weight: .bold))
+                    .foregroundStyle(isClear ? Theme.good : Theme.critical)
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background((isClear ? Theme.good : Theme.critical).opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke((isClear ? Theme.good : Theme.critical).opacity(0.3), lineWidth: 0.8)
+            )
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline, lineWidth: 0.5))
+    }
+
+    private var telemetryBars: some View {
+        VStack(spacing: 7) {
+            let cpu = monitor.cpuHistory.last ?? 0
+            let gpu = monitor.currentGPU.utilizationPercent
+            let mem = monitor.memorySnapshot
+            let totalMem = Double(ProcessInfo.processInfo.physicalMemory)
+            let usedMem = Double(mem?.usedBytes ?? 0)
+            let memPercent = totalMem > 0 ? min(100, (usedMem / totalMem) * 100) : 0
+
+            telemetryBarRow(
+                label: "THRUST / CPU",
+                detail: "\(ProcessInfo.processInfo.activeProcessorCount) Cores",
+                valueText: String(format: "%.1f%%", cpu),
+                fraction: min(1.0, max(0.0, cpu / 100.0)),
+                color: cpu > 80 ? Theme.critical : (cpu > 60 ? Theme.warning : Theme.accent)
+            )
+
+            telemetryBarRow(
+                label: "GPU ENGINE",
+                detail: "Apple Silicon",
+                valueText: String(format: "%.1f%%", gpu),
+                fraction: min(1.0, max(0.0, gpu / 100.0)),
+                color: gpu > 80 ? Theme.critical : Theme.accentSecondary
+            )
+
+            telemetryBarRow(
+                label: "UNIFIED MEMORY",
+                detail: "\(ByteCountFormatter.string(fromByteCount: Int64(usedMem), countStyle: .memory)) / \(ByteCountFormatter.string(fromByteCount: Int64(totalMem), countStyle: .memory))",
+                valueText: String(format: "%.0f%%", memPercent),
+                fraction: min(1.0, max(0.0, memPercent / 100.0)),
+                color: memPercent > 85 ? Theme.critical : (memPercent > 70 ? Theme.warning : Color(hex: 0x10b981))
+            )
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+    }
+
+    private func telemetryBarRow(label: String, detail: String, valueText: String, fraction: Double, color: Color) -> some View {
+        VStack(spacing: 3) {
+            HStack {
+                Text(label)
+                    .font(Theme.mono(8, weight: .bold))
+                    .foregroundStyle(Theme.ink2)
+                Text(detail)
+                    .font(Theme.mono(7.5))
+                    .foregroundStyle(Theme.ink3)
+                Spacer()
+                Text(valueText)
+                    .font(Theme.mono(8.5, weight: .bold))
+                    .foregroundStyle(color)
+            }
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white.opacity(0.07))
+                        .frame(height: 5)
+
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(
+                            LinearGradient(
+                                colors: [color.opacity(0.8), color],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: max(3, geo.size.width * CGFloat(fraction)), height: 5)
+                }
+            }
+            .frame(height: 5)
+        }
+    }
+
+    private var subsystemMatrix: some View {
+        let orphans = zombies.orphans.count
+        let devPorts = ports.ports.filter(\.isDevPort).count
+        let cruft = devCleaner.totalCruftBytes
+
+        return VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                subsystemCard(
+                    icon: "shield.slash.fill",
+                    label: "THREAT MONITOR",
+                    value: orphans > 0 ? "\(orphans) RUNAWAY" : "0 BOGEYS",
+                    status: orphans > 0 ? "Locked" : "Clear",
+                    color: orphans > 0 ? Theme.critical : Theme.good
+                )
+
+                subsystemCard(
+                    icon: "network",
+                    label: "DEV PORTS",
+                    value: "\(devPorts) ACTIVE",
+                    status: ":3000 · :5173",
+                    color: devPorts > 0 ? Theme.warning : Theme.good
+                )
+            }
+
+            HStack(spacing: 6) {
+                subsystemCard(
+                    icon: "archivebox.fill",
+                    label: "BUILD CACHES",
+                    value: ByteCountFormatter.string(fromByteCount: cruft, countStyle: .file),
+                    status: "Purgeable",
+                    color: Theme.accent
+                )
+
+                subsystemCard(
+                    icon: "arrow.up.arrow.down",
+                    label: "I/O SPEED",
+                    value: formatSpeed(monitor.currentNetKB),
+                    status: "Throughput",
+                    color: Theme.accentSecondary
+                )
+            }
+        }
+    }
+
+    private func subsystemCard(icon: String, label: String, value: String, status: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundStyle(color)
+                .frame(width: 22, height: 22)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text(label)
+                        .font(Theme.mono(7, weight: .bold))
+                        .foregroundStyle(Theme.ink3)
+                    Spacer()
+                    Text(status)
+                        .font(Theme.mono(6.5))
+                        .foregroundStyle(color.opacity(0.8))
+                }
+                Text(value)
+                    .font(Theme.mono(9.5, weight: .bold))
+                    .foregroundStyle(Theme.ink1)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .background(Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline, lineWidth: 0.5))
+    }
+
+    private var preflightDirective: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "airplane.departure")
+                .font(.system(size: 9))
+                .foregroundStyle(Theme.accent)
+            Text("Ready for diagnostics. Click 'RUN PRE-FLIGHT SCAN' to begin 5-stage sweep.")
+                .font(Theme.mono(8))
+                .foregroundStyle(Theme.ink3)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
+        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.accent.opacity(0.18), lineWidth: 0.5))
     }
 
     // MARK: - Scanning Visualizer
