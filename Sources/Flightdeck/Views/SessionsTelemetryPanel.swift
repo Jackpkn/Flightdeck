@@ -13,6 +13,15 @@ struct SessionsTelemetryPanel: View {
     @State private var selectedFilter: SessionFilter = .all
     @State private var copiedId = false
 
+    enum InspectorTab: String, CaseIterable {
+        case metrics = "METRICS & TELEMETRY"
+        case turns = "CONVERSATION TURNS"
+    }
+
+    @State private var inspectorTab: InspectorTab = .metrics
+    @State private var loadedTurns: [ConversationTurn] = []
+    @State private var isLoadingTurns: Bool = false
+
     enum SessionFilter: String, CaseIterable {
         case all = "ALL SESSIONS"
         case active = "ACTIVE"
@@ -66,6 +75,14 @@ struct SessionsTelemetryPanel: View {
         .onAppear {
             if selectedSessionId == nil {
                 selectedSessionId = allSessions.first?.id
+            }
+            if let id = currentSession?.id {
+                fetchTranscript(sessionId: id)
+            }
+        }
+        .onChange(of: currentSession?.id) { _, newId in
+            if let newId {
+                fetchTranscript(sessionId: newId)
             }
         }
     }
@@ -354,24 +371,61 @@ struct SessionsTelemetryPanel: View {
                     VStack(alignment: .leading, spacing: 18) {
                         inspectorHeader(session)
                         actionButtonsBar(session)
-                        inspectorHeroGrid(session)
-                        tokenTelemetryCard(session)
-                        if session.apiDurationMs > 0 || session.toolDurationMs > 0 {
-                            latencySplitCard(session)
+
+                        // Mode switcher between metrics and transcript turns
+                        HStack(spacing: 8) {
+                            ForEach(InspectorTab.allCases, id: \.self) { tab in
+                                Button {
+                                    inspectorTab = tab
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: tab == .metrics ? "chart.xyaxis.line" : "bubble.left.and.bubble.right.fill")
+                                            .font(.system(size: 9.5))
+                                        Text(tab.rawValue)
+                                            .font(Theme.mono(10, weight: .semibold))
+                                    }
+                                    .foregroundStyle(inspectorTab == tab ? Theme.ink1 : Theme.ink3)
+                                    .padding(.horizontal, 10).padding(.vertical, 5)
+                                    .background(
+                                        inspectorTab == tab ? Theme.accent.opacity(0.18) : Color.white.opacity(0.02),
+                                        in: RoundedRectangle(cornerRadius: 6)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(inspectorTab == tab ? Theme.accent.opacity(0.5) : Theme.hairline2, lineWidth: 1)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            Spacer()
                         }
-                        if !session.lastPrompt.isEmpty {
-                            lastPromptCard(session)
+
+                        if inspectorTab == .metrics {
+                            inspectorHeroGrid(session)
+                            tokenTelemetryCard(session)
+                            if session.apiDurationMs > 0 || session.toolDurationMs > 0 {
+                                latencySplitCard(session)
+                            }
+                            if !session.lastPrompt.isEmpty {
+                                lastPromptCard(session)
+                            }
+                            if !session.prUrl.isEmpty {
+                                pullRequestCard(session)
+                            }
+                            if !session.modelUsages.isEmpty {
+                                modelsUtilizedCard(session)
+                            }
+                            if !session.mcpServers.isEmpty {
+                                mcpServersCard(session)
+                            }
+                            contextAndEnvCard(session)
+                        } else {
+                            SessionTranscriptView(
+                                session: session,
+                                turns: loadedTurns,
+                                isLoading: isLoadingTurns
+                            )
                         }
-                        if !session.prUrl.isEmpty {
-                            pullRequestCard(session)
-                        }
-                        if !session.modelUsages.isEmpty {
-                            modelsUtilizedCard(session)
-                        }
-                        if !session.mcpServers.isEmpty {
-                            mcpServersCard(session)
-                        }
-                        contextAndEnvCard(session)
                     }
                     .padding(18)
                 }
@@ -448,7 +502,40 @@ struct SessionsTelemetryPanel: View {
 
     private func actionButtonsBar(_ session: SessionAgg) -> some View {
         HStack(spacing: 10) {
-            // Copy Session ID / Path
+            // 1. One-Click Resume in Terminal (Primary Action)
+            Button {
+                resumeSessionInTerminal(session)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 9))
+                    Text("RESUME SESSION")
+                }
+                .font(Theme.mono(10.5, weight: .bold))
+                .foregroundStyle(Color.black)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Theme.good, in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+
+            // 2. Start New Session in Project
+            Button {
+                launchNewSessionInTerminal(session)
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9))
+                    Text("NEW SESSION")
+                }
+                .font(Theme.mono(10.5))
+                .foregroundStyle(Theme.ink2)
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
+            // 3. Copy Session ID / Path
             Button {
                 let toCopy = session.id.hasPrefix("proj-") ? (session.cwd.isEmpty ? session.id : session.cwd) : session.id
                 NSPasteboard.general.clearContents()
@@ -473,7 +560,7 @@ struct SessionsTelemetryPanel: View {
             }
             .buttonStyle(.plain)
 
-            // Open Folder in Finder
+            // 4. Open Folder in Finder
             if !session.cwd.isEmpty {
                 Button {
                     let url = URL(fileURLWithPath: session.cwd)
@@ -492,29 +579,56 @@ struct SessionsTelemetryPanel: View {
                 .buttonStyle(.plain)
             }
 
-            // Open in Terminal
-            if !session.cwd.isEmpty {
-                Button {
-                    let script = "tell application \"Terminal\" to do script \"cd \(session.cwd)\""
-                    if let appleScript = NSAppleScript(source: script) {
-                        var err: NSDictionary?
-                        appleScript.executeAndReturnError(&err)
-                    }
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "terminal")
-                        Text("OPEN TERMINAL")
-                    }
-                    .font(Theme.mono(10.5))
-                    .foregroundStyle(Theme.ink2)
-                    .padding(.horizontal, 8).padding(.vertical, 5)
-                    .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-            }
-
             Spacer()
+        }
+    }
+
+    private func resumeSessionInTerminal(_ session: SessionAgg) {
+        CockpitAudio.playPing()
+        let cwd = session.cwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : session.cwd
+        let cmd: String
+        if session.id.hasPrefix("proj-") || session.id.isEmpty {
+            cmd = "cd \"\(cwd)\" && claude"
+        } else {
+            cmd = "cd \"\(cwd)\" && claude --resume \(session.id)"
+        }
+        executeTerminalCommand(cmd)
+    }
+
+    private func launchNewSessionInTerminal(_ session: SessionAgg) {
+        CockpitAudio.playPing()
+        let cwd = session.cwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : session.cwd
+        executeTerminalCommand("cd \"\(cwd)\" && claude")
+    }
+
+    private func executeTerminalCommand(_ cmd: String) {
+        let escaped = cmd.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let script = """
+        tell application "Terminal"
+            activate
+            do script "\(escaped)"
+        end tell
+        """
+        if let appleScript = NSAppleScript(source: script) {
+            var err: NSDictionary?
+            appleScript.executeAndReturnError(&err)
+        }
+    }
+
+    private func fetchTranscript(sessionId: String) {
+        guard !sessionId.isEmpty else {
+            loadedTurns = []
+            return
+        }
+        isLoadingTurns = true
+        Task {
+            let turns = await store.loadTranscript(for: sessionId)
+            await MainActor.run {
+                if selectedSessionId == sessionId || currentSession?.id == sessionId {
+                    self.loadedTurns = turns
+                    self.isLoadingTurns = false
+                }
+            }
         }
     }
 

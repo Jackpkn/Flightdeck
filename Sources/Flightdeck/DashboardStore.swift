@@ -616,6 +616,26 @@ final class DashboardStore {
         }
         return totals.sorted { $0.value > $1.value }.map { ($0.key, $0.value) }
     }
+
+    // In-memory transcript cache keyed by session ID
+    private var transcriptCache: [String: [ConversationTurn]] = [:]
+
+    func loadTranscript(for sessionId: String) async -> [ConversationTurn] {
+        if let cached = transcriptCache[sessionId] {
+            return cached
+        }
+
+        guard let file = ClaudeTranscriptReader.locateTranscriptFile(sessionId: sessionId) else {
+            return []
+        }
+
+        let turns = await Task.detached(priority: .userInitiated) {
+            ClaudeTranscriptReader.parseTurns(from: file)
+        }.value
+
+        transcriptCache[sessionId] = turns
+        return turns
+    }
 }
 
 /// A C function pointer for FSEvents stream callback.
