@@ -52,6 +52,10 @@ enum Theme {
 
     static let good     = copilotColor
     static let warning  = Color(hex: 0xffb800) // amber — cost/budget semantics
+    static let warn     = warning
+    static let amber    = warning
+    static let violet   = accentSecondary
+    static let line     = hairline
     static let critical = Color(hex: 0xff3b3b)
 
     /// Real bundled Inter / JetBrains Mono (registered by FontLoader at launch) —

@@ -26,4 +26,8 @@ enum Formatters {
         let dollarsStr = group.string(from: NSNumber(value: dollars)) ?? "\(dollars)"
         return (negative ? "-$" : "$") + dollarsStr + String(format: ".%02d", cents)
     }
+
+    static func bytes(_ n: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
+    }
 }
