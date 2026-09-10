@@ -29,7 +29,7 @@ struct SessionBoard: View {
             .foregroundStyle(Theme.ink3)
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassPanel(cornerRadius: 10)
+            .glassPanel(cornerRadius: 10, accent: Theme.accent)
     }
 }
 
@@ -66,12 +66,7 @@ private struct SessionCard: View {
         }
         .padding(EdgeInsets(top: 16, leading: 20, bottom: 16, trailing: 18))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(session.isActive ? color.opacity(0.45) : Theme.hairline, lineWidth: session.isActive ? 1.5 : 1)
-        )
-        .shadow(color: session.isActive ? color.opacity(0.22) : .clear, radius: session.isActive ? 10 : 0)
+        .glassPanel(cornerRadius: 12, accent: Theme.accent)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RippleOverlay(ripples: ripples))
         .glitch(glitching)

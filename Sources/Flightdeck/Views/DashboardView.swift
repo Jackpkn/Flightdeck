@@ -543,6 +543,6 @@ private struct StatTile: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .glassPanel(cornerRadius: 10)
+        .glassPanel(cornerRadius: 10, accent: Theme.accent)
     }
 }

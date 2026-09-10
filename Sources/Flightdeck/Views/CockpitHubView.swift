@@ -147,7 +147,7 @@ struct CockpitHubView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(16)
-        .glassPanel(cornerRadius: 14, accent: Theme.hairline)
+        .glassPanel(cornerRadius: 14, accent: Theme.accent)
     }
 
 
@@ -657,7 +657,7 @@ struct CockpitHubView: View {
             .padding(.top, 2)
         }
         .padding(16)
-        .glassPanel(cornerRadius: 14, accent: Theme.hairline)
+        .glassPanel(cornerRadius: 14, accent: Theme.accent)
     }
 
 
