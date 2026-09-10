@@ -248,6 +248,7 @@ struct CockpitHubView: View {
                 detail: "\(ProcessInfo.processInfo.activeProcessorCount) Cores",
                 valueText: String(format: "%.1f%%", cpu),
                 fraction: min(1.0, max(0.0, cpu / 100.0)),
+                history: monitor.cpuHistory,
                 color: cpu > 80 ? Theme.critical : (cpu > 60 ? Theme.warning : Theme.accent)
             )
 
@@ -256,6 +257,7 @@ struct CockpitHubView: View {
                 detail: "Apple Silicon",
                 valueText: String(format: "%.1f%%", gpu),
                 fraction: min(1.0, max(0.0, gpu / 100.0)),
+                history: monitor.gpuHistory,
                 color: gpu > 80 ? Theme.critical : Theme.accent
             )
 
@@ -264,6 +266,7 @@ struct CockpitHubView: View {
                 detail: "\(ByteCountFormatter.string(fromByteCount: Int64(usedMem), countStyle: .memory)) / \(ByteCountFormatter.string(fromByteCount: Int64(totalMem), countStyle: .memory))",
                 valueText: String(format: "%.0f%%", memPercent),
                 fraction: min(1.0, max(0.0, memPercent / 100.0)),
+                history: monitor.memoryHistory,
                 color: memPercent > 85 ? Theme.critical : (memPercent > 70 ? Theme.warning : Theme.accent)
             )
         }
@@ -271,9 +274,9 @@ struct CockpitHubView: View {
         .padding(.vertical, 4)
     }
 
-    private func telemetryBarRow(label: String, detail: String, valueText: String, fraction: Double, color: Color) -> some View {
+    private func telemetryBarRow(label: String, detail: String, valueText: String, fraction: Double, history: [Double] = [], color: Color) -> some View {
         VStack(spacing: 4) {
-            HStack {
+            HStack(spacing: 6) {
                 Text(label)
                     .font(Theme.ui(10.5, weight: .semibold))
                     .foregroundStyle(Theme.ink2)
@@ -281,6 +284,10 @@ struct CockpitHubView: View {
                     .font(Theme.mono(9.5))
                     .foregroundStyle(Theme.ink3)
                 Spacer()
+                if history.count > 1 {
+                    miniSparkline(history: history, color: color)
+                        .frame(width: 44, height: 12)
+                }
                 Text(valueText)
                     .font(Theme.mono(11, weight: .bold))
                     .foregroundStyle(color)
@@ -304,6 +311,22 @@ struct CockpitHubView: View {
                 }
             }
             .frame(height: 5)
+        }
+    }
+
+    private func miniSparkline(history: [Double], color: Color) -> some View {
+        Canvas { context, size in
+            guard history.count > 1 else { return }
+            let maxV = max(history.max() ?? 1, 1)
+            let stepX = size.width / CGFloat(history.count - 1)
+            var path = Path()
+            for (i, v) in history.enumerated() {
+                let x = CGFloat(i) * stepX
+                let y = size.height - (CGFloat(min(1.0, max(0.0, v / maxV))) * (size.height - 2)) - 1
+                if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+                else { path.addLine(to: CGPoint(x: x, y: y)) }
+            }
+            context.stroke(path, with: .color(color.opacity(0.75)), lineWidth: 1.2)
         }
     }
 

@@ -131,6 +131,7 @@ struct DashboardView: View {
         case .overview:
             VStack(alignment: .leading, spacing: 18) {
                 CockpitHubView()
+                UsageGraphPanel()
                 StatRow()
                 SessionBoard()
             }
