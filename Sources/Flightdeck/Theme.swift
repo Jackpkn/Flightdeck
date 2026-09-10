@@ -17,59 +17,54 @@ enum Theme {
     static let ink2 = Color(hex: 0x9aa3ad)
     static let ink3 = Color(hex: 0x5c6570)
 
-    /// Brand / interactive accent — the cockpit's signature cyan glow.
+    /// Brand / interactive accent — clean developer cyan.
     static let accent = Color(hex: 0x00f0ff)
-    /// Paired with `accent` only for the active-card edge gradient (cyan → purple).
-    static let accentSecondary = Color(hex: 0xb026ff)
+    /// Subtle secondary tint paired with accent when depth is needed.
+    static let accentSecondary = Color(hex: 0x00c4d4)
 
-    /// Fixed categorical order, one per known agent source — kept distinct from
-    /// the cyan accent and from the amber/red status colors.
+    /// Agent colors unified to clean cyan and muted slate tones.
     static let claudeColor  = Color(hex: 0x00f0ff) // cyan
-    static let cursorColor  = Color(hex: 0xb026ff) // purple
-    static let copilotColor = Color(hex: 0x39ff88) // neon green
-    static let gpuColor     = Color(hex: 0xff2a85) // neon magenta/pink
+    static let cursorColor  = Color(hex: 0x00c4d4) // deep cyan
+    static let copilotColor = Color(hex: 0x38bdf8) // light sky cyan
+    static let gpuColor     = Color(hex: 0x0284c7) // slate cyan
 
     private static let projectPalette = [claudeColor, cursorColor, copilotColor]
 
-    /// All real data today comes from a single agent (Claude Code) across many
-    /// projects — so identity that matters is the PROJECT, not an arbitrary
-    /// position in an array. Same project always gets the same color, everywhere.
+    /// Same project always gets consistent color.
     static func colorForProject(_ name: String) -> Color {
         projectPalette[abs(name.hashValue) % projectPalette.count]
     }
 
-    /// An ordered cyan-to-purple ramp for composition charts. Slices are
-    /// sorted by size, so the ramp encodes magnitude rather than acting as a
-    /// categorical palette — and it stays clear of the reserved status colors.
+    /// An ordered monochromatic cyan-to-slate ramp for composition charts.
     static let sizeRamp: [Color] = [
         Color(hex: 0x00f0ff),
-        Color(hex: 0x35c8ff),
-        Color(hex: 0x5fa3ff),
-        Color(hex: 0x7f7cff),
-        Color(hex: 0x9a52ff),
-        Color(hex: 0xb026ff),
+        Color(hex: 0x38bdf8),
+        Color(hex: 0x0284c7),
+        Color(hex: 0x0369a1),
+        Color(hex: 0x075985),
+        Color(hex: 0x0c4a6e),
     ]
 
-    static let good     = copilotColor
-    static let warning  = Color(hex: 0xffb800) // amber — cost/budget semantics
+    static let good     = Color(hex: 0x00f0ff) // clean cyan for nominal state
+    static let warning  = Color(hex: 0xffb800) // amber / orange — strictly cost & budget semantics
     static let warn     = warning
     static let amber    = warning
     static let violet   = accentSecondary
     static let line     = hairline
-    static let critical = Color(hex: 0xff3b3b)
+    static let critical = Color(hex: 0xff3b3b) // red — strictly problem / error / runaway threat
 
-    /// Real bundled Inter / JetBrains Mono (registered by FontLoader at launch) —
-    /// falls back to the system sans/mono if registration ever fails.
+    /// Real bundled Inter / JetBrains Mono —
+    /// falls back to system font if registration ever fails.
     static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .custom("JetBrains Mono", size: size).weight(weight)
     }
     static func ui(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .custom("Inter", size: size).weight(weight)
     }
-    /// Blocky technical display face for section titles/labels only —
-    /// JetBrains Mono stays reserved for the actual data readouts.
+    /// Clean Inter display face for section titles and headers —
+    /// replaced sci-fi Orbitron for maximum legibility.
     static func display(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        .custom("Orbitron", size: size).weight(weight)
+        .custom("Inter", size: size).weight(weight)
     }
 }
 

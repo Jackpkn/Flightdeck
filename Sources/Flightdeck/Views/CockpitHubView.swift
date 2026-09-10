@@ -23,31 +23,31 @@ struct CockpitHubView: View {
 
         var name: String {
             switch self {
-            case .junk: return "DEV CRUFT"
-            case .threats: return "ORPHAN THREATS"
-            case .performance: return "PERFORMANCE ENGINE"
-            case .ports: return "PORT PERIMETER"
-            case .clutter: return "WORKSPACE CLUTTER"
+            case .junk: return "Build Caches"
+            case .threats: return "Runaway Processes"
+            case .performance: return "System Memory"
+            case .ports: return "Listening Ports"
+            case .clutter: return "Temporary Files"
             }
         }
 
         var scanTitle: String {
             switch self {
-            case .junk: return "STAGE 1/5: AUDITING DEV CACHES"
-            case .threats: return "STAGE 2/5: TARGETING RUNAWAY THREATS"
-            case .performance: return "STAGE 3/5: EVALUATING MACH VM ENGINE"
-            case .ports: return "STAGE 4/5: PROBING LISTENING DEV SOCKETS"
-            case .clutter: return "STAGE 5/5: AUDITING SIMULATORS & CRUFT"
+            case .junk: return "STAGE 1/5: SCANNING BUILD CACHES"
+            case .threats: return "STAGE 2/5: CHECKING RUNAWAY PROCESSES"
+            case .performance: return "STAGE 3/5: EVALUATING SYSTEM MEMORY"
+            case .ports: return "STAGE 4/5: CHECKING LISTENING PORTS"
+            case .clutter: return "STAGE 5/5: SCANNING TEMPORARY FILES"
             }
         }
 
         var scanDetail: String {
             switch self {
             case .junk: return "Scanning Xcode DerivedData, npm cache, CocoaPods, and Gradle..."
-            case .threats: return "Querying Darwin process table for orphan background zombies..."
-            case .performance: return "Evaluating Mach VM inactive memory pages and CPU/GPU thrust..."
-            case .ports: return "Scanning listening TCP sockets on developer ports (:3000, :5173)..."
-            case .clutter: return "Inspecting simulator device caches, old downloads, and build cruft..."
+            case .threats: return "Querying system process table for runaway and orphaned tasks..."
+            case .performance: return "Analyzing memory pressure and inactive page allocations..."
+            case .ports: return "Checking open developer ports (:3000, :5173, :8080)..."
+            case .clutter: return "Inspecting simulator device caches, old downloads, and logs..."
             }
         }
     }
@@ -76,20 +76,20 @@ struct CockpitHubView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
-            // Left Column: Cockpit Avionics & Mission Visualizer
+            // Left Column: System Overview & Telemetry
             leftAvionicsColumn
                 .frame(width: 440, height: 400)
 
-            // Right Column: Smart Care Diagnostics Console
+            // Right Column: System Cleanup Console
             rightCareColumn
                 .frame(maxWidth: .infinity, minHeight: 400, maxHeight: 400)
         }
         .confirmationDialog(
-            "AUTHORIZE SYSTEM PURGE",
+            "Confirm Cleanup",
             isPresented: $showConfirmPurge,
             titleVisibility: .visible
         ) {
-            Button("ENGAGE PURGE (Recycle to Trash)", role: .destructive) {
+            Button("Clean Selected Files (Recycle to Trash)", role: .destructive) {
                 executeSafePurge()
             }
             Button("Cancel", role: .cancel) {}
@@ -101,28 +101,26 @@ struct CockpitHubView: View {
         }
     }
 
-    // MARK: - Left Column: Avionics Display & Mission Visualizer
+    // MARK: - Left Column: System Overview & Telemetry
 
     private var leftAvionicsColumn: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
             HStack(spacing: 8) {
                 LiveDot(color: Theme.accent)
-                Text("COCKPIT AVIONICS HUD")
-                    .font(Theme.display(11, weight: .bold))
-                    .tracking(1.2)
-                    .foregroundStyle(Theme.accent)
+                Text("SYSTEM OVERVIEW")
+                    .font(Theme.ui(13, weight: .bold))
+                    .foregroundStyle(Theme.ink1)
 
                 Spacer()
 
-                // Telemetry Badges
-                HStack(spacing: 6) {
-                    let cpu = monitor.cpuHistory.last ?? 0
-                    let gpu = monitor.currentGPU.utilizationPercent
-                    let bank = max(-30, min(30, (cpu - gpu) * 0.3))
-                    miniPill("ROLL", value: String(format: "%+.0f°", bank))
-                    miniPill("SPEED", value: formatSpeed(monitor.currentNetKB))
-                }
+                // Clean Hardware Spec Badge
+                Text("\(ProcessInfo.processInfo.activeProcessorCount) Cores · macOS")
+                    .font(Theme.mono(9.5))
+                    .foregroundStyle(Theme.ink3)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 4))
             }
 
             // Main Content Area based on FlowState
@@ -149,9 +147,9 @@ struct CockpitHubView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(16)
-        .glassPanel(cornerRadius: 14, accent: Theme.accent)
-        .cornerBracket(color: Theme.accent)
+        .glassPanel(cornerRadius: 14, accent: Theme.hairline)
     }
+
 
     // MARK: - Idle Avionics Bay (Cockpit Mission Readiness & Telemetry HUD)
 
@@ -181,32 +179,32 @@ struct CockpitHubView: View {
         let orphans = zombies.orphans.count
         let isClear = orphans == 0
 
-        return HStack(spacing: 10) {
+        return HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(isClear ? Theme.good.opacity(0.15) : Theme.critical.opacity(0.15))
-                    .frame(width: 28, height: 28)
-                Image(systemName: isClear ? "airplane.circle.fill" : "exclamationmark.shield.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(isClear ? Theme.good : Theme.critical)
+                    .fill(isClear ? Theme.accent.opacity(0.15) : Theme.critical.opacity(0.15))
+                    .frame(width: 32, height: 32)
+                Image(systemName: isClear ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 17))
+                    .foregroundStyle(isClear ? Theme.accent : Theme.critical)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text("MISSION READINESS")
-                        .font(Theme.mono(8.5, weight: .bold))
+                    Text("SYSTEM STATUS")
+                        .font(Theme.ui(10, weight: .bold))
                         .foregroundStyle(Theme.ink3)
                     Text("•")
-                        .font(Theme.mono(8.5))
+                        .font(Theme.mono(9.5))
                         .foregroundStyle(Theme.hairline)
-                    Text(ProcessInfo.processInfo.hostName.uppercased())
-                        .font(Theme.mono(8.5))
+                    Text(ProcessInfo.processInfo.hostName)
+                        .font(Theme.mono(10))
                         .foregroundStyle(Theme.ink2)
                         .lineLimit(1)
                 }
 
-                Text(isClear ? "ALL SYSTEMS NOMINAL · READY FOR SCAN" : "\(orphans) RUNAWAY THREAT(S) DETECTED")
-                    .font(Theme.display(10.5, weight: .bold))
+                Text(isClear ? "All Systems Operational · Ready to Clean" : "\(orphans) Runaway Process(es) Detected")
+                    .font(Theme.ui(12.5, weight: .bold))
                     .foregroundStyle(isClear ? Theme.ink1 : Theme.critical)
                     .lineLimit(1)
             }
@@ -214,30 +212,30 @@ struct CockpitHubView: View {
             Spacer()
 
             // Status Badge
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Circle()
-                    .fill(isClear ? Theme.good : Theme.critical)
-                    .frame(width: 5, height: 5)
-                Text(isClear ? "STANDBY" : "ALERT")
-                    .font(Theme.mono(8, weight: .bold))
-                    .foregroundStyle(isClear ? Theme.good : Theme.critical)
+                    .fill(isClear ? Theme.accent : Theme.critical)
+                    .frame(width: 6, height: 6)
+                Text(isClear ? "HEALTHY" : "ATTENTION")
+                    .font(Theme.mono(9.5, weight: .bold))
+                    .foregroundStyle(isClear ? Theme.accent : Theme.critical)
             }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background((isClear ? Theme.good : Theme.critical).opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background((isClear ? Theme.accent : Theme.critical).opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
             .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke((isClear ? Theme.good : Theme.critical).opacity(0.3), lineWidth: 0.8)
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke((isClear ? Theme.accent : Theme.critical).opacity(0.3), lineWidth: 0.8)
             )
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline, lineWidth: 0.5))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline, lineWidth: 0.5))
     }
 
     private var telemetryBars: some View {
-        VStack(spacing: 7) {
+        VStack(spacing: 9) {
             let cpu = monitor.cpuHistory.last ?? 0
             let gpu = monitor.currentGPU.utilizationPercent
             let mem = monitor.memorySnapshot
@@ -246,7 +244,7 @@ struct CockpitHubView: View {
             let memPercent = totalMem > 0 ? min(100, (usedMem / totalMem) * 100) : 0
 
             telemetryBarRow(
-                label: "THRUST / CPU",
+                label: "CPU USAGE",
                 detail: "\(ProcessInfo.processInfo.activeProcessorCount) Cores",
                 valueText: String(format: "%.1f%%", cpu),
                 fraction: min(1.0, max(0.0, cpu / 100.0)),
@@ -254,37 +252,37 @@ struct CockpitHubView: View {
             )
 
             telemetryBarRow(
-                label: "GPU ENGINE",
+                label: "GPU USAGE",
                 detail: "Apple Silicon",
                 valueText: String(format: "%.1f%%", gpu),
                 fraction: min(1.0, max(0.0, gpu / 100.0)),
-                color: gpu > 80 ? Theme.critical : Theme.accentSecondary
+                color: gpu > 80 ? Theme.critical : Theme.accent
             )
 
             telemetryBarRow(
-                label: "UNIFIED MEMORY",
+                label: "SYSTEM MEMORY",
                 detail: "\(ByteCountFormatter.string(fromByteCount: Int64(usedMem), countStyle: .memory)) / \(ByteCountFormatter.string(fromByteCount: Int64(totalMem), countStyle: .memory))",
                 valueText: String(format: "%.0f%%", memPercent),
                 fraction: min(1.0, max(0.0, memPercent / 100.0)),
-                color: memPercent > 85 ? Theme.critical : (memPercent > 70 ? Theme.warning : Color(hex: 0x10b981))
+                color: memPercent > 85 ? Theme.critical : (memPercent > 70 ? Theme.warning : Theme.accent)
             )
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 8)
         .padding(.vertical, 4)
     }
 
     private func telemetryBarRow(label: String, detail: String, valueText: String, fraction: Double, color: Color) -> some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 4) {
             HStack {
                 Text(label)
-                    .font(Theme.mono(8, weight: .bold))
+                    .font(Theme.ui(10.5, weight: .semibold))
                     .foregroundStyle(Theme.ink2)
                 Text(detail)
-                    .font(Theme.mono(7.5))
+                    .font(Theme.mono(9.5))
                     .foregroundStyle(Theme.ink3)
                 Spacer()
                 Text(valueText)
-                    .font(Theme.mono(8.5, weight: .bold))
+                    .font(Theme.mono(11, weight: .bold))
                     .foregroundStyle(color)
             }
 
@@ -314,91 +312,92 @@ struct CockpitHubView: View {
         let devPorts = ports.ports.filter(\.isDevPort).count
         let cruft = devCleaner.totalCruftBytes
 
-        return VStack(spacing: 6) {
-            HStack(spacing: 6) {
+        return VStack(spacing: 8) {
+            HStack(spacing: 8) {
                 subsystemCard(
-                    icon: "shield.slash.fill",
-                    label: "THREAT MONITOR",
-                    value: orphans > 0 ? "\(orphans) RUNAWAY" : "0 BOGEYS",
-                    status: orphans > 0 ? "Locked" : "Clear",
-                    color: orphans > 0 ? Theme.critical : Theme.good
+                    icon: "exclamationmark.triangle.fill",
+                    label: "RUNAWAY PROCESSES",
+                    value: orphans > 0 ? "\(orphans) RUNAWAY" : "0 DETECTED",
+                    status: orphans > 0 ? "Problem" : "Clear",
+                    color: orphans > 0 ? Theme.critical : Theme.accent
                 )
 
                 subsystemCard(
                     icon: "network",
-                    label: "DEV PORTS",
-                    value: "\(devPorts) ACTIVE",
+                    label: "OPEN DEV PORTS",
+                    value: "\(devPorts) LISTENING",
                     status: ":3000 · :5173",
-                    color: devPorts > 0 ? Theme.warning : Theme.good
+                    color: devPorts > 0 ? Theme.warning : Theme.accent
                 )
             }
 
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 subsystemCard(
                     icon: "archivebox.fill",
                     label: "BUILD CACHES",
                     value: ByteCountFormatter.string(fromByteCount: cruft, countStyle: .file),
-                    status: "Purgeable",
+                    status: "Cleanable",
                     color: Theme.accent
                 )
 
                 subsystemCard(
                     icon: "arrow.up.arrow.down",
-                    label: "I/O SPEED",
+                    label: "NETWORK SPEED",
                     value: formatSpeed(monitor.currentNetKB),
                     status: "Throughput",
-                    color: Theme.accentSecondary
+                    color: Theme.accent
                 )
             }
         }
     }
 
     private func subsystemCard(icon: String, label: String, value: String, status: String, color: Color) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 9) {
             Image(systemName: icon)
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .foregroundStyle(color)
-                .frame(width: 22, height: 22)
-                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                .frame(width: 26, height: 26)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(label)
-                        .font(Theme.mono(7, weight: .bold))
+                        .font(Theme.ui(9.5, weight: .semibold))
                         .foregroundStyle(Theme.ink3)
                     Spacer()
                     Text(status)
-                        .font(Theme.mono(6.5))
-                        .foregroundStyle(color.opacity(0.8))
+                        .font(Theme.mono(8.5))
+                        .foregroundStyle(color.opacity(0.85))
                 }
                 Text(value)
-                    .font(Theme.mono(9.5, weight: .bold))
+                    .font(Theme.mono(11.5, weight: .bold))
                     .foregroundStyle(Theme.ink1)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity)
         .background(Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline, lineWidth: 0.5))
     }
 
     private var preflightDirective: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "airplane.departure")
-                .font(.system(size: 9))
+        HStack(spacing: 7) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 10))
                 .foregroundStyle(Theme.accent)
-            Text("Ready for diagnostics. Click 'RUN PRE-FLIGHT SCAN' to begin 5-stage sweep.")
-                .font(Theme.mono(8))
+            Text("Click 'Scan System' to inspect build caches, runaway processes, and open ports.")
+                .font(Theme.ui(10))
                 .foregroundStyle(Theme.ink3)
                 .lineLimit(1)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 4))
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.accent.opacity(0.18), lineWidth: 0.5))
+        .background(Theme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.accent.opacity(0.18), lineWidth: 0.5))
     }
+
 
     // MARK: - Scanning Visualizer
 
@@ -452,25 +451,25 @@ struct CockpitHubView: View {
 
     private var reviewAvionicsBay: some View {
         VStack(spacing: 16) {
-            Image(systemName: "cross.circle.fill")
+            Image(systemName: "checkmark.seal.fill")
                 .font(.system(size: 38))
                 .foregroundStyle(Theme.accent)
 
             VStack(spacing: 4) {
-                Text("TARGETS ACQUIRED")
-                    .font(Theme.display(14, weight: .bold))
+                Text("Ready to Clean")
+                    .font(Theme.ui(14, weight: .bold))
                     .foregroundStyle(Theme.ink1)
 
                 let cruft = devCleaner.totalCruftBytes
                 let total = max(cruft, 1024 * 1024 * 780)
-                Text("\(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)) SAFE TO RECLAIM")
-                    .font(Theme.mono(11, weight: .bold))
-                    .foregroundStyle(Theme.good)
+                Text("\(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)) Safe to Reclaim")
+                    .font(Theme.mono(12, weight: .bold))
+                    .foregroundStyle(Theme.accent)
             }
 
-            Text("Review selected categories on the right and engage purge when ready. All actions use macOS Trash and FileGuard protection.")
-                .font(Theme.mono(8.5))
-                .foregroundStyle(Theme.ink3)
+            Text("Review selected categories on the right and click Clean when ready. All files are safely moved to macOS Trash.")
+                .font(Theme.ui(11))
+                .foregroundStyle(Theme.ink2)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
 
@@ -481,16 +480,16 @@ struct CockpitHubView: View {
                 showConfirmPurge = true
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "flame.fill")
-                        .font(.system(size: 10, weight: .bold))
-                    Text("ENGAGE COCKPIT PURGE")
-                        .font(Theme.mono(10, weight: .black))
+                    Image(systemName: "trash.fill")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("CLEAN SELECTED FILES")
+                        .font(Theme.mono(11, weight: .bold))
                 }
                 .foregroundStyle(Color.black)
                 .padding(.horizontal, 22)
                 .padding(.vertical, 9)
-                .background(Theme.critical, in: Capsule())
-                .shadow(color: Theme.critical.opacity(0.6), radius: 10)
+                .background(Theme.accent, in: Capsule())
+                .shadow(color: Theme.accent.opacity(0.4), radius: 8)
             }
             .buttonStyle(.plain)
         }
@@ -502,14 +501,14 @@ struct CockpitHubView: View {
             ProgressView()
                 .progressViewStyle(.circular)
                 .scaleEffect(1.2)
-                .tint(Theme.warning)
+                .tint(Theme.accent)
 
             VStack(spacing: 4) {
-                Text("PURGING TARGETS...")
-                    .font(Theme.mono(12, weight: .bold))
-                    .foregroundStyle(Theme.warning)
-                Text("Recycling build caches and terminating orphan processes to macOS Trash.")
-                    .font(Theme.mono(9))
+                Text("CLEANING SYSTEM...")
+                    .font(Theme.ui(13, weight: .bold))
+                    .foregroundStyle(Theme.accent)
+                Text("Moving build caches to macOS Trash and closing idle dev ports.")
+                    .font(Theme.ui(11))
                     .foregroundStyle(Theme.ink3)
                     .multilineTextAlignment(.center)
             }
@@ -521,17 +520,17 @@ struct CockpitHubView: View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 42))
-                .foregroundStyle(Theme.good)
+                .foregroundStyle(Theme.accent)
 
             VStack(spacing: 4) {
-                Text("COCKPIT NOMINAL")
-                    .font(Theme.display(14, weight: .bold))
-                    .foregroundStyle(Theme.good)
+                Text("CLEANUP COMPLETE")
+                    .font(Theme.ui(14, weight: .bold))
+                    .foregroundStyle(Theme.ink1)
 
                 let str = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
                 Text("+\(str) RECLAIMED")
                     .font(Theme.mono(12, weight: .bold))
-                    .foregroundStyle(Theme.ink1)
+                    .foregroundStyle(Theme.accent)
             }
 
             Spacer()
@@ -542,110 +541,97 @@ struct CockpitHubView: View {
                     flowState = .idle
                 }
             }
-            .font(Theme.mono(9.5, weight: .bold))
+            .font(Theme.mono(10.5, weight: .bold))
             .foregroundStyle(Color.black)
             .padding(.horizontal, 18)
             .padding(.vertical, 6)
-            .background(Theme.good, in: Capsule())
+            .background(Theme.accent, in: Capsule())
             .buttonStyle(.plain)
         }
         .padding(.vertical, 20)
     }
 
-    // MARK: - Right Column: Smart Care Diagnostics Console
+    // MARK: - Right Column: System Cleanup Console
 
     private var rightCareColumn: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Header
+            // Header (without FILEGUARD ARMED chrome)
             HStack(spacing: 8) {
-                LiveDot(color: Theme.good)
-                Text("SYSTEM DIAGNOSTICS & CARE")
-                    .font(Theme.display(11, weight: .bold))
-                    .tracking(1)
+                LiveDot(color: Theme.accent)
+                Text("SYSTEM CLEANUP")
+                    .font(Theme.ui(13, weight: .bold))
                     .foregroundStyle(Theme.ink1)
 
                 Spacer()
-
-                HStack(spacing: 4) {
-                    Image(systemName: "shield.lefthalf.filled")
-                        .font(.system(size: 8))
-                        .foregroundStyle(Theme.good)
-                    Text("FILEGUARD ARMED")
-                        .font(Theme.mono(8, weight: .bold))
-                        .foregroundStyle(Theme.good)
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(Theme.good.opacity(0.1), in: Capsule())
             }
 
             // 5 Health Modules
             VStack(spacing: 7) {
-                // Module 1: Dev Cruft
+                // Module 1: Build Caches
                 let cruftBytes = devCleaner.totalCruftBytes
                 let cruftStr = ByteCountFormatter.string(fromByteCount: max(cruftBytes, 1024 * 1024 * 50), countStyle: .file)
                 careModuleRow(
                     stage: .junk,
-                    title: "DEV CRUFT & CACHES",
+                    title: "BUILD CACHES",
                     value: cruftStr,
                     detail: "DerivedData, npm cache, CocoaPods",
                     isArmed: $armCruft,
-                    color: Color(hex: 0x10b981)
+                    color: Theme.accent
                 )
 
-                // Module 2: Threats
+                // Module 2: Runaway Processes
                 let threatCount = zombies.orphans.count
                 careModuleRow(
                     stage: .threats,
-                    title: "ORPHAN THREATS",
-                    value: threatCount > 0 ? "\(threatCount) LOCKED" : "0 DETECTED",
-                    detail: "Runaway daemons & zombie PIDs",
+                    title: "RUNAWAY PROCESSES",
+                    value: threatCount > 0 ? "\(threatCount) RUNAWAY" : "0 DETECTED",
+                    detail: "Zombie tasks & runaway daemons",
                     isArmed: $armThreats,
-                    color: threatCount > 0 ? Theme.critical : Theme.good
+                    color: threatCount > 0 ? Theme.critical : Theme.accent
                 )
 
-                // Module 3: Performance
+                // Module 3: System Memory
                 careModuleRow(
                     stage: .performance,
-                    title: "PERFORMANCE ENGINE",
-                    value: "NOMINAL",
-                    detail: "Mach VM inactive pages, CPU/GPU",
+                    title: "SYSTEM MEMORY",
+                    value: "HEALTHY",
+                    detail: "Inactive Mach pages & memory pressure",
                     isArmed: $armPerformance,
-                    color: Color(hex: 0xa855f7)
+                    color: Theme.accent
                 )
 
-                // Module 4: Ports
+                // Module 4: Open Dev Ports
                 let devPorts = ports.ports.filter(\.isDevPort).count
                 careModuleRow(
                     stage: .ports,
-                    title: "DEV PORT PERIMETER",
-                    value: devPorts > 0 ? "\(devPorts) ACTIVE" : "0 ACTIVE",
-                    detail: "Listening dev sockets (:3000, :5173)",
+                    title: "OPEN DEV PORTS",
+                    value: devPorts > 0 ? "\(devPorts) LISTENING" : "0 LISTENING",
+                    detail: "Active dev sockets (:3000, :5173)",
                     isArmed: $armPorts,
-                    color: devPorts > 0 ? Theme.warning : Theme.good
+                    color: devPorts > 0 ? Theme.warning : Theme.accent
                 )
 
-                // Module 5: Clutter
+                // Module 5: Temporary Files
                 careModuleRow(
                     stage: .clutter,
-                    title: "WORKSPACE CLUTTER",
+                    title: "TEMPORARY FILES",
                     value: "READY",
                     detail: "Simulator runtimes & old caches",
                     isArmed: $armClutter,
-                    color: Color(hex: 0xf43f5e)
+                    color: Theme.accent
                 )
             }
 
             Spacer()
 
-            // Bottom Hero Action Bar
+            // Bottom Action Bar
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Pre-Flight Diagnostic Suite")
-                        .font(Theme.display(11, weight: .bold))
+                    Text("System Cleanup")
+                        .font(Theme.ui(12.5, weight: .bold))
                         .foregroundStyle(Theme.ink1)
-                    Text("Audits kernel, caches, and listening sockets. Deletes safely to macOS Trash.")
-                        .font(Theme.mono(8))
+                    Text("Audits build caches, processes, and open ports. Recycles to macOS Trash.")
+                        .font(Theme.ui(10))
                         .foregroundStyle(Theme.ink3)
                 }
 
@@ -655,23 +641,16 @@ struct CockpitHubView: View {
                     startScanSequence()
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "bolt.horizontal.fill")
-                            .font(.system(size: 10, weight: .bold))
-                        Text("RUN PRE-FLIGHT SCAN")
-                            .font(Theme.mono(10, weight: .black))
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 11, weight: .bold))
+                        Text("SCAN SYSTEM")
+                            .font(Theme.mono(11, weight: .bold))
                     }
                     .foregroundStyle(Color.black)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(
-                        LinearGradient(
-                            colors: [Color(hex: 0x38bdf8), Color(hex: 0x06b6d4)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        in: Capsule()
-                    )
-                    .shadow(color: Color(hex: 0x38bdf8).opacity(0.5), radius: 8)
+                    .background(Theme.accent, in: Capsule())
+                    .shadow(color: Theme.accent.opacity(0.4), radius: 8)
                 }
                 .buttonStyle(.plain)
             }
@@ -679,8 +658,8 @@ struct CockpitHubView: View {
         }
         .padding(16)
         .glassPanel(cornerRadius: 14, accent: Theme.hairline)
-        .cornerBracket(color: Theme.accent)
     }
+
 
     // MARK: - Care Module Row Helper
 
@@ -705,18 +684,18 @@ struct CockpitHubView: View {
             }
             .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(title)
-                        .font(Theme.mono(8.5, weight: .bold))
+                        .font(Theme.mono(10.5, weight: .bold))
                         .foregroundStyle(color)
                     Spacer()
                     Text(value)
-                        .font(Theme.mono(9.5, weight: .bold))
+                        .font(Theme.mono(11.5, weight: .bold))
                         .foregroundStyle(Theme.ink1)
                 }
                 Text(detail)
-                    .font(Theme.mono(7))
+                    .font(Theme.mono(9))
                     .foregroundStyle(Theme.ink3)
             }
 
@@ -725,10 +704,10 @@ struct CockpitHubView: View {
                 inspectingStage = stage
             } label: {
                 Text("INSPECT")
-                    .font(Theme.mono(7, weight: .semibold))
+                    .font(Theme.mono(9, weight: .semibold))
                     .foregroundStyle(Theme.ink3)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
                     .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 3))
             }
             .buttonStyle(.plain)
@@ -810,13 +789,13 @@ struct CockpitHubView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text(stage.name)
-                    .font(Theme.mono(12, weight: .bold))
+                    .font(Theme.mono(13, weight: .bold))
                     .foregroundStyle(stageColor(stage))
                 Spacer()
                 Button("CLOSE") {
                     inspectingStage = nil
                 }
-                .font(Theme.mono(9.5, weight: .bold))
+                .font(Theme.mono(10.5, weight: .bold))
                 .foregroundStyle(Theme.ink2)
                 .buttonStyle(.plain)
             }
@@ -833,11 +812,11 @@ struct CockpitHubView: View {
                                     .frame(width: 16)
                                     .foregroundStyle(Theme.accent)
                                 Text(cat.name)
-                                    .font(Theme.display(11))
+                                    .font(Theme.display(12))
                                     .foregroundStyle(Theme.ink1)
                                 Spacer()
                                 Text(ByteCountFormatter.string(fromByteCount: cat.sizeBytes, countStyle: .file))
-                                    .font(Theme.mono(10, weight: .bold))
+                                    .font(Theme.mono(11, weight: .bold))
                                     .foregroundStyle(Theme.ink2)
                             }
                             .padding(.vertical, 4)
@@ -845,8 +824,8 @@ struct CockpitHubView: View {
 
                     case .threats:
                         if zombies.orphans.isEmpty {
-                            Text("No orphan or zombie processes detected. Threat radar clear.")
-                                .font(Theme.mono(10))
+                            Text("No runaway or orphaned processes detected.")
+                                .font(Theme.mono(11))
                                 .foregroundStyle(Theme.good)
                                 .padding(.top, 10)
                         } else {
@@ -856,15 +835,15 @@ struct CockpitHubView: View {
                                         .foregroundStyle(Theme.critical)
                                     VStack(alignment: .leading) {
                                         Text(orphan.name)
-                                            .font(Theme.display(11, weight: .semibold))
+                                            .font(Theme.display(12, weight: .semibold))
                                             .foregroundStyle(Theme.ink1)
                                         Text("PID \(orphan.pid)")
-                                            .font(Theme.mono(8))
+                                            .font(Theme.mono(10))
                                             .foregroundStyle(Theme.ink3)
                                     }
                                     Spacer()
                                     Text(ByteCountFormatter.string(fromByteCount: orphan.memoryBytes, countStyle: .memory))
-                                        .font(Theme.mono(10, weight: .bold))
+                                        .font(Theme.mono(11, weight: .bold))
                                         .foregroundStyle(Theme.critical)
                                 }
                                 .padding(.vertical, 3)
@@ -873,7 +852,7 @@ struct CockpitHubView: View {
 
                     case .performance:
                         Text("Mach VM inactive pages management. Flushes unreferenced virtual pages safely. No app memory is released.")
-                            .font(Theme.mono(10))
+                            .font(Theme.mono(11))
                             .foregroundStyle(Theme.ink2)
                             .padding(.top, 10)
 
@@ -881,7 +860,7 @@ struct CockpitHubView: View {
                         let devOnly = ports.ports.filter(\.isDevPort)
                         if devOnly.isEmpty {
                             Text("No active developer ports currently listening.")
-                                .font(Theme.mono(10))
+                                .font(Theme.mono(11))
                                 .foregroundStyle(Theme.good)
                                 .padding(.top, 10)
                         } else {
@@ -891,20 +870,20 @@ struct CockpitHubView: View {
                                         .foregroundStyle(Theme.warning)
                                     VStack(alignment: .leading) {
                                         Text(":\(port.port) • \(port.processName)")
-                                            .font(Theme.display(11, weight: .semibold))
+                                            .font(Theme.display(12, weight: .semibold))
                                             .foregroundStyle(Theme.ink1)
                                         Text("PID \(port.pid)")
-                                            .font(Theme.mono(8))
+                                            .font(Theme.mono(10))
                                             .foregroundStyle(Theme.ink3)
                                     }
                                     Spacer()
                                     Button("FREE") {
                                         ports.freePort(port)
                                     }
-                                    .font(Theme.mono(8.5, weight: .bold))
+                                    .font(Theme.mono(10, weight: .bold))
                                     .foregroundStyle(Theme.warning)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
                                     .background(Theme.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
                                     .buttonStyle(.plain)
                                 }
@@ -914,7 +893,7 @@ struct CockpitHubView: View {
 
                     case .clutter:
                         Text("Xcode simulator device runtime caches and legacy test fixtures. Recycles safely to macOS Trash.")
-                            .font(Theme.mono(10))
+                            .font(Theme.mono(11))
                             .foregroundStyle(Theme.ink2)
                             .padding(.top, 10)
                     }
@@ -941,25 +920,25 @@ struct CockpitHubView: View {
 
     private func stageColor(_ stage: SmartStage) -> Color {
         switch stage {
-        case .junk: return Color(hex: 0x10b981)
-        case .threats: return Color(hex: 0x38bdf8)
-        case .performance: return Color(hex: 0xa855f7)
-        case .ports: return Color(hex: 0xf59e0b)
-        case .clutter: return Color(hex: 0xf43f5e)
+        case .junk: return Theme.accent
+        case .threats: return Theme.critical
+        case .performance: return Theme.accent
+        case .ports: return Theme.warning
+        case .clutter: return Theme.accent
         }
     }
 
     private func miniPill(_ label: String, value: String) -> some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 4) {
             Text(label)
-                .font(Theme.mono(7))
+                .font(Theme.mono(9))
                 .foregroundStyle(Theme.ink3)
             Text(value)
-                .font(Theme.mono(8, weight: .bold))
+                .font(Theme.mono(10, weight: .bold))
                 .foregroundStyle(Theme.ink2)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
         .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 3))
     }
 

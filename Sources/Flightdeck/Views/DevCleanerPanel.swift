@@ -27,8 +27,8 @@ struct DevCleanerPanel: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .glassPanel(accent: Theme.copilotColor)
-        .cornerBracket(color: Theme.copilotColor)
+        .glassPanel(accent: Theme.accent)
+        .cornerBracket(color: Theme.accent)
         .confirmationDialog(
             "Purge all developer build caches?",
             isPresented: $confirmingPurgeAll,
@@ -48,20 +48,20 @@ struct DevCleanerPanel: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            LiveDot(color: Theme.copilotColor)
-            Text("DEV PURGER · BUILD CACHE")
-                .font(Theme.display(11))
+            LiveDot(color: Theme.accent)
+            Text("BUILD CACHE CLEANUP")
+                .font(Theme.display(12, weight: .bold))
                 .tracking(0.6)
-                .foregroundStyle(Theme.ink3)
+                .foregroundStyle(Theme.ink2)
 
             let total = cleaner.totalCruftBytes
             if total > 0 {
                 let totalStr = ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
                 Text("\(totalStr) RECLAIMABLE")
-                    .font(Theme.mono(8.5, weight: .bold))
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Theme.copilotColor.opacity(0.15), in: Capsule())
-                    .foregroundStyle(Theme.copilotColor)
+                    .font(Theme.mono(10.5, weight: .bold))
+                    .padding(.horizontal, 7).padding(.vertical, 2.5)
+                    .background(Theme.accent.opacity(0.15), in: Capsule())
+                    .foregroundStyle(Theme.accent)
             }
 
             Spacer(minLength: 8)
@@ -70,8 +70,8 @@ struct DevCleanerPanel: View {
                 cleaner.scan()
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 10))
-                    .foregroundStyle(cleaner.isScanning ? Theme.copilotColor : Theme.ink3)
+                    .font(.system(size: 11))
+                    .foregroundStyle(cleaner.isScanning ? Theme.accent : Theme.ink3)
                     .rotationEffect(cleaner.isScanning ? .degrees(360) : .zero)
                     .animation(cleaner.isScanning ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default, value: cleaner.isScanning)
             }
@@ -90,12 +90,12 @@ struct DevCleanerPanel: View {
                 confirmingPurgeAll = true
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "trash.fill").font(.system(size: 8.5))
+                    Image(systemName: "trash.fill").font(.system(size: 9.5))
                     Text("PURGE ALL CRUFT")
-                        .font(Theme.mono(8.5, weight: .bold))
+                        .font(Theme.mono(10.5, weight: .bold))
                 }
                 .foregroundStyle(total > 0 ? Color.white : Theme.ink3)
-                .padding(.horizontal, 8).padding(.vertical, 4)
+                .padding(.horizontal, 9).padding(.vertical, 4.5)
                 .background(
                     total > 0 ? Theme.critical.opacity(0.85) : Theme.track.opacity(0.5),
                     in: RoundedRectangle(cornerRadius: 4)
@@ -110,19 +110,19 @@ struct DevCleanerPanel: View {
                 cleaner.flushRAM()
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "memorychip").font(.system(size: 8.5))
+                    Image(systemName: "memorychip").font(.system(size: 9.5))
                     Text("FLUSH INACTIVE RAM")
-                        .font(Theme.mono(8.5, weight: .bold))
+                        .font(Theme.mono(10.5, weight: .bold))
                 }
                 .foregroundStyle(Theme.accent)
-                .padding(.horizontal, 7).padding(.vertical, 4)
+                .padding(.horizontal, 8).padding(.vertical, 4)
                 .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.accent.opacity(0.3), lineWidth: 0.8))
             }
             .buttonStyle(.plain)
             .help("Release inactive system memory pages")
         }
-        .padding(.horizontal, 6).padding(.vertical, 4)
+        .padding(.horizontal, 7).padding(.vertical, 4.5)
         .background(Theme.track.opacity(0.35), in: RoundedRectangle(cornerRadius: 5))
     }
 
@@ -160,18 +160,18 @@ private struct CruftRow: View {
         HStack(spacing: 9) {
             // Icon
             Image(systemName: category.icon)
-                .font(.system(size: 12))
-                .foregroundStyle(category.sizeBytes > 0 ? Theme.copilotColor : Theme.ink3)
+                .font(.system(size: 13))
+                .foregroundStyle(category.sizeBytes > 0 ? Theme.accent : Theme.ink3)
                 .frame(width: 18)
 
             // Name & Path
             VStack(alignment: .leading, spacing: 2) {
                 Text(category.name)
-                    .font(Theme.ui(12, weight: .medium))
+                    .font(Theme.ui(13, weight: .medium))
                     .foregroundStyle(Theme.ink1)
 
                 Text(category.path.path)
-                    .font(Theme.mono(9))
+                    .font(Theme.mono(10))
                     .foregroundStyle(Theme.ink3.opacity(0.7))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -182,7 +182,7 @@ private struct CruftRow: View {
             // Size readout
             let sizeStr = ByteCountFormatter.string(fromByteCount: category.sizeBytes, countStyle: .file)
             Text(category.sizeBytes > 0 ? sizeStr : "0 B")
-                .font(Theme.mono(10.5, weight: .semibold))
+                .font(Theme.mono(11.5, weight: .semibold))
                 .foregroundStyle(category.sizeBytes > 100_000_000 ? Theme.warning : Theme.ink2)
 
             // Purge Button
@@ -191,24 +191,24 @@ private struct CruftRow: View {
                     cleaner.purge(category: category)
                 } label: {
                     Text("PURGE")
-                        .font(Theme.mono(8, weight: .bold))
+                        .font(Theme.mono(10, weight: .bold))
                         .foregroundStyle(isHovered ? Color.white : Theme.critical)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2.5)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3.5)
                         .background(isHovered ? Theme.critical : Theme.critical.opacity(0.15))
-                        .clipShape(RoundedRectangle(cornerRadius: 3.5))
-                        .overlay(RoundedRectangle(cornerRadius: 3.5).stroke(Theme.critical.opacity(0.4), lineWidth: 0.8))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.critical.opacity(0.4), lineWidth: 0.8))
                 }
                 .buttonStyle(.plain)
                 .help("Purge \(category.name) files")
             } else {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(Theme.good.opacity(0.6))
-                    .frame(width: 32)
+                    .frame(width: 36)
             }
         }
-        .padding(.horizontal, 9).padding(.vertical, 5.5)
+        .padding(.horizontal, 10).padding(.vertical, 6)
         .background(isHovered ? Theme.track.opacity(0.5) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
         .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.hairline2, lineWidth: 0.5))
         .onHover { isHovered = $0 }

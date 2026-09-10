@@ -136,14 +136,14 @@ struct UsageGraphPanel: View {
         HStack(spacing: 8) {
             LiveDot(color: Theme.accent)
             Text("SYSTEM LOAD · LAST 2 MIN")
-                .font(Theme.display(11)).tracking(0.6).foregroundStyle(Theme.ink3)
+                .font(Theme.display(12, weight: .bold)).tracking(0.6).foregroundStyle(Theme.ink2)
 
             if peakJumped {
                 Text("PEAK JUMP")
-                    .font(Theme.mono(9, weight: .bold))
+                    .font(Theme.mono(10.5, weight: .bold))
                     .foregroundStyle(Theme.warning)
-                    .padding(.horizontal, 5).padding(.vertical, 2)
-                    .background(Theme.warning.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
+                    .padding(.horizontal, 6).padding(.vertical, 2.5)
+                    .background(Theme.warning.opacity(0.18), in: RoundedRectangle(cornerRadius: 3.5))
             }
 
             Spacer()
@@ -163,15 +163,15 @@ struct UsageGraphPanel: View {
         Button {
             isOn.wrappedValue.toggle()
         } label: {
-            HStack(spacing: 3.5) {
+            HStack(spacing: 4) {
                 Circle()
                     .fill(isOn.wrappedValue ? color : Theme.ink3)
-                    .frame(width: 5, height: 5)
+                    .frame(width: 5.5, height: 5.5)
                 Text(title)
-                    .font(Theme.mono(9.5, weight: .semibold))
+                    .font(Theme.mono(10.5, weight: .semibold))
                     .foregroundStyle(isOn.wrappedValue ? Theme.ink1 : Theme.ink3)
             }
-            .padding(.horizontal, 7).padding(.vertical, 3.5)
+            .padding(.horizontal, 8).padding(.vertical, 4)
             .background(
                 isOn.wrappedValue ? color.opacity(0.16) : Theme.track.opacity(0.5),
                 in: RoundedRectangle(cornerRadius: 4)

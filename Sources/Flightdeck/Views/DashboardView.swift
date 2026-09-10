@@ -2,7 +2,16 @@ import SwiftUI
 import AppKit
 
 struct DashboardView: View {
-    enum Tab: String, CaseIterable { case overview = "Overview", sessions = "Sessions", activity = "Activity", timeline = "Timeline", files = "Files", spend = "Spend" }
+    enum Tab: String, CaseIterable {
+        case overview = "Overview"
+        case cleanup = "Cleanup"
+        case processes = "Processes"
+        case ports = "Ports"
+        case activity = "Activity"
+        case files = "Files"
+        case sessions = "Sessions"
+        case spend = "Spend"
+    }
 
     @Environment(DashboardStore.self) private var store
     @Environment(DiskScanner.self) private var diskScanner
@@ -20,21 +29,22 @@ struct DashboardView: View {
     @State private var editing: FileEditTarget?
     @State private var processActionTarget: ProcessUsage?
     enum FilesSubMode: String, CaseIterable {
-        case radar = "RADAR & BROWSER"
-        case duplicates = "DUPLICATE HUNTER"
-        case uninstaller = "APP UNINSTALLER"
+        case files = "Disk Space"
+        case duplicates = "Duplicates"
+        case uninstaller = "Uninstaller"
 
         var icon: String {
             switch self {
-            case .radar: return "circle.dashed"
+            case .files: return "folder.fill"
             case .duplicates: return "doc.on.doc.fill"
-            case .uninstaller: return "trash.circle.fill"
+            case .uninstaller: return "trash.fill"
             }
         }
     }
 
-    @State private var filesSubMode: FilesSubMode = .radar
+    @State private var filesSubMode: FilesSubMode = .files
     @State private var selectedVitalCategory: VitalCategory?
+
 
     var body: some View {
         ZStack {
@@ -124,43 +134,23 @@ struct DashboardView: View {
                 StatRow()
                 SessionBoard()
             }
-        case .sessions:
-            SessionBoard()
+        case .cleanup:
+            DevCleanerPanel()
+        case .processes:
+            ProcessMonitorPanel(actionTarget: $processActionTarget)
+        case .ports:
+            PortHunterPanel()
         case .activity:
             VStack(spacing: 14) {
                 UsageGraphPanel()
                 SystemVitalsStrip(selectedCategory: $selectedVitalCategory)
-                HStack(alignment: .top, spacing: 14) {
-                    VStack(spacing: 14) {
-                        ActivityFeedPanel()
-                            .frame(height: 340)
-                        PortHunterPanel()
-                            .frame(height: 340)
-                        DownloadsPanel(editing: $editing)
-                            .frame(height: 340)
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    VStack(spacing: 14) {
-                        ActivityWatcherPanel()
-                            .frame(height: 340)
-                        ProcessMonitorPanel(actionTarget: $processActionTarget)
-                            .frame(height: 340)
-                        DevCleanerPanel()
-                            .frame(height: 340)
-                    }
-                    .frame(width: 500)
-                }
-            }
-        case .timeline:
-            VStack(spacing: 14) {
-                TimelinePanel()
-                TimelineScrubber()
+                ActivityWatcherPanel()
+                ActivityFeedPanel()
             }
         case .files:
             VStack(spacing: 14) {
                 // Sub-mode segmented selector
-                HStack(spacing: 2) {
+                HStack(spacing: 4) {
                     ForEach(FilesSubMode.allCases, id: \.self) { subMode in
                         Button {
                             withAnimation(.easeInOut(duration: 0.18)) {
@@ -169,33 +159,31 @@ struct DashboardView: View {
                         } label: {
                             HStack(spacing: 6) {
                                 Image(systemName: subMode.icon)
-                                    .font(.system(size: 10))
+                                    .font(.system(size: 11))
                                 Text(subMode.rawValue)
-                                    .font(Theme.mono(9.5, weight: .bold))
+                                    .font(Theme.ui(11.5, weight: filesSubMode == subMode ? .semibold : .regular))
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
                             .background(filesSubMode == subMode ? Theme.accent.opacity(0.18) : Color.white.opacity(0.03))
-                            .foregroundStyle(filesSubMode == subMode ? Theme.accent : Theme.ink3)
+                            .foregroundStyle(filesSubMode == subMode ? Theme.accent : Theme.ink2)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
                         .buttonStyle(.plain)
                     }
                     Spacer()
                 }
-                .padding(2)
+                .padding(3)
                 .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
 
                 switch filesSubMode {
-                case .radar:
+                case .files:
                     HStack(alignment: .top, spacing: 14) {
                         FilesPanel(editing: $editing)
                             .frame(maxWidth: .infinity)
                         DiskRadarPanel()
                             .frame(width: 500)
                     }
-                    // Only meaningful once a scan has produced numbers. Three
-                    // separate instruments rather than one crowded strip.
                     if diskScanner.result.filesScanned > 0 {
                         DiskExplorerPanel()
                         HStack(alignment: .top, spacing: 14) {
@@ -208,12 +196,14 @@ struct DashboardView: View {
                     }
                 case .duplicates:
                     DuplicateHunterPanel()
-                        .frame(height: 640)
+                        .frame(minHeight: 640)
                 case .uninstaller:
                     AppUninstallerPanel()
-                        .frame(height: 640)
+                        .frame(minHeight: 640)
                 }
             }
+        case .sessions:
+            SessionBoard()
         case .spend:
             SpendByProjectPanel()
         }
@@ -222,9 +212,6 @@ struct DashboardView: View {
     private func spawnParticle() {
         guard let event = store.costEvents.last,
               let end = frameBox.map["__ticker__"] else { return }
-        // Fall back to the board's own frame when this event's session isn't
-        // one of the 3 currently displayed cards — the effect should still be
-        // visible for any real cost event, not just ones tied to a rendered card.
         guard let start = frameBox.map[event.sessionId] ?? frameBox.map["__board__"] else { return }
         particles.append(FountainParticle(
             start: CGPoint(x: start.midX, y: start.midY),
@@ -235,27 +222,21 @@ struct DashboardView: View {
         particles.removeAll { $0.spawnedAt < cutoff }
     }
 
-    /// A faint accent-tinted glow anchored top-leading, over the void-black page —
-    /// the one piece of atmosphere the flat version was missing.
+    /// Calm, subtle dark backdrop with single cyan ambient tint.
     private var ambientGround: some View {
         ZStack {
             Theme.page
             RadialGradient(
-                colors: [Theme.accent.opacity(0.08), Theme.page.opacity(0)],
-                center: .init(x: 0.08, y: 0.0),
+                colors: [Theme.accent.opacity(0.04), Theme.page.opacity(0)],
+                center: .init(x: 0.1, y: 0.0),
                 startRadius: 0,
-                endRadius: 640
-            )
-            RadialGradient(
-                colors: [Theme.claudeColor.opacity(0.05), Theme.page.opacity(0)],
-                center: .init(x: 1.0, y: 0.15),
-                startRadius: 0,
-                endRadius: 560
+                endRadius: 600
             )
         }
         .ignoresSafeArea()
     }
 }
+
 
 // MARK: - Tab picker
 

@@ -45,8 +45,8 @@ struct ProcessMonitorPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                LiveDot(color: Theme.warning)
-                Text("RESOURCE USAGE · LIVE").font(Theme.display(11)).tracking(0.6).foregroundStyle(Theme.ink3)
+                LiveDot(color: Theme.accent)
+                Text("PROCESS MONITOR").font(Theme.display(12, weight: .bold)).tracking(0.6).foregroundStyle(Theme.ink2)
                 Spacer()
                 ThermalChip(state: monitor.thermalState)
 
@@ -57,13 +57,13 @@ struct ProcessMonitorPanel: View {
                 } label: {
                     HStack(spacing: 3) {
                         Image(systemName: "arrow.up.forward.app")
-                            .font(.system(size: 8.5))
+                            .font(.system(size: 9.5))
                         Text("SYSTEM MONITOR")
-                            .font(Theme.mono(8.5, weight: .bold))
+                            .font(Theme.mono(10.5, weight: .bold))
                     }
                     .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 6).padding(.vertical, 3)
-                    .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 3.5))
+                    .padding(.horizontal, 7).padding(.vertical, 3.5)
+                    .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
                 }
                 .buttonStyle(.plain)
                 .help("Launch native macOS Activity Monitor")
@@ -78,13 +78,13 @@ struct ProcessMonitorPanel: View {
                     } label: {
                         let badge = (f == .orphans && !zombieDetector.orphans.isEmpty) ? " (\(zombieDetector.orphans.count))" : ""
                         Text("\(f.rawValue)\(badge)")
-                            .font(Theme.mono(8.5, weight: filter == f ? .bold : .medium))
+                            .font(Theme.mono(10, weight: filter == f ? .bold : .medium))
                             .foregroundStyle(filter == f ? (f == .orphans && !zombieDetector.orphans.isEmpty ? Theme.warning : Theme.ink1) : (f == .orphans && !zombieDetector.orphans.isEmpty ? Theme.warning.opacity(0.85) : Theme.ink3))
-                            .padding(.horizontal, 6.5).padding(.vertical, 2.5)
-                            .background(filter == f ? Theme.track.opacity(0.9) : Color.clear, in: RoundedRectangle(cornerRadius: 3))
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(filter == f ? Theme.track.opacity(0.9) : Color.clear, in: RoundedRectangle(cornerRadius: 3.5))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 3)
-                                    .stroke(filter == f ? Theme.warning.opacity(0.4) : Color.clear, lineWidth: 1)
+                                RoundedRectangle(cornerRadius: 3.5)
+                                    .stroke(filter == f ? Theme.accent.opacity(0.4) : Color.clear, lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -94,11 +94,11 @@ struct ProcessMonitorPanel: View {
 
                 if filter == .orphans {
                     Text("\(zombieDetector.orphans.count) orphans")
-                        .font(Theme.mono(9))
+                        .font(Theme.mono(10.5))
                         .foregroundStyle(Theme.warning)
                 } else {
                     Text("\(filteredUsages.count) of \(monitor.usages.count)")
-                        .font(Theme.mono(9))
+                        .font(Theme.mono(10.5))
                         .foregroundStyle(Theme.ink3)
                 }
             }
@@ -295,13 +295,12 @@ struct ProcessMonitorPanel: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .glassPanel(accent: Theme.warning)
-        .cornerBracket(color: Theme.warning)
+        .glassPanel(accent: Theme.accent)
+        .cornerBracket(color: Theme.accent)
     }
 
     private func gaugeColor(for percent: Double) -> Color {
-        if percent < 30 { return Theme.accent }
-        if percent < 70 { return Theme.accentSecondary }
+        if percent < 70 { return Theme.accent }
         return Theme.critical
     }
 }
@@ -330,11 +329,11 @@ private struct ThermalChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: "thermometer.medium").font(.system(size: 9))
-            Text(label).font(Theme.mono(9.5, weight: .semibold))
+            Image(systemName: "thermometer.medium").font(.system(size: 10))
+            Text(label).font(Theme.mono(10.5, weight: .semibold))
         }
         .foregroundStyle(color)
-        .padding(.horizontal, 6).padding(.vertical, 2)
+        .padding(.horizontal, 7).padding(.vertical, 2.5)
         .background(color.opacity(0.14), in: Capsule())
         .help("System thermal pressure")
     }
@@ -352,8 +351,7 @@ private struct ProcessRow: View {
     }
 
     private var rowGaugeColor: Color {
-        if usage.cpuPercent < 30 { return Theme.accent }
-        if usage.cpuPercent < 70 { return Theme.accentSecondary }
+        if usage.cpuPercent < 70 { return Theme.accent }
         return Theme.critical
     }
 
@@ -362,20 +360,20 @@ private struct ProcessRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Text(usage.name)
-                        .font(Theme.ui(12.5)).foregroundStyle(Theme.ink1)
+                        .font(Theme.ui(13, weight: .medium)).foregroundStyle(Theme.ink1)
                         .lineLimit(1)
                     if usage.isNotResponding {
                         Text("HUNG")
-                            .font(Theme.mono(7, weight: .black))
+                            .font(Theme.mono(8.5, weight: .black))
                             .foregroundStyle(Theme.critical)
-                            .padding(.horizontal, 3.5).padding(.vertical, 1)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
                             .background(Theme.critical.opacity(0.2), in: RoundedRectangle(cornerRadius: 2))
                     }
                 }
                 Text("PID·\(usage.id)")
-                    .font(Theme.mono(9)).foregroundStyle(Theme.ink3.opacity(0.6))
+                    .font(Theme.mono(10)).foregroundStyle(Theme.ink3.opacity(0.6))
             }
-            .frame(width: 126, alignment: .leading)
+            .frame(width: 130, alignment: .leading)
 
             // Dynamic load gauge + CPU % + Energy score
             HStack(spacing: 4) {
@@ -385,43 +383,43 @@ private struct ProcessRow: View {
                     diameter: 20
                 )
                 Text(String(format: "%.0f%%", usage.cpuPercent))
-                    .font(Theme.mono(10.5, weight: .semibold))
+                    .font(Theme.mono(11, weight: .semibold))
                     .foregroundStyle(Theme.ink2)
 
                 // Energy impact badge
                 if usage.energyImpact > 0.5 {
                     HStack(spacing: 1.5) {
                         Image(systemName: "bolt.fill")
-                            .font(.system(size: 7))
+                            .font(.system(size: 8))
                         Text(String(format: "%.0f", usage.energyImpact))
-                            .font(Theme.mono(8, weight: .bold))
+                            .font(Theme.mono(9, weight: .bold))
                     }
                     .foregroundStyle(energyColor)
-                    .padding(.horizontal, 3).padding(.vertical, 1)
+                    .padding(.horizontal, 4).padding(.vertical, 1)
                     .background(energyColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 2))
                     .help("Energy Impact score: \(String(format: "%.1f", usage.energyImpact))")
                 } else {
                     Image(systemName: "leaf.fill")
-                        .font(.system(size: 8))
+                        .font(.system(size: 8.5))
                         .foregroundStyle(energyColor)
                         .help("Low Energy Drain")
                 }
             }
-            .frame(width: 82, alignment: .leading)
+            .frame(width: 86, alignment: .leading)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 3).fill(Theme.track)
                     RoundedRectangle(cornerRadius: 3)
-                        .fill(Theme.accentSecondary.opacity(0.8))
+                        .fill(Theme.accent.opacity(0.7))
                         .frame(width: max(4, geo.size.width * memoryFraction))
                 }
             }
             .frame(height: 14)
 
             Text(Self.memoryString(usage.memoryBytes))
-                .font(Theme.mono(11)).foregroundStyle(Theme.ink1)
-                .frame(width: 62, alignment: .trailing)
+                .font(Theme.mono(11.5)).foregroundStyle(Theme.ink1)
+                .frame(width: 66, alignment: .trailing)
 
             // 1-Click Kill Button (opens safe controller dialog; ⌥-click for instant force kill)
             if let onKill {
@@ -429,17 +427,17 @@ private struct ProcessRow: View {
                     onKill()
                 } label: {
                     HStack(spacing: 2) {
-                        Image(systemName: "xmark").font(.system(size: 7.5, weight: .black))
-                        Text("KILL").font(Theme.mono(8, weight: .bold))
+                        Image(systemName: "xmark").font(.system(size: 8, weight: .black))
+                        Text("KILL").font(Theme.mono(10, weight: .bold))
                     }
                     .foregroundStyle(Theme.critical)
-                    .padding(.horizontal, 4.5).padding(.vertical, 2)
+                    .padding(.horizontal, 5.5).padding(.vertical, 2.5)
                     .background(Theme.critical.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))
                 }
                 .buttonStyle(.plain)
                 .help("Inspect & terminate \(usage.name) (⌥-click for instant force kill)")
             } else {
-                Color.clear.frame(width: 36, height: 12)
+                Color.clear.frame(width: 38, height: 12)
             }
         }
     }
@@ -459,24 +457,24 @@ private struct OrphanRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(orphan.name)
-                        .font(Theme.ui(12, weight: .semibold))
+                        .font(Theme.ui(13, weight: .semibold))
                         .foregroundStyle(Theme.ink1)
 
                     Text("PID \(orphan.pid)")
-                        .font(Theme.mono(9))
+                        .font(Theme.mono(10))
                         .foregroundStyle(Theme.ink3)
-                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .padding(.horizontal, 5).padding(.vertical, 1.5)
                         .background(Theme.track.opacity(0.8), in: RoundedRectangle(cornerRadius: 3))
 
                     Text(orphan.isZombie ? "ZOMBIE" : "ORPHAN")
-                        .font(Theme.mono(7.5, weight: .bold))
+                        .font(Theme.mono(9, weight: .bold))
                         .foregroundStyle(orphan.isZombie ? Theme.critical : Theme.warning)
-                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .padding(.horizontal, 5).padding(.vertical, 1.5)
                         .background((orphan.isZombie ? Theme.critical : Theme.warning).opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
                 }
 
                 Text(orphan.path)
-                    .font(Theme.mono(9))
+                    .font(Theme.mono(10))
                     .foregroundStyle(Theme.ink3.opacity(0.75))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -485,7 +483,7 @@ private struct OrphanRow: View {
             Spacer()
 
             Text(ByteCountFormatter.string(fromByteCount: orphan.memoryBytes, countStyle: .memory))
-                .font(Theme.mono(10.5, weight: .semibold))
+                .font(Theme.mono(11.5, weight: .semibold))
                 .foregroundStyle(Theme.ink2)
 
             Button {
@@ -493,10 +491,10 @@ private struct OrphanRow: View {
                 onKill()
             } label: {
                 Text("KILL")
-                    .font(Theme.mono(8.5, weight: .bold))
+                    .font(Theme.mono(10, weight: .bold))
                     .foregroundStyle(isHovered ? Color.white : Theme.critical)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3.5)
                     .background(isHovered ? Theme.critical : Theme.critical.opacity(0.15))
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.critical.opacity(0.4), lineWidth: 0.8))

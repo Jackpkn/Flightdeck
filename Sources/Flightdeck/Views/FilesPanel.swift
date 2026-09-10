@@ -516,13 +516,8 @@ private struct FileRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // Neon cyan hover scanline bar
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(isHovered ? Theme.accent : Color.clear)
-                .frame(width: 2.5, height: isHovered ? 18 : 0)
-                .animation(.spring(response: 0.22, dampingFraction: 0.72), value: isHovered)
-
             Image(systemName: entry.isDirectory ? "folder.fill" : "doc")
+
                 .font(.system(size: 11))
                 .foregroundStyle(entry.isDirectory ? Theme.accent : (isHovered ? Theme.ink1 : Theme.ink3))
                 .frame(width: 14)
