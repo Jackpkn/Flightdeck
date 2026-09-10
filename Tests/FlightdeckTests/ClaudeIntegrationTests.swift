@@ -11,7 +11,7 @@ struct ClaudeIntegrationTests {
         let json = """
         {
             "session_id": "test-session-123",
-            "model": "claude-3-7-sonnet-20250219",
+            "model": "claude-fable-5-1",
             "total_cost": 0.4285,
             "context_window": {
                 "used": 45000,
@@ -26,12 +26,27 @@ struct ClaudeIntegrationTests {
         let payload = try JSONDecoder().decode(StatuslinePayload.self, from: data)
 
         #expect(payload.session_id == "test-session-123")
-        #expect(payload.model == "claude-3-7-sonnet-20250219")
+        #expect(payload.model == "claude-fable-5-1")
         #expect(payload.total_cost == 0.4285)
         #expect(payload.context_window?.used == 45000)
         #expect(payload.context_window?.total == 200000)
         #expect(payload.cwd == "/Users/test/Projects/Flightdeck")
         #expect(payload.git_branch == "feature/claude-hooks")
+    }
+
+    @Test("PricingTable correctly calculates cost for Claude Fable 5 models")
+    func fablePricingCalculation() {
+        let usage = ClaudeLogLine.Usage(
+            input_tokens: 1000,
+            output_tokens: 500,
+            cache_creation_input_tokens: 2000,
+            cache_read_input_tokens: 10000
+        )
+        // rates: input $8/MTok, output $40/MTok, cacheRead $0.80/MTok, cacheWrite $10/MTok
+        // (1000 * 8 + 500 * 40 + 10000 * 0.8 + 2000 * 10) / 1,000,000
+        // (8000 + 20000 + 8000 + 20000) / 1,000,000 = 56000 / 1,000,000 = 0.056
+        let cost = PricingTable.cost(model: "claude-fable-5-1[1m]", usage: usage)
+        #expect(abs(cost - 0.056) < 0.0001)
     }
 
     @Test("SessionAgg merges live total cost and preserves max value")
@@ -67,7 +82,7 @@ struct ClaudeIntegrationTests {
             sessionId: id,
             project: "Flightdeck",
             branch: "main",
-            model: "claude-3-5-sonnet",
+            model: "claude-fable-5",
             contextTokens: 12000,
             totalCostUsd: 0.88,
             lastFile: "Sources/Flightdeck/App.swift",
@@ -79,7 +94,7 @@ struct ClaudeIntegrationTests {
         let sessions = db.fetchLiveSessions()
         let match = sessions.first { $0.sessionId == id }
         #expect(match != nil)
-        #expect(match?.model == "claude-3-5-sonnet")
+        #expect(match?.model == "claude-fable-5")
         #expect(match?.contextTokens == 12000)
         #expect(match?.totalCostUsd == 0.88)
     }

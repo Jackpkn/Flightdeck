@@ -59,6 +59,18 @@ struct SessionAgg: Identifiable {
         return costLedger.reduce(0) { $0 + $1.1 }
     }
 
+    var friendlyModelName: String {
+        let m = model.lowercased()
+        if m.contains("fable-5-1") || m.contains("fable 5.1") { return "Fable 5.1" }
+        if m.contains("fable-5") || m.contains("fable 5") { return "Fable 5" }
+        if m.contains("fable") { return "Fable" }
+        if m.contains("mythos") { return "Mythos" }
+        if m.contains("opus-5") || m.contains("opus 5") { return "Opus 5" }
+        if m.contains("sonnet-5") || m.contains("sonnet 5") { return "Sonnet 5" }
+        if m.contains("haiku") { return "Haiku" }
+        return model.isEmpty ? "model unknown" : model
+    }
+
     var isActive: Bool {
         guard let lastSeen else { return false }
         return lastSeen.timeIntervalSinceNow > -180

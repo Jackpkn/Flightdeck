@@ -94,7 +94,7 @@ private struct SessionCard: View {
                     RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 8, height: 8)
                     Text(session.project).font(Theme.ui(15, weight: .semibold))
                 }
-                Text(session.model.isEmpty ? "model unknown" : session.model)
+                Text(session.friendlyModelName)
                     .font(Theme.mono(11)).foregroundStyle(Theme.ink3)
             }
             Spacer()
