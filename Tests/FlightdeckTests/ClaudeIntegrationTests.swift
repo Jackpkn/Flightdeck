@@ -138,4 +138,61 @@ struct ClaudeIntegrationTests {
         #expect(match?.toolName == "Edit")
         #expect(match?.detail == "Sources/Flightdeck/CLI.swift")
     }
+
+    @Test("Message turn usage decodes thinking tokens and cache tokens properly from JSON")
+    func messageTurnUsageDecoding() throws {
+        let json = """
+        {
+            "type": "assistant",
+            "sessionId": "sess-tokens-123",
+            "message": {
+                "model": "claude-sonnet-5",
+                "usage": {
+                    "input_tokens": 12,
+                    "output_tokens": 850,
+                    "cache_creation_input_tokens": 42000,
+                    "cache_read_input_tokens": 18000,
+                    "output_tokens_details": {
+                        "thinking_tokens": 340
+                    }
+                }
+            }
+        }
+        """
+
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ClaudeLogLine.self, from: data)
+
+        #expect(entry.message?.model == "claude-sonnet-5")
+        #expect(entry.message?.usage?.input_tokens == 12)
+        #expect(entry.message?.usage?.output_tokens == 850)
+        #expect(entry.message?.usage?.cache_creation_input_tokens == 42000)
+        #expect(entry.message?.usage?.cache_read_input_tokens == 18000)
+        #expect(entry.message?.usage?.output_tokens_details?.thinking_tokens == 340)
+    }
+
+    @Test("SessionAgg calculates total tokens and cache hit ratio accurately")
+    func sessionAggTokenMetrics() {
+        var agg = SessionAgg(id: "sess-calc-1", project: "Flightdeck")
+        agg.inputTokens = 1000
+        agg.outputTokens = 500
+        agg.thinkingTokens = 200
+        agg.cacheReadTokens = 9000
+        agg.cacheCreationTokens = 4000
+
+        #expect(agg.totalTokens == 14700)
+        // Cache hit ratio = 9000 / (9000 + 1000) = 0.90 (90%)
+        #expect(abs(agg.cacheHitRatio - 0.90) < 0.001)
+
+        var modelSummary = ModelUsageSummary()
+        modelSummary.inputTokens = 500
+        modelSummary.outputTokens = 100
+        modelSummary.thinkingTokens = 50
+        modelSummary.costUSD = 0.12
+        #expect(modelSummary.totalTokens == 650)
+        agg.modelUsages["claude-sonnet-5"] = modelSummary
+
+        #expect(agg.modelUsages["claude-sonnet-5"]?.costUSD == 0.12)
+    }
 }
+

@@ -17,6 +17,7 @@ final class DashboardStore {
     private(set) var sessions: [String: SessionAgg] = [:]
     private(set) var activity: [ActivityEntry] = []
     private(set) var costEvents: [CostEvent] = []
+    var inspectedSession: SessionAgg? = nil
 
     private var offsets: [String: UInt64] = [:]
     private let decoder = JSONDecoder()
@@ -200,6 +201,9 @@ final class DashboardStore {
                 agg.liveTotalCost = record.totalCostUsd
             }
             sessions[record.sessionId] = agg
+            if inspectedSession?.id == record.sessionId {
+                inspectedSession = agg
+            }
         }
     }
 
@@ -289,15 +293,34 @@ final class DashboardStore {
             let lastCost = proj["lastCost"] as? Double ?? 0
 
             var agg = sessions[lastSessionId] ?? SessionAgg(id: lastSessionId, project: URL(fileURLWithPath: path).lastPathComponent)
+            agg.cwd = path
             if lastCost > 0 {
                 agg.liveTotalCost = max(agg.liveTotalCost ?? 0, lastCost)
             }
+            if let lastInput = proj["lastTotalInputTokens"] as? Int { agg.inputTokens = max(agg.inputTokens, lastInput) }
+            if let lastOutput = proj["lastTotalOutputTokens"] as? Int { agg.outputTokens = max(agg.outputTokens, lastOutput) }
+            if let lastCacheCreation = proj["lastTotalCacheCreationInputTokens"] as? Int { agg.cacheCreationTokens = max(agg.cacheCreationTokens, lastCacheCreation) }
+            if let lastCacheRead = proj["lastTotalCacheReadInputTokens"] as? Int { agg.cacheReadTokens = max(agg.cacheReadTokens, lastCacheRead) }
+
             if let modelUsage = proj["lastModelUsage"] as? [String: Any] {
                 if let firstModel = modelUsage.keys.first, agg.model.isEmpty {
                     agg.model = firstModel
                 }
+                for (modelName, rawVal) in modelUsage {
+                    guard let u = rawVal as? [String: Any] else { continue }
+                    var summary = agg.modelUsages[modelName] ?? ModelUsageSummary()
+                    summary.inputTokens = max(summary.inputTokens, u["inputTokens"] as? Int ?? 0)
+                    summary.outputTokens = max(summary.outputTokens, u["outputTokens"] as? Int ?? 0)
+                    summary.cacheReadTokens = max(summary.cacheReadTokens, u["cacheReadInputTokens"] as? Int ?? 0)
+                    summary.cacheCreationTokens = max(summary.cacheCreationTokens, u["cacheCreationInputTokens"] as? Int ?? 0)
+                    summary.costUSD = max(summary.costUSD, u["costUSD"] as? Double ?? 0.0)
+                    agg.modelUsages[modelName] = summary
+                }
             }
             sessions[lastSessionId] = agg
+            if inspectedSession?.id == lastSessionId {
+                inspectedSession = agg
+            }
         }
     }
 
@@ -350,7 +373,10 @@ final class DashboardStore {
         let ts = entry.timestamp.flatMap(isoFormatter.date(from:)) ?? Date()
 
         var agg = sessions[sessionId] ?? SessionAgg(id: sessionId, project: projectHint)
-        if let cwd = entry.cwd { agg.project = Self.friendlyName(fromCwd: cwd) }
+        if let cwd = entry.cwd {
+            agg.cwd = cwd
+            agg.project = Self.friendlyName(fromCwd: cwd)
+        }
         if let branch = entry.gitBranch { agg.branch = branch }
         agg.lastSeen = max(agg.lastSeen ?? .distantPast, ts)
 
@@ -370,25 +396,67 @@ final class DashboardStore {
             if let firstModel = modelUsage.keys.first, !firstModel.isEmpty {
                 agg.model = firstModel
             }
+            for (modelName, mUsage) in modelUsage {
+                var summary = agg.modelUsages[modelName] ?? ModelUsageSummary()
+                if let it = mUsage.inputTokens { summary.inputTokens = max(summary.inputTokens, it) }
+                if let ot = mUsage.outputTokens { summary.outputTokens = max(summary.outputTokens, ot) }
+                if let cr = mUsage.cacheReadInputTokens { summary.cacheReadTokens = max(summary.cacheReadTokens, cr) }
+                if let cc = mUsage.cacheCreationInputTokens { summary.cacheCreationTokens = max(summary.cacheCreationTokens, cc) }
+                if let cost = mUsage.costUSD { summary.costUSD = max(summary.costUSD, cost) }
+                agg.modelUsages[modelName] = summary
+            }
             let sumFromUsage = modelUsage.values.compactMap(\.costUSD).reduce(0, +)
             if sumFromUsage > 0 {
                 agg.liveTotalCost = max(agg.liveTotalCost ?? 0, sumFromUsage)
             }
+            let sumIn = agg.modelUsages.values.map(\.inputTokens).reduce(0, +)
+            let sumOut = agg.modelUsages.values.map(\.outputTokens).reduce(0, +)
+            let sumCr = agg.modelUsages.values.map(\.cacheReadTokens).reduce(0, +)
+            let sumCc = agg.modelUsages.values.map(\.cacheCreationTokens).reduce(0, +)
+            if sumIn > 0 { agg.inputTokens = max(agg.inputTokens, sumIn) }
+            if sumOut > 0 { agg.outputTokens = max(agg.outputTokens, sumOut) }
+            if sumCr > 0 { agg.cacheReadTokens = max(agg.cacheReadTokens, sumCr) }
+            if sumCc > 0 { agg.cacheCreationTokens = max(agg.cacheCreationTokens, sumCc) }
         }
 
         // 3. Message turn usage: set model and tokens from the JSON
         if let usage = entry.message?.usage {
-            if let model = entry.message?.model, !model.isEmpty {
-                agg.model = model
+            let turnModel = entry.message?.model ?? agg.model
+            if !turnModel.isEmpty {
+                agg.model = turnModel
             }
-            agg.contextTokens = (usage.input_tokens ?? 0)
-                + (usage.cache_read_input_tokens ?? 0)
-                + (usage.cache_creation_input_tokens ?? 0)
+            let inT = usage.input_tokens ?? 0
+            let outT = usage.output_tokens ?? 0
+            let thinkT = usage.output_tokens_details?.thinking_tokens ?? 0
+            let readT = usage.cache_read_input_tokens ?? 0
+            let createT = usage.cache_creation_input_tokens ?? 0
+
+            agg.inputTokens += inT
+            agg.outputTokens += outT
+            agg.thinkingTokens += thinkT
+            agg.cacheReadTokens += readT
+            agg.cacheCreationTokens += createT
+
+            if !turnModel.isEmpty {
+                var summary = agg.modelUsages[turnModel] ?? ModelUsageSummary()
+                summary.inputTokens += inT
+                summary.outputTokens += outT
+                summary.thinkingTokens += thinkT
+                summary.cacheReadTokens += readT
+                summary.cacheCreationTokens += createT
+                agg.modelUsages[turnModel] = summary
+            }
+
+            agg.contextTokens = inT + readT + createT
+            if agg.contextTokens > agg.contextTotalTokens {
+                agg.contextTotalTokens = max(agg.contextTotalTokens, agg.contextTokens > 200_000 ? 1_000_000 : 200_000)
+            }
         }
 
         if let blocks = entry.message?.content {
             for block in blocks {
                 if block.type == "tool_use" {
+                    agg.toolUseCount += 1
                     if let path = block.input?.file_path {
                         agg.lastFile = path
                         let name = URL(fileURLWithPath: path).lastPathComponent
@@ -419,6 +487,9 @@ final class DashboardStore {
         }
 
         sessions[sessionId] = agg
+        if inspectedSession?.id == sessionId {
+            inspectedSession = agg
+        }
         if costEvents.count > 300 {
             costEvents.removeFirst(costEvents.count - 300)
         }

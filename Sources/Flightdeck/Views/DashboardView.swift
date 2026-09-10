@@ -83,9 +83,14 @@ struct DashboardView: View {
                 VitalsDetailModal(category: cat, onDismiss: { selectedVitalCategory = nil })
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
+            if let session = store.inspectedSession {
+                SessionDetailModal(session: session, onDismiss: { store.inspectedSession = nil })
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: processActionTarget?.id)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: selectedVitalCategory?.id)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: store.inspectedSession?.id)
         // Window level, not panel level: a delete triggered from any list gets
         // the same confirmation in the same place.
         .overlay(alignment: .bottom) {

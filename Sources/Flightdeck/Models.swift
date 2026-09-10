@@ -23,6 +23,7 @@ struct ClaudeLogLine: Decodable {
         let cacheReadInputTokens: Int?
         let cacheCreationInputTokens: Int?
         let costUSD: Double?
+        let webSearchRequests: Int?
     }
 
     struct MessagePayload: Decodable {
@@ -36,6 +37,11 @@ struct ClaudeLogLine: Decodable {
         let output_tokens: Int?
         let cache_creation_input_tokens: Int?
         let cache_read_input_tokens: Int?
+        let output_tokens_details: OutputTokensDetails?
+    }
+
+    struct OutputTokensDetails: Decodable {
+        let thinking_tokens: Int?
     }
 
     struct ContentBlock: Decodable {
@@ -51,12 +57,33 @@ struct ClaudeLogLine: Decodable {
     }
 }
 
+/// Token and cost breakdown per model directly parsed from Claude Code telemetry JSON.
+struct ModelUsageSummary: Codable, Equatable, Hashable {
+    var inputTokens: Int = 0
+    var outputTokens: Int = 0
+    var thinkingTokens: Int = 0
+    var cacheReadTokens: Int = 0
+    var cacheCreationTokens: Int = 0
+    var costUSD: Double = 0.0
+
+    var totalTokens: Int {
+        inputTokens + outputTokens + thinkingTokens + cacheReadTokens + cacheCreationTokens
+    }
+
+    var cacheHitRatio: Double {
+        let total = cacheReadTokens + inputTokens
+        guard total > 0 else { return 0 }
+        return Double(cacheReadTokens) / Double(total)
+    }
+}
+
 /// Live aggregate for one session, rebuilt incrementally as its log file grows.
 struct SessionAgg: Identifiable {
     let id: String
     var project: String
     var branch: String = ""
     var model: String = ""
+    var cwd: String = ""
     var lastFile: String = ""
     var lastSeen: Date?
     var lastErrorAt: Date?
@@ -66,11 +93,40 @@ struct SessionAgg: Identifiable {
     var costLedger: [(Date, Double)] = []
     var liveTotalCost: Double? = nil
 
+    // Detailed token telemetry
+    var inputTokens: Int = 0
+    var outputTokens: Int = 0
+    var thinkingTokens: Int = 0
+    var cacheReadTokens: Int = 0
+    var cacheCreationTokens: Int = 0
+
+    // Per-model breakdown directly from JSON
+    var modelUsages: [String: ModelUsageSummary] = [:]
+
+    // Activity and tools telemetry
+    var toolUseCount: Int = 0
+
+    var totalTokens: Int {
+        let sum = inputTokens + outputTokens + thinkingTokens + cacheReadTokens + cacheCreationTokens
+        if sum > 0 { return sum }
+        return modelUsages.values.map(\.totalTokens).reduce(0, +)
+    }
+
+    var cacheHitRatio: Double {
+        let total = cacheReadTokens + inputTokens
+        guard total > 0 else { return 0 }
+        return Double(cacheReadTokens) / Double(total)
+    }
+
     /// Total cost from Claude Code's JSON (cost-state, statusline, or ~/.claude.json).
     /// Uses real cost from JSON rather than relying on hardcoded price estimations.
     var totalCost: Double {
         if let liveTotalCost, liveTotalCost > 0 {
             return max(liveTotalCost, costLedger.reduce(0) { $0 + $1.1 })
+        }
+        let modelSum = modelUsages.values.map(\.costUSD).reduce(0, +)
+        if modelSum > 0 {
+            return max(modelSum, costLedger.reduce(0) { $0 + $1.1 })
         }
         return costLedger.reduce(0) { $0 + $1.1 }
     }
