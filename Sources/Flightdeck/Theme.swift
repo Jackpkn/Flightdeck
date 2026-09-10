@@ -45,7 +45,7 @@ enum Theme {
         Color(hex: 0x0c4a6e),
     ]
 
-    static let good     = Color(hex: 0x00f0ff) // clean cyan for nominal state
+    static let good     = Color(hex: 0x10b981) // clean emerald green for healthy / nominal state
     static let warning  = Color(hex: 0xffb800) // amber / orange — strictly cost & budget semantics
     static let warn     = warning
     static let amber    = warning

@@ -182,11 +182,11 @@ struct CockpitHubView: View {
         return HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(isClear ? Theme.accent.opacity(0.15) : Theme.critical.opacity(0.15))
+                    .fill(isClear ? Theme.good.opacity(0.12) : Theme.critical.opacity(0.12))
                     .frame(width: 32, height: 32)
                 Image(systemName: isClear ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
                     .font(.system(size: 17))
-                    .foregroundStyle(isClear ? Theme.accent : Theme.critical)
+                    .foregroundStyle(isClear ? Theme.good : Theme.critical)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -214,18 +214,18 @@ struct CockpitHubView: View {
             // Status Badge
             HStack(spacing: 5) {
                 Circle()
-                    .fill(isClear ? Theme.accent : Theme.critical)
+                    .fill(isClear ? Theme.good : Theme.critical)
                     .frame(width: 6, height: 6)
                 Text(isClear ? "HEALTHY" : "ATTENTION")
                     .font(Theme.mono(9.5, weight: .bold))
-                    .foregroundStyle(isClear ? Theme.accent : Theme.critical)
+                    .foregroundStyle(isClear ? Theme.good : Theme.critical)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background((isClear ? Theme.accent : Theme.critical).opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+            .background((isClear ? Theme.good : Theme.critical).opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
             .overlay(
                 RoundedRectangle(cornerRadius: 5)
-                    .stroke((isClear ? Theme.accent : Theme.critical).opacity(0.3), lineWidth: 0.8)
+                    .stroke((isClear ? Theme.good : Theme.critical).opacity(0.25), lineWidth: 0.8)
             )
         }
         .padding(.horizontal, 12)
@@ -248,7 +248,6 @@ struct CockpitHubView: View {
                 detail: "\(ProcessInfo.processInfo.activeProcessorCount) Cores",
                 valueText: String(format: "%.1f%%", cpu),
                 fraction: min(1.0, max(0.0, cpu / 100.0)),
-                history: monitor.cpuHistory,
                 color: cpu > 80 ? Theme.critical : (cpu > 60 ? Theme.warning : Theme.accent)
             )
 
@@ -257,7 +256,6 @@ struct CockpitHubView: View {
                 detail: "Apple Silicon",
                 valueText: String(format: "%.1f%%", gpu),
                 fraction: min(1.0, max(0.0, gpu / 100.0)),
-                history: monitor.gpuHistory,
                 color: gpu > 80 ? Theme.critical : Theme.accent
             )
 
@@ -266,7 +264,6 @@ struct CockpitHubView: View {
                 detail: "\(ByteCountFormatter.string(fromByteCount: Int64(usedMem), countStyle: .memory)) / \(ByteCountFormatter.string(fromByteCount: Int64(totalMem), countStyle: .memory))",
                 valueText: String(format: "%.0f%%", memPercent),
                 fraction: min(1.0, max(0.0, memPercent / 100.0)),
-                history: monitor.memoryHistory,
                 color: memPercent > 85 ? Theme.critical : (memPercent > 70 ? Theme.warning : Theme.accent)
             )
         }
@@ -274,9 +271,9 @@ struct CockpitHubView: View {
         .padding(.vertical, 4)
     }
 
-    private func telemetryBarRow(label: String, detail: String, valueText: String, fraction: Double, history: [Double] = [], color: Color) -> some View {
+    private func telemetryBarRow(label: String, detail: String, valueText: String, fraction: Double, color: Color) -> some View {
         VStack(spacing: 4) {
-            HStack(spacing: 6) {
+            HStack {
                 Text(label)
                     .font(Theme.ui(10.5, weight: .semibold))
                     .foregroundStyle(Theme.ink2)
@@ -284,10 +281,6 @@ struct CockpitHubView: View {
                     .font(Theme.mono(9.5))
                     .foregroundStyle(Theme.ink3)
                 Spacer()
-                if history.count > 1 {
-                    miniSparkline(history: history, color: color)
-                        .frame(width: 44, height: 12)
-                }
                 Text(valueText)
                     .font(Theme.mono(11, weight: .bold))
                     .foregroundStyle(color)
@@ -314,22 +307,6 @@ struct CockpitHubView: View {
         }
     }
 
-    private func miniSparkline(history: [Double], color: Color) -> some View {
-        Canvas { context, size in
-            guard history.count > 1 else { return }
-            let maxV = max(history.max() ?? 1, 1)
-            let stepX = size.width / CGFloat(history.count - 1)
-            var path = Path()
-            for (i, v) in history.enumerated() {
-                let x = CGFloat(i) * stepX
-                let y = size.height - (CGFloat(min(1.0, max(0.0, v / maxV))) * (size.height - 2)) - 1
-                if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
-                else { path.addLine(to: CGPoint(x: x, y: y)) }
-            }
-            context.stroke(path, with: .color(color.opacity(0.75)), lineWidth: 1.2)
-        }
-    }
-
     private var subsystemMatrix: some View {
         let orphans = zombies.orphans.count
         let devPorts = ports.ports.filter(\.isDevPort).count
@@ -342,7 +319,7 @@ struct CockpitHubView: View {
                     label: "RUNAWAY PROCESSES",
                     value: orphans > 0 ? "\(orphans) RUNAWAY" : "0 DETECTED",
                     status: orphans > 0 ? "Problem" : "Clear",
-                    color: orphans > 0 ? Theme.critical : Theme.accent
+                    color: orphans > 0 ? Theme.critical : Theme.good
                 )
 
                 subsystemCard(
@@ -350,7 +327,7 @@ struct CockpitHubView: View {
                     label: "OPEN DEV PORTS",
                     value: "\(devPorts) LISTENING",
                     status: ":3000 · :5173",
-                    color: devPorts > 0 ? Theme.warning : Theme.accent
+                    color: devPorts > 0 ? Theme.warning : Theme.ink2
                 )
             }
 
@@ -359,8 +336,8 @@ struct CockpitHubView: View {
                     icon: "archivebox.fill",
                     label: "BUILD CACHES",
                     value: ByteCountFormatter.string(fromByteCount: cruft, countStyle: .file),
-                    status: "Cleanable",
-                    color: Theme.accent
+                    status: cruft > 0 ? "Reclaimable" : "Clean",
+                    color: cruft > 0 ? Theme.warning : Theme.good
                 )
 
                 subsystemCard(
@@ -408,7 +385,7 @@ struct CockpitHubView: View {
         HStack(spacing: 7) {
             Image(systemName: "sparkles")
                 .font(.system(size: 10))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(Theme.ink3)
             Text("Click 'Scan System' to inspect build caches, runaway processes, and open ports.")
                 .font(Theme.ui(10))
                 .foregroundStyle(Theme.ink3)
@@ -417,8 +394,8 @@ struct CockpitHubView: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.accent.opacity(0.18), lineWidth: 0.5))
+        .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(Theme.hairline, lineWidth: 0.5))
     }
 
 
@@ -599,7 +576,7 @@ struct CockpitHubView: View {
                     value: cruftStr,
                     detail: "DerivedData, npm cache, CocoaPods",
                     isArmed: $armCruft,
-                    color: Theme.accent
+                    color: cruftBytes > 0 ? Theme.warning : Theme.good
                 )
 
                 // Module 2: Runaway Processes
@@ -610,7 +587,7 @@ struct CockpitHubView: View {
                     value: threatCount > 0 ? "\(threatCount) RUNAWAY" : "0 DETECTED",
                     detail: "Zombie tasks & runaway daemons",
                     isArmed: $armThreats,
-                    color: threatCount > 0 ? Theme.critical : Theme.accent
+                    color: threatCount > 0 ? Theme.critical : Theme.good
                 )
 
                 // Module 3: System Memory
@@ -620,7 +597,7 @@ struct CockpitHubView: View {
                     value: "HEALTHY",
                     detail: "Inactive Mach pages & memory pressure",
                     isArmed: $armPerformance,
-                    color: Theme.accent
+                    color: Theme.good
                 )
 
                 // Module 4: Open Dev Ports
@@ -631,7 +608,7 @@ struct CockpitHubView: View {
                     value: devPorts > 0 ? "\(devPorts) LISTENING" : "0 LISTENING",
                     detail: "Active dev sockets (:3000, :5173)",
                     isArmed: $armPorts,
-                    color: devPorts > 0 ? Theme.warning : Theme.accent
+                    color: devPorts > 0 ? Theme.warning : Theme.good
                 )
 
                 // Module 5: Temporary Files
@@ -641,7 +618,7 @@ struct CockpitHubView: View {
                     value: "READY",
                     detail: "Simulator runtimes & old caches",
                     isArmed: $armClutter,
-                    color: Theme.accent
+                    color: Theme.good
                 )
             }
 
@@ -711,11 +688,11 @@ struct CockpitHubView: View {
                 HStack(spacing: 6) {
                     Text(title)
                         .font(Theme.mono(10.5, weight: .bold))
-                        .foregroundStyle(color)
+                        .foregroundStyle(Theme.ink1)
                     Spacer()
                     Text(value)
                         .font(Theme.mono(11.5, weight: .bold))
-                        .foregroundStyle(Theme.ink1)
+                        .foregroundStyle(color)
                 }
                 Text(detail)
                     .font(Theme.mono(9))
@@ -943,11 +920,11 @@ struct CockpitHubView: View {
 
     private func stageColor(_ stage: SmartStage) -> Color {
         switch stage {
-        case .junk: return Theme.accent
+        case .junk: return Theme.good
         case .threats: return Theme.critical
         case .performance: return Theme.accent
         case .ports: return Theme.warning
-        case .clutter: return Theme.accent
+        case .clutter: return Theme.good
         }
     }
 
