@@ -208,7 +208,7 @@ struct DashboardView: View {
                 }
             }
         case .sessions:
-            SessionBoard()
+            SessionsTelemetryPanel()
         case .spend:
             SpendByProjectPanel()
         }

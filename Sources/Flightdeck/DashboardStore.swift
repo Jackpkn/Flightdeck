@@ -302,6 +302,19 @@ final class DashboardStore {
             if let lastCacheCreation = proj["lastTotalCacheCreationInputTokens"] as? Int { agg.cacheCreationTokens = max(agg.cacheCreationTokens, lastCacheCreation) }
             if let lastCacheRead = proj["lastTotalCacheReadInputTokens"] as? Int { agg.cacheReadTokens = max(agg.cacheReadTokens, lastCacheRead) }
 
+            if let linesAdded = proj["lastLinesAdded"] as? Int { agg.linesAdded = max(agg.linesAdded, linesAdded) }
+            if let linesRemoved = proj["lastLinesRemoved"] as? Int { agg.linesRemoved = max(agg.linesRemoved, linesRemoved) }
+            if let apiDur = proj["lastAPIDuration"] as? Int { agg.apiDurationMs = max(agg.apiDurationMs, apiDur) }
+            if let toolDur = proj["lastToolDuration"] as? Int { agg.toolDurationMs = max(agg.toolDurationMs, toolDur) }
+            if let dur = proj["lastDuration"] as? Int { agg.totalDurationMs = max(agg.totalDurationMs, dur) }
+            if let webSearches = proj["lastTotalWebSearchRequests"] as? Int { agg.webSearchRequests = max(agg.webSearchRequests, webSearches) }
+            if let ver = proj["lastVersionBase"] as? String, !ver.isEmpty { agg.versionBase = ver }
+            if let mcp = proj["mcpServers"] as? [String: Any] {
+                agg.mcpServers = Array(mcp.keys.sorted())
+            } else if let enabledMcp = proj["enabledMcpjsonServers"] as? [String] {
+                agg.mcpServers = enabledMcp
+            }
+
             if let modelUsage = proj["lastModelUsage"] as? [String: Any] {
                 if let firstModel = modelUsage.keys.first, agg.model.isEmpty {
                     agg.model = firstModel
@@ -484,6 +497,25 @@ final class DashboardStore {
                     )
                 }
             }
+        }
+
+        // 4. Ingest specialized telemetry types (ai-title, mode, permission-mode, last-prompt, pr-link)
+        if let title = entry.aiTitle, !title.isEmpty {
+            agg.aiTitle = title
+        }
+        if let mode = entry.mode, !mode.isEmpty {
+            agg.mode = mode
+        }
+        if let perm = entry.permissionMode, !perm.isEmpty {
+            agg.permissionMode = perm
+        }
+        if let prompt = entry.lastPrompt, !prompt.isEmpty {
+            agg.lastPrompt = prompt
+        }
+        if let pr = entry.prUrl, !pr.isEmpty {
+            agg.prUrl = pr
+            agg.prNumber = entry.prNumber
+            if let repo = entry.prRepository { agg.prRepository = repo }
         }
 
         sessions[sessionId] = agg

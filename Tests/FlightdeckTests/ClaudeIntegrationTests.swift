@@ -194,5 +194,53 @@ struct ClaudeIntegrationTests {
 
         #expect(agg.modelUsages["claude-sonnet-5"]?.costUSD == 0.12)
     }
+
+    @Test("Decodes ai-title, mode, permission-mode, last-prompt, and pr-link records")
+    func specializedRecordsDecoding() throws {
+        let titleJson = """
+        {"type": "ai-title", "aiTitle": "Implement mission control", "sessionId": "sess-title-1"}
+        """
+        let titleEntry = try JSONDecoder().decode(ClaudeLogLine.self, from: #require(titleJson.data(using: .utf8)))
+        #expect(titleEntry.aiTitle == "Implement mission control")
+
+        let modeJson = """
+        {"type": "mode", "mode": "plan", "sessionId": "sess-mode-1"}
+        """
+        let modeEntry = try JSONDecoder().decode(ClaudeLogLine.self, from: #require(modeJson.data(using: .utf8)))
+        #expect(modeEntry.mode == "plan")
+
+        let permJson = """
+        {"type": "permission-mode", "permissionMode": "auto", "sessionId": "sess-perm-1"}
+        """
+        let permEntry = try JSONDecoder().decode(ClaudeLogLine.self, from: #require(permJson.data(using: .utf8)))
+        #expect(permEntry.permissionMode == "auto")
+
+        let promptJson = """
+        {"type": "last-prompt", "lastPrompt": "add mission control tab", "sessionId": "sess-prompt-1"}
+        """
+        let promptEntry = try JSONDecoder().decode(ClaudeLogLine.self, from: #require(promptJson.data(using: .utf8)))
+        #expect(promptEntry.lastPrompt == "add mission control tab")
+
+        let prJson = """
+        {"type": "pr-link", "prUrl": "https://github.com/org/repo/pull/42", "prNumber": 42, "prRepository": "org/repo", "sessionId": "sess-pr-1"}
+        """
+        let prEntry = try JSONDecoder().decode(ClaudeLogLine.self, from: #require(prJson.data(using: .utf8)))
+        #expect(prEntry.prUrl == "https://github.com/org/repo/pull/42")
+        #expect(prEntry.prNumber == 42)
+        #expect(prEntry.prRepository == "org/repo")
+    }
+
+    @Test("SessionAgg calculates netLines and latency ratio")
+    func sessionAggVelocityAndLatency() {
+        var agg = SessionAgg(id: "sess-vel-1", project: "Flightdeck")
+        agg.linesAdded = 150
+        agg.linesRemoved = 30
+        agg.apiDurationMs = 8000
+        agg.toolDurationMs = 2000
+
+        #expect(agg.netLines == 120)
+        #expect(abs(agg.apiTimeRatio - 0.80) < 0.001)
+    }
 }
+
 

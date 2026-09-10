@@ -17,6 +17,15 @@ struct ClaudeLogLine: Decodable {
     let costUSD: Double?
     let modelUsage: [String: ModelUsage]?
 
+    // Additional telemetry from specialized records
+    let aiTitle: String?
+    let mode: String?
+    let permissionMode: String?
+    let lastPrompt: String?
+    let prUrl: String?
+    let prNumber: Int?
+    let prRepository: String?
+
     struct ModelUsage: Decodable {
         let inputTokens: Int?
         let outputTokens: Int?
@@ -105,6 +114,46 @@ struct SessionAgg: Identifiable {
 
     // Activity and tools telemetry
     var toolUseCount: Int = 0
+
+    // Session intent, mode & title
+    var aiTitle: String = ""
+    var mode: String = ""
+    var permissionMode: String = ""
+    var lastPrompt: String = ""
+
+    // Git PR integrations
+    var prUrl: String = ""
+    var prNumber: Int? = nil
+    var prRepository: String = ""
+
+    // Code velocity & project impact
+    var linesAdded: Int = 0
+    var linesRemoved: Int = 0
+
+    // Latency & performance split
+    var apiDurationMs: Int = 0
+    var toolDurationMs: Int = 0
+    var totalDurationMs: Int = 0
+
+    // Web & MCP ecosystem
+    var webSearchRequests: Int = 0
+    var mcpServers: [String] = []
+    var versionBase: String = ""
+
+    var displayTitle: String {
+        if !aiTitle.isEmpty { return aiTitle }
+        return project
+    }
+
+    var netLines: Int {
+        linesAdded - linesRemoved
+    }
+
+    var apiTimeRatio: Double {
+        let sum = apiDurationMs + toolDurationMs
+        guard sum > 0 else { return 0 }
+        return Double(apiDurationMs) / Double(sum)
+    }
 
     var totalTokens: Int {
         let sum = inputTokens + outputTokens + thinkingTokens + cacheReadTokens + cacheCreationTokens
