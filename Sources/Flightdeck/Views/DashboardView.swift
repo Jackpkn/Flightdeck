@@ -12,7 +12,10 @@ struct DashboardView: View {
     @State private var showGraph = false
     @State private var showPalette = false
     @State private var tab: Tab = .overview
-    @State private var frames: [String: CGRect] = [:]
+    private final class FrameBox {
+        var map: [String: CGRect] = [:]
+    }
+    @State private var frameBox = FrameBox()
     @State private var particles: [FountainParticle] = []
     @State private var editing: FileEditTarget?
     @State private var processActionTarget: ProcessUsage?
@@ -100,7 +103,9 @@ struct DashboardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .coordinateSpace(name: "dashboard")
                     .overlay(EmitterTrailOverlay(particles: particles, color: Theme.accent).allowsHitTesting(false))
-                    .onPreferenceChange(FramePreferenceKey.self) { frames = $0 }
+                    .onPreferenceChange(FramePreferenceKey.self) { newFrames in
+                        frameBox.map = newFrames
+                    }
             }
             .scrollIndicators(.hidden)
         }
@@ -115,8 +120,7 @@ struct DashboardView: View {
         switch tab {
         case .overview:
             VStack(alignment: .leading, spacing: 18) {
-                CockpitCarePanel()
-                CockpitAvionicsDeck()
+                CockpitHubView()
                 StatRow()
                 SessionBoard()
             }
@@ -217,11 +221,11 @@ struct DashboardView: View {
 
     private func spawnParticle() {
         guard let event = store.costEvents.last,
-              let end = frames["__ticker__"] else { return }
+              let end = frameBox.map["__ticker__"] else { return }
         // Fall back to the board's own frame when this event's session isn't
         // one of the 3 currently displayed cards — the effect should still be
         // visible for any real cost event, not just ones tied to a rendered card.
-        guard let start = frames[event.sessionId] ?? frames["__board__"] else { return }
+        guard let start = frameBox.map[event.sessionId] ?? frameBox.map["__board__"] else { return }
         particles.append(FountainParticle(
             start: CGPoint(x: start.midX, y: start.midY),
             end: CGPoint(x: end.midX, y: end.midY),
@@ -236,52 +240,18 @@ struct DashboardView: View {
     private var ambientGround: some View {
         ZStack {
             Theme.page
-            Canvas { context, size in
-                let spacing: CGFloat = 20
-                var x: CGFloat = 0
-                while x < size.width {
-                    var y: CGFloat = 0
-                    while y < size.height {
-                        context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 1.6, height: 1.6)), with: .color(Color.white.opacity(0.06)))
-                        y += spacing
-                    }
-                    x += spacing
-                }
-            }
-            // HUD coordinate-ruler ticks along the top and left edges.
-            Canvas { context, size in
-                var x: CGFloat = 0
-                while x < size.width {
-                    context.fill(Path(CGRect(x: x, y: 0, width: 1, height: 7)), with: .color(Theme.accent.opacity(0.3)))
-                    x += 40
-                }
-                var y: CGFloat = 0
-                while y < size.height {
-                    context.fill(Path(CGRect(x: 0, y: y, width: 7, height: 1)), with: .color(Theme.accent.opacity(0.3)))
-                    y += 40
-                }
-            }
-            .allowsHitTesting(false)
             RadialGradient(
-                colors: [Theme.accent.opacity(0.10), Theme.page.opacity(0)],
+                colors: [Theme.accent.opacity(0.08), Theme.page.opacity(0)],
                 center: .init(x: 0.08, y: 0.0),
                 startRadius: 0,
                 endRadius: 640
             )
             RadialGradient(
-                colors: [Theme.claudeColor.opacity(0.06), Theme.page.opacity(0)],
+                colors: [Theme.claudeColor.opacity(0.05), Theme.page.opacity(0)],
                 center: .init(x: 1.0, y: 0.15),
                 startRadius: 0,
                 endRadius: 560
             )
-            Canvas { context, size in
-                var y: CGFloat = 0
-                while y < size.height {
-                    context.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: .color(Color.white.opacity(0.045)))
-                    y += 3
-                }
-            }
-            .allowsHitTesting(false)
         }
         .ignoresSafeArea()
     }

@@ -203,15 +203,13 @@ private struct SingleGauge: View {
             let tickColor = frac > 0.8 ? Theme.critical.opacity(isMajor ? 0.8 : 0.4) : color.opacity(isMajor ? 0.5 : 0.2)
             context.stroke(tick, with: .color(tickColor), lineWidth: isMajor ? 1.5 : 0.8)
 
-            // Major tick number labels
+            // Major tick accent marks (vector only, zero string allocation)
             if isMajor {
-                let labelR = radius - 14
-                let labelValue = Int(maxValue * frac)
-                context.draw(
-                    Text("\(labelValue)").font(Theme.mono(6.5)).foregroundColor(Theme.ink3.opacity(0.6)),
-                    at: CGPoint(x: center.x + labelR * cos(angle), y: center.y + labelR * sin(angle)),
-                    anchor: .center
-                )
+                let accentR = radius - 7
+                var accentTick = Path()
+                accentTick.move(to: CGPoint(x: center.x + accentR * cos(angle), y: center.y + accentR * sin(angle)))
+                accentTick.addLine(to: CGPoint(x: center.x + outerR * cos(angle), y: center.y + outerR * sin(angle)))
+                context.stroke(accentTick, with: .color(color), lineWidth: 2)
             }
         }
     }
