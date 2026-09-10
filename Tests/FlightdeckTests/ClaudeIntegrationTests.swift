@@ -34,20 +34,6 @@ struct ClaudeIntegrationTests {
         #expect(payload.git_branch == "feature/claude-hooks")
     }
 
-    @Test("PricingTable correctly calculates cost for Claude Fable 5 models")
-    func fablePricingCalculation() {
-        let usage = ClaudeLogLine.Usage(
-            input_tokens: 1000,
-            output_tokens: 500,
-            cache_creation_input_tokens: 2000,
-            cache_read_input_tokens: 10000
-        )
-        // rates: input $8/MTok, output $40/MTok, cacheRead $0.80/MTok, cacheWrite $10/MTok
-        // (1000 * 8 + 500 * 40 + 10000 * 0.8 + 2000 * 10) / 1,000,000
-        // (8000 + 20000 + 8000 + 20000) / 1,000,000 = 56000 / 1,000,000 = 0.056
-        let cost = PricingTable.cost(model: "claude-fable-5-1[1m]", usage: usage)
-        #expect(abs(cost - 0.056) < 0.0001)
-    }
 
     @Test("SessionAgg merges live total cost and preserves max value")
     func sessionAggCostMerging() {

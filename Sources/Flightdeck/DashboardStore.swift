@@ -376,7 +376,7 @@ final class DashboardStore {
             }
         }
 
-        // 3. Message turn usage & fallback calculation
+        // 3. Message turn usage: set model and tokens from the JSON
         if let usage = entry.message?.usage {
             if let model = entry.message?.model, !model.isEmpty {
                 agg.model = model
@@ -384,14 +384,6 @@ final class DashboardStore {
             agg.contextTokens = (usage.input_tokens ?? 0)
                 + (usage.cache_read_input_tokens ?? 0)
                 + (usage.cache_creation_input_tokens ?? 0)
-
-            let cost = PricingTable.cost(model: entry.message?.model, usage: usage)
-            if agg.liveTotalCost == nil && cost > 0 {
-                agg.costLedger.append((ts, cost))
-                let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
-                agg.costLedger.removeAll { $0.0 < cutoff }
-                costEvents.append(.init(sessionId: sessionId, amount: cost, timestamp: ts))
-            }
         }
 
         if let blocks = entry.message?.content {

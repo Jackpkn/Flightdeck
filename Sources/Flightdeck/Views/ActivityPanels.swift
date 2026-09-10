@@ -267,11 +267,7 @@ private struct LogRow: View {
     @State private var copied = false
 
     private var isAIAgent: Bool {
-        entry.text.localizedCaseInsensitiveContains("claude") ||
-        entry.text.localizedCaseInsensitiveContains("cursor") ||
-        entry.text.localizedCaseInsensitiveContains("agent") ||
-        entry.kind == .edit ||
-        entry.sessionId.hasPrefix("claude")
+        entry.sessionId != "local-terminal"
     }
 
     var body: some View {
