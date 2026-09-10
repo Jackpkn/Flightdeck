@@ -1,6 +1,5 @@
 import SwiftUI
 
-@main
 struct FlightdeckApp: App {
     @State private var store = DashboardStore()
     @State private var activityWatcher = ActivityWatcher()

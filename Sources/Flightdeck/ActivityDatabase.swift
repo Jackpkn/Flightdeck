@@ -58,8 +58,46 @@ final class ActivityDatabase {
                 columns: ["startedAt"]
             )
         }
+
+        // Phase 1: Claude Code statusline → live session snapshots
+        migrator.registerMigration("addSessionLive") { db in
+            try db.create(table: SessionLiveRecord.databaseTableName) { t in
+                t.column("sessionId", .text).primaryKey()
+                t.column("project", .text).notNull().defaults(to: "")
+                t.column("branch", .text).notNull().defaults(to: "")
+                t.column("model", .text).notNull().defaults(to: "")
+                t.column("contextTokens", .integer).notNull().defaults(to: 0)
+                t.column("totalCostUsd", .double).notNull().defaults(to: 0)
+                t.column("lastFile", .text).notNull().defaults(to: "")
+                t.column("updatedAt", .datetime).notNull()
+            }
+        }
+
+        // Phase 1: Claude Code hooks → AI event stream
+        migrator.registerMigration("addAiEvents") { db in
+            try db.create(table: AIEventRecord.databaseTableName) { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("sessionId", .text).notNull()
+                t.column("event", .text).notNull()
+                t.column("toolName", .text)
+                t.column("detail", .text)
+                t.column("timestamp", .datetime).notNull()
+            }
+            try db.create(
+                index: "ai_events_on_sessionId",
+                on: AIEventRecord.databaseTableName,
+                columns: ["sessionId"]
+            )
+            try db.create(
+                index: "ai_events_on_timestamp",
+                on: AIEventRecord.databaseTableName,
+                columns: ["timestamp"]
+            )
+        }
+
         return migrator
     }
+
 
     func save(appName: String, bundleId: String, windowTitle: String?, startedAt: Date, endedAt: Date) {
         // Sub-second blips are switch-through noise, not real usage.
@@ -135,4 +173,64 @@ final class ActivityDatabase {
             return []
         }
     }
+
+    // MARK: - Claude Code Integration: Session Live
+
+    /// Expose the underlying reader for GRDB `ValueObservation` from the GUI.
+    var reader: any DatabaseReader { dbQueue }
+
+    /// Upsert a live session record — called by the `flightdeck statusline` CLI.
+    func upsertSession(_ record: SessionLiveRecord) {
+        do {
+            try dbQueue.write { db in
+                try record.save(db, onConflict: .replace)
+            }
+        } catch {
+            print("ActivityDatabase: upsertSession failed — \(error)")
+        }
+    }
+
+    /// Fetch all live sessions, most recently updated first.
+    func fetchLiveSessions() -> [SessionLiveRecord] {
+        do {
+            return try dbQueue.read { db in
+                try SessionLiveRecord
+                    .order(Column("updatedAt").desc)
+                    .fetchAll(db)
+            }
+        } catch {
+            print("ActivityDatabase: fetchLiveSessions failed — \(error)")
+            return []
+        }
+    }
+
+    // MARK: - Claude Code Integration: AI Events
+
+    /// Insert a hook event — called by the `flightdeck hook` CLI.
+    func insertEvent(_ record: AIEventRecord) {
+        do {
+            try dbQueue.write { db in
+                var mutable = record
+                try mutable.insert(db)
+            }
+        } catch {
+            print("ActivityDatabase: insertEvent failed — \(error)")
+        }
+    }
+
+    /// Fetch recent AI events for the activity feed. Capped at `limit`.
+    func recentEvents(limit: Int = 100) -> [AIEventRecord] {
+        do {
+            return try dbQueue.read { db in
+                try AIEventRecord
+                    .order(Column("timestamp").desc)
+                    .limit(limit)
+                    .fetchAll(db)
+            }
+        } catch {
+            print("ActivityDatabase: recentEvents failed — \(error)")
+            return []
+        }
+    }
 }
+

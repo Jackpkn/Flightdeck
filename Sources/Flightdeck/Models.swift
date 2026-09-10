@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 /// One line of a Claude Code session transcript at `~/.claude/projects/<project>/<session>.jsonl`.
 /// Field names match the real on-disk schema — only the subset Flightdeck needs is decoded;
@@ -49,6 +50,14 @@ struct SessionAgg: Identifiable {
     var contextTokens: Int = 0
     /// (timestamp, cost-in-usd) for every assistant turn seen, trimmed to the last 7 days.
     var costLedger: [(Date, Double)] = []
+    var liveTotalCost: Double? = nil
+
+    var totalCost: Double {
+        if let liveTotalCost, liveTotalCost > 0 {
+            return max(liveTotalCost, costLedger.reduce(0) { $0 + $1.1 })
+        }
+        return costLedger.reduce(0) { $0 + $1.1 }
+    }
 
     var isActive: Bool {
         guard let lastSeen else { return false }
@@ -121,3 +130,54 @@ struct CostEvent: Identifiable {
     let amount: Double
     let timestamp: Date
 }
+
+// MARK: - GRDB Records for Claude Code Integration
+
+/// Persisted snapshot of a live Claude Code session, written by the `flightdeck statusline`
+/// CLI and observed by the GUI via GRDB `ValueObservation`.
+struct SessionLiveRecord: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "session_live"
+
+    var sessionId: String
+    var project: String
+    var branch: String
+    var model: String
+    var contextTokens: Int
+    var totalCostUsd: Double
+    var lastFile: String
+    var updatedAt: Date
+}
+
+/// One event from a Claude Code hook (SessionStart, Stop, PreToolUse, PostToolUse),
+/// written by the `flightdeck hook` CLI and read by the GUI for the Activity feed.
+struct AIEventRecord: Codable, FetchableRecord, MutablePersistableRecord {
+    static let databaseTableName = "ai_events"
+
+    var id: Int64?
+    var sessionId: String
+    var event: String
+    var toolName: String?
+    var detail: String?
+    var timestamp: Date
+
+    mutating func didInsert(_ inserted: InsertionSuccess) {
+        id = inserted.rowID
+    }
+}
+
+/// JSON payload piped to stdin by Claude Code's statusline feature.
+/// Fields match the documented schema as of September 2026.
+struct StatuslinePayload: Decodable {
+    let session_id: String?
+    let model: String?
+    let total_cost: Double?
+    let context_window: ContextWindow?
+    let cwd: String?
+    let git_branch: String?
+
+    struct ContextWindow: Decodable {
+        let used: Int?
+        let total: Int?
+    }
+}
+

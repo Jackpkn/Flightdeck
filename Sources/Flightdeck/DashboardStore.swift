@@ -1,12 +1,17 @@
 import Foundation
 import SwiftUI
+import CoreServices
+import GRDB
 
 /// Tails every `~/.claude/projects/**/*.jsonl` transcript and keeps a live aggregate
 /// per session: cost, context-window usage, last file touched, recent activity.
 ///
-/// Cursor and Copilot integrations are not wired yet — their local log formats
-/// haven't been verified against a real install, so this build only ever shows
-/// real Claude Code sessions rather than fabricate numbers for the others.
+/// Data arrives through three channels:
+/// 1. **GRDB ValueObservation** on `session_live` — near-realtime statusline data
+///    written by the `flightdeck statusline` CLI.
+/// 2. **FSEvents watcher** on `~/.claude/projects/` — triggers incremental JSONL
+///    tailing when Claude Code appends to transcript files.
+/// 3. **ShellFeed** — local terminal history for the activity feed.
 @Observable
 final class DashboardStore {
     private(set) var sessions: [String: SessionAgg] = [:]
@@ -14,7 +19,6 @@ final class DashboardStore {
     private(set) var costEvents: [CostEvent] = []
 
     private var offsets: [String: UInt64] = [:]
-    private var timer: Timer?
     private let decoder = JSONDecoder()
     private let isoFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -29,15 +33,215 @@ final class DashboardStore {
 
     private let shellFeed = ShellFeed.shared
 
+    // FSEvents stream for JSONL file watching
+    private var fsStream: FSEventStreamRef?
+    private let fsQueue = DispatchQueue(label: "com.flightdeck.jsonl-watcher", qos: .utility)
+
+    // GRDB observation cancellation
+    private var sessionObservation: AnyDatabaseCancellable?
+    private var aiEventObservation: AnyDatabaseCancellable?
+
+    // Fallback timer — only fires if FSEvents misses something (belt + suspenders)
+    private var fallbackTimer: Timer?
+
     func start() {
+        // Initial load of all existing JSONL data
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+
+        // 1. Start FSEvents watcher on ~/.claude/projects/
+        startFSEventsWatcher()
+
+        // 2. Start GRDB observation on session_live and ai_events tables
+        startSessionObservation()
+
+        // 3. Fallback timer at 15s (5x slower than before — FSEvents handles the fast path)
+        fallbackTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
             self?.refresh()
         }
+
+        // 4. Shell history feed
         shellFeed.start { [weak self] cmd in
             self?.addShellCommand(cmd)
         }
     }
+
+    func stop() {
+        fallbackTimer?.invalidate()
+        fallbackTimer = nil
+        sessionObservation?.cancel()
+        sessionObservation = nil
+        aiEventObservation?.cancel()
+        aiEventObservation = nil
+        if let stream = fsStream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            fsStream = nil
+        }
+    }
+
+    deinit {
+        stop()
+    }
+
+    // MARK: - FSEvents Watcher
+
+    private func startFSEventsWatcher() {
+        let rootPath = root.path
+        guard FileManager.default.fileExists(atPath: rootPath) else { return }
+
+        var context = FSEventStreamContext(
+            version: 0,
+            info: Unmanaged.passUnretained(self).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+
+        let flags = FSEventStreamCreateFlags(
+            kFSEventStreamCreateFlagUseCFTypes
+                | kFSEventStreamCreateFlagFileEvents
+                | kFSEventStreamCreateFlagNoDefer
+        )
+
+        guard let stream = FSEventStreamCreate(
+            kCFAllocatorDefault,
+            jsonlEventCallback,
+            &context,
+            [rootPath] as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            1.0,  // 1-second coalescing — fast enough for cost updates, light on CPU
+            flags
+        ) else { return }
+
+        fsStream = stream
+        FSEventStreamSetDispatchQueue(stream, fsQueue)
+        FSEventStreamStart(stream)
+    }
+
+    /// Called by FSEvents when any file under ~/.claude/projects/ changes.
+    /// Filters for .jsonl files and triggers incremental tailing.
+    fileprivate func handleFSEvent(paths: [String]) {
+        var consumed = false
+        for path in paths where path.hasSuffix(".jsonl") {
+            let url = URL(fileURLWithPath: path)
+            consume(file: url)
+            consumed = true
+        }
+        if consumed {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if self.activity.count > 200 {
+                    self.activity.removeLast(self.activity.count - 200)
+                }
+            }
+        }
+    }
+
+    // MARK: - GRDB Session Observation
+
+    private func startSessionObservation() {
+        guard let db = ActivityDatabase.shared else { return }
+
+        let sObservation = ValueObservation.tracking { db in
+            try SessionLiveRecord
+                .order(Column("updatedAt").desc)
+                .fetchAll(db)
+        }
+
+        sessionObservation = sObservation.start(
+            in: db.reader,
+            onError: { error in
+                print("DashboardStore: session observation error — \(error)")
+            },
+            onChange: { [weak self] liveRecords in
+                DispatchQueue.main.async {
+                    self?.mergeLiveSessions(liveRecords)
+                }
+            }
+        )
+
+        let eObservation = ValueObservation.tracking { db in
+            try AIEventRecord
+                .order(Column("timestamp").desc)
+                .limit(50)
+                .fetchAll(db)
+        }
+
+        aiEventObservation = eObservation.start(
+            in: db.reader,
+            onError: { error in
+                print("DashboardStore: ai_events observation error — \(error)")
+            },
+            onChange: { [weak self] events in
+                DispatchQueue.main.async {
+                    self?.mergeAIEvents(events)
+                }
+            }
+        )
+    }
+
+    /// Merge statusline data into the in-memory SessionAgg dictionary.
+    /// Statusline provides: model, contextTokens, totalCostUsd, project, branch.
+    /// JSONL tailing provides: costLedger (per-turn), activity entries, lastFile.
+    private func mergeLiveSessions(_ records: [SessionLiveRecord]) {
+        for record in records {
+            var agg = sessions[record.sessionId] ?? SessionAgg(id: record.sessionId, project: record.project)
+            if !record.project.isEmpty { agg.project = record.project }
+            if !record.branch.isEmpty { agg.branch = record.branch }
+            if !record.model.isEmpty { agg.model = record.model }
+            if !record.lastFile.isEmpty { agg.lastFile = record.lastFile }
+            agg.contextTokens = max(agg.contextTokens, record.contextTokens)
+            agg.lastSeen = max(agg.lastSeen ?? .distantPast, record.updatedAt)
+            if record.totalCostUsd > 0 {
+                agg.liveTotalCost = record.totalCostUsd
+            }
+            sessions[record.sessionId] = agg
+        }
+    }
+
+    private func mergeAIEvents(_ records: [AIEventRecord]) {
+        for r in records {
+            let kind: ActivityEntry.Kind
+            let text: String
+            switch r.event.lowercased() {
+            case "posttooluse", "post-tool-use":
+                let tool = r.toolName ?? "tool"
+                if let detail = r.detail, !detail.isEmpty {
+                    text = "used \(tool): \(detail)"
+                } else {
+                    text = "used \(tool)"
+                }
+                kind = tool.lowercased() == "edit" ? .edit : (tool.lowercased() == "bash" ? .run : .build)
+            case "sessionstart", "session-start":
+                text = "session started"
+                kind = .run
+            case "stop":
+                text = "session stopped"
+                kind = .run
+            default:
+                text = "\(r.event) \(r.toolName ?? "") \(r.detail ?? "")".trimmingCharacters(in: .whitespaces)
+                kind = .run
+            }
+
+            let entry = ActivityEntry(
+                timestamp: r.timestamp,
+                project: sessions[r.sessionId]?.project ?? "ai",
+                sessionId: r.sessionId,
+                kind: kind,
+                text: text
+            )
+
+            if !activity.contains(where: { abs($0.timestamp.timeIntervalSince(entry.timestamp)) < 0.5 && $0.text == entry.text }) {
+                activity.append(entry)
+            }
+        }
+        activity.sort { $0.timestamp > $1.timestamp }
+        if activity.count > 200 {
+            activity.removeLast(activity.count - 200)
+        }
+    }
+
 
     private func addShellCommand(_ item: ShellFeed.ShellCommand) {
         let entry = ActivityEntry(
@@ -229,3 +433,13 @@ final class DashboardStore {
         return totals.sorted { $0.value > $1.value }.map { ($0.key, $0.value) }
     }
 }
+
+/// A C function pointer for FSEvents stream callback.
+/// The DashboardStore instance is recovered from clientCallBackInfo.
+private let jsonlEventCallback: FSEventStreamCallback = { _, info, count, eventPaths, _, _ in
+    guard let info else { return }
+    let store = Unmanaged<DashboardStore>.fromOpaque(info).takeUnretainedValue()
+    guard let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] else { return }
+    store.handleFSEvent(paths: paths)
+}
+
