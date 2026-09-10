@@ -74,36 +74,38 @@ struct CockpitCarePanel: View {
     @State private var activeReviewStage: SmartStage? = nil
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
-            ZStack {
-                VStack(alignment: .leading, spacing: 14) {
-                    // Header
-                    panelHeader
+        ZStack {
+            VStack(alignment: .leading, spacing: 14) {
+                // Header
+                panelHeader
 
-                    // Dynamic Sub-View depending on state
-                    switch flowState {
-                    case .idle:
-                        idleOverview(date: timeline.date)
+                // Dynamic Sub-View depending on state
+                switch flowState {
+                case .idle:
+                    idleOverview(date: Date())
 
-                    case .scanning(let stage):
+                case .scanning(let stage):
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
                         scanningAnimationView(currentStage: stage, date: timeline.date)
-
-                    case .reviewResults:
-                        resultsReviewView(date: timeline.date)
-
-                    case .cleaning:
-                        cleaningView(date: timeline.date)
-
-                    case .completed(let bytes):
-                        completedView(reclaimedBytes: bytes, date: timeline.date)
                     }
-                }
-                .padding(18)
-                .glassPanel(cornerRadius: 14, accent: Theme.accent)
-                .cornerBracket(color: Theme.accent)
 
-                // Laser scanline during scanning
-                if case .scanning = flowState {
+                case .reviewResults:
+                    resultsReviewView(date: Date())
+
+                case .cleaning:
+                    cleaningView(date: Date())
+
+                case .completed(let bytes):
+                    completedView(reclaimedBytes: bytes, date: Date())
+                }
+            }
+            .padding(18)
+            .glassPanel(cornerRadius: 14, accent: Theme.accent)
+            .cornerBracket(color: Theme.accent)
+
+            // Laser scanline during scanning
+            if case .scanning = flowState {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
                     cockpitLaserScan(date: timeline.date)
                 }
             }

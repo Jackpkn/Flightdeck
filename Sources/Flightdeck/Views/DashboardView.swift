@@ -203,10 +203,10 @@ struct DashboardView: View {
                     }
                 case .duplicates:
                     DuplicateHunterPanel()
-                        .frame(minHeight: 560)
+                        .frame(height: 640)
                 case .uninstaller:
                     AppUninstallerPanel()
-                        .frame(minHeight: 560)
+                        .frame(height: 640)
                 }
             }
         case .spend:

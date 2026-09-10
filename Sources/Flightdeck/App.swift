@@ -51,8 +51,6 @@ struct FlightdeckApp: App {
                     portScanner.start()
                     zombieDetector.start()
                     devCleaner.start()
-                    appUninstaller.scan()
-                    duplicateScanner.scan()
                 }
         }
         .windowResizability(.contentSize)

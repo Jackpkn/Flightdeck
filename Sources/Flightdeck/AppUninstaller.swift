@@ -195,7 +195,7 @@ public final class AppUninstaller {
                     ?? "1.0"
 
                 let isSystem = url.path.hasPrefix("/System/") || FileGuard.isSystemProtected(url.path)
-                let binarySize = DevCleaner.calculateDirectorySize(at: url)
+                let binarySize = isSystem ? 0 : DevCleaner.calculateDirectorySize(at: url)
                 let related = isSystem ? [] : findRelatedPaths(bundleId: bundleId, appName: displayName, home: home)
 
                 apps.append(InstalledApp(

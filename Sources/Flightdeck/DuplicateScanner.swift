@@ -101,7 +101,17 @@ public final class DuplicateScanner {
     public var searchQuery: String = ""
     public var selectedCategory: DuplicateMediaKind? = nil
 
-    private let queue = DispatchQueue(label: "com.flightdeck.duplicatescanner", qos: .userInitiated)
+    /// Cached file sizes to avoid expensive dictionary rebuilds on render frames.
+    private var fileSizeLookup: [String: Int64] = [:]
+
+    public static let ignoredFolderNames: Set<String> = [
+        "node_modules", ".venv", "venv", "env", "__pycache__",
+        ".pytest_cache", ".build", "build", "dist", "Pods", "Caches",
+        ".gradle", ".cargo", "DerivedData", ".claude", ".gemini",
+        "Library", ".Trash", ".localized", ".git", ".svn", ".hg"
+    ]
+
+    private let queue = DispatchQueue(label: "com.flightdeck.duplicatescanner", qos: .utility)
 
     public init() {}
 
@@ -113,14 +123,9 @@ public final class DuplicateScanner {
 
     public var totalSelectedBytes: Int64 {
         var bytes: Int64 = 0
-        let setMap = Dictionary(uniqueKeysWithValues: duplicateSets.flatMap { set in
-            set.files.map { ($0.id, set.fileSize) }
-        })
         for id in selectedFileIds {
-            if let size = setMap[id] {
+            if let size = fileSizeLookup[id] {
                 bytes += size
-            } else if let file = largeAndOldFiles.first(where: { $0.id == id }) {
-                bytes += file.sizeBytes
             }
         }
         return bytes
@@ -156,7 +161,7 @@ public final class DuplicateScanner {
 
     // MARK: - Scanning Engine
 
-    /// Scans standard user directories (~/Downloads, ~/Desktop) for duplicates and stale files.
+    /// Scans standard user directories (~/Downloads, ~/Desktop) with depth limiting and smart folder pruning.
     public func scan(directories: [URL]? = nil) {
         guard !isScanning else { return }
         isScanning = true
@@ -183,15 +188,44 @@ public final class DuplicateScanner {
 
                 guard let enumerator = fm.enumerator(
                     at: dir,
-                    includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
-                    options: [.skipsPackageDescendants]
+                    includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey, .isDirectoryKey],
+                    options: [.skipsPackageDescendants, .skipsHiddenFiles]
                 ) else { continue }
 
                 for case let fileURL as URL in enumerator {
-                    guard let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]),
-                          resourceValues.isRegularFile == true,
+                    let filename = fileURL.lastPathComponent
+
+                    // 1. Skip blacklisted developer directories and hidden paths
+                    if filename.hasPrefix(".") || Self.ignoredFolderNames.contains(filename) {
+                        enumerator.skipDescendants()
+                        continue
+                    }
+
+                    // 2. Skip application bundles or packages within downloads
+                    let ext = fileURL.pathExtension.lowercased()
+                    if ext == "app" || ext == "framework" || ext == "bundle" || ext == "download" || ext == "crdownload" || ext == "part" {
+                        enumerator.skipDescendants()
+                        continue
+                    }
+
+                    // 3. Limit depth to 3 levels below root target
+                    let depth = fileURL.pathComponents.count - dir.pathComponents.count
+                    if depth > 3 {
+                        enumerator.skipDescendants()
+                        continue
+                    }
+
+                    guard let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey, .isDirectoryKey]) else {
+                        continue
+                    }
+
+                    if resourceValues.isDirectory == true {
+                        continue
+                    }
+
+                    guard resourceValues.isRegularFile == true,
                           let fileSize = resourceValues.fileSize,
-                          fileSize > 10_240 // skip < 10KB
+                          fileSize >= 50 * 1024 // skip < 50KB to ignore tiny temporary files
                     else { continue }
 
                     let modDate = resourceValues.contentModificationDate ?? Date()
@@ -211,22 +245,48 @@ public final class DuplicateScanner {
                 sizeBuckets[file.sizeBytes, default: []].append(file)
             }
 
-            // Filter out unique file sizes (size collision is a prerequisite for duplicates)
+            // Filter out unique file sizes (size collision is prerequisite for duplicate)
             let candidateBuckets = sizeBuckets.filter { $0.value.count > 1 }
             let totalCandidates = candidateBuckets.values.reduce(0) { $0 + $1.count }
-            var hashedCount = 0
+            var processedCandidates = 0
+            var lastUpdate = Date()
 
-            // PASS 2: Stream-hash candidate files in 1MB chunks using SHA-256
+            // PASS 2: 16KB Header Hash Pre-Filter
+            // Groups candidate files by (size, headerHash) before doing full file hash.
+            var headerBuckets: [String: [ScannedFileItem]] = [:]
+
+            for (size, candidates) in candidateBuckets {
+                for candidate in candidates {
+                    if let headerHash = Self.computeHeaderSHA256(for: candidate.url) {
+                        let key = "\(size)_\(headerHash)"
+                        headerBuckets[key, default: []].append(candidate)
+                    }
+                    processedCandidates += 1
+                    if Date().timeIntervalSince(lastUpdate) > 0.15 {
+                        lastUpdate = Date()
+                        let p = totalCandidates > 0 ? (Double(processedCandidates) / Double(totalCandidates) * 0.5) : 0.5
+                        DispatchQueue.main.async {
+                            self.scanProgress = p
+                        }
+                    }
+                }
+            }
+
+            // PASS 3: Full Stream-Hash only for items with matching size AND matching 16KB header
+            let fullCandidates = headerBuckets.filter { $0.value.count > 1 }
             var hashBuckets: [String: (fileSize: Int64, files: [ScannedFileItem])] = [:]
+            let totalFullCandidates = fullCandidates.values.reduce(0) { $0 + $1.count }
+            var fullProcessed = 0
 
-            for (_, candidates) in candidateBuckets {
+            for (_, candidates) in fullCandidates {
                 for candidate in candidates {
                     if let digest = Self.computeStreamingSHA256(for: candidate.url) {
                         hashBuckets[digest, default: (candidate.sizeBytes, [])].files.append(candidate)
                     }
-                    hashedCount += 1
-                    if totalCandidates > 0 {
-                        let p = Double(hashedCount) / Double(totalCandidates)
+                    fullProcessed += 1
+                    if Date().timeIntervalSince(lastUpdate) > 0.15 {
+                        lastUpdate = Date()
+                        let p = 0.5 + (totalFullCandidates > 0 ? (Double(fullProcessed) / Double(totalFullCandidates) * 0.5) : 0.5)
                         DispatchQueue.main.async {
                             self.scanProgress = p
                         }
@@ -242,7 +302,19 @@ public final class DuplicateScanner {
                 return DuplicateSet(hash: hash, fileSize: tuple.fileSize, files: sortedFiles)
             }.sorted { $0.reclaimableBytes > $1.reclaimableBytes }
 
+            // Build fast size lookup map
+            var lookup: [String: Int64] = [:]
+            for set in duplicates {
+                for f in set.files {
+                    lookup[f.id] = set.fileSize
+                }
+            }
+            for item in largeOrOld {
+                lookup[item.id] = item.sizeBytes
+            }
+
             DispatchQueue.main.async {
+                self.fileSizeLookup = lookup
                 self.duplicateSets = duplicates
                 self.largeAndOldFiles = largeOrOld
                 self.isScanning = false
@@ -251,6 +323,16 @@ public final class DuplicateScanner {
                 self.autoSelectDuplicates()
             }
         }
+    }
+
+    /// Reads at most 16KB from the start of the file for lightning-fast pre-filtering.
+    public static func computeHeaderSHA256(for url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        let headerData = handle.readData(ofLength: 16 * 1024)
+        guard !headerData.isEmpty else { return nil }
+        let digest = SHA256.hash(data: headerData)
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     /// Computes SHA-256 digest by reading file in 1MB chunks to prevent memory overhead.

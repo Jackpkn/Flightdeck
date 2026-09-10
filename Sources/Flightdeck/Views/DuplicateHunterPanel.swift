@@ -16,6 +16,8 @@ struct DuplicateHunterPanel: View {
     @State private var mode: HunterMode = .duplicates
     @State private var confirmingTrash = false
     @State private var lastReclaimedBytes: Int64? = nil
+    @State private var maxSetsDisplayed: Int = 40
+    @State private var maxLargeOldDisplayed: Int = 50
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -298,8 +300,27 @@ struct DuplicateHunterPanel: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
-                        ForEach(sets) { set in
+                        ForEach(Array(sets.prefix(maxSetsDisplayed))) { set in
                             duplicateSetCard(set: set)
+                        }
+
+                        if sets.count > maxSetsDisplayed {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    maxSetsDisplayed += 40
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "chevron.down.circle.fill")
+                                    Text("SHOW MORE DUPLICATES (\(sets.count - maxSetsDisplayed) REMAINING)")
+                                        .font(Theme.mono(9.5, weight: .bold))
+                                }
+                                .foregroundStyle(Theme.accent)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity)
+                                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -428,8 +449,27 @@ struct DuplicateHunterPanel: View {
             } else {
                 ScrollView {
                     LazyVStack(spacing: 6) {
-                        ForEach(items) { item in
+                        ForEach(Array(items.prefix(maxLargeOldDisplayed))) { item in
                             largeAndOldRow(item: item)
+                        }
+
+                        if items.count > maxLargeOldDisplayed {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    maxLargeOldDisplayed += 50
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "chevron.down.circle.fill")
+                                    Text("SHOW MORE FILES (\(items.count - maxLargeOldDisplayed) REMAINING)")
+                                        .font(Theme.mono(9.5, weight: .bold))
+                                }
+                                .foregroundStyle(Theme.accent)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity)
+                                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
