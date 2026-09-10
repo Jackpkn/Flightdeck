@@ -18,10 +18,9 @@ struct LiveDot: View {
                 .shadow(color: color.opacity(0.85), radius: 4)
         }
         .frame(width: 20, height: 20)
+        .animation(.easeOut(duration: 1.6).repeatForever(autoreverses: false), value: pulse)
         .onAppear {
-            withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
-                pulse = true
-            }
+            pulse = true
         }
     }
 }

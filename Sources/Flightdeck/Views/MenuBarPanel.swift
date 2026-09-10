@@ -5,6 +5,8 @@ import ServiceManagement
 /// The menu bar popover — allows Flightdeck to sit running all day in the macOS menu bar
 /// with instant quick-access telemetry, dev port management, cruft purging, and RAM flushing.
 struct MenuBarPanel: View {
+    @Environment(\.openWindow) private var openWindow
+
     let store: DashboardStore
     let watcher: ActivityWatcher
     let monitor: ProcessMonitor
@@ -26,7 +28,10 @@ struct MenuBarPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack(spacing: 8) {
-                LiveDot(color: Theme.accent)
+                Circle()
+                    .fill(watcher.isIdle ? Theme.ink3 : Theme.accent)
+                    .frame(width: 7, height: 7)
+                    .shadow(color: (watcher.isIdle ? Theme.ink3 : Theme.accent).opacity(0.8), radius: 3)
                 Text("FLIGHTDECK").font(Theme.display(11)).tracking(1).foregroundStyle(Theme.ink2)
                 Spacer()
                 if watcher.isIdle {
@@ -41,7 +46,7 @@ struct MenuBarPanel: View {
 
             Divider().background(Theme.hairline)
 
-            // System & Dev Telemetry
+            // System & Dev Telemetry (Fixed slots — zero layout jumping)
             VStack(spacing: 8) {
                 row(label: "24H SPEND", value: Formatters.usd(store.last24hSpend), color: Theme.ink1)
                 row(label: "BURN RATE", value: Formatters.usd(store.burnRatePerMin) + "/min", color: Theme.warning)
@@ -58,6 +63,7 @@ struct MenuBarPanel: View {
                     )
                 }
 
+                // Listening Ports row (never vanishes)
                 if !devPorts.isEmpty {
                     let portsSummary = devPorts.prefix(3).map { ":\($0.port)" }.joined(separator: " ")
                     row(
@@ -65,17 +71,19 @@ struct MenuBarPanel: View {
                         value: "\(devPorts.count) (\(portsSummary))",
                         color: Theme.accent
                     )
+                } else {
+                    row(label: "LISTENING PORTS", value: "0 ACTIVE", color: Theme.ink3)
                 }
 
+                // Dev Build Cruft row (never vanishes)
                 if devCleaner.totalCruftBytes > 0 {
                     let cruftStr = ByteCountFormatter.string(fromByteCount: devCleaner.totalCruftBytes, countStyle: .file)
-                    row(
-                        label: "DEV BUILD CRUFT",
-                        value: cruftStr,
-                        color: Theme.warning
-                    )
+                    row(label: "DEV BUILD CRUFT", value: cruftStr, color: Theme.warning)
+                } else {
+                    row(label: "DEV BUILD CRUFT", value: "0 B (CLEAN)", color: Theme.good)
                 }
 
+                // Orphan Runaways row (never vanishes)
                 if !zombieDetector.orphans.isEmpty {
                     let wasted = ByteCountFormatter.string(fromByteCount: zombieDetector.totalWastedBytes, countStyle: .memory)
                     row(
@@ -83,6 +91,8 @@ struct MenuBarPanel: View {
                         value: "\(zombieDetector.orphans.count) (\(wasted))",
                         color: Theme.critical
                     )
+                } else {
+                    row(label: "ORPHAN RUNAWAYS", value: "0 (CLEAN)", color: Theme.good)
                 }
 
                 if let topApp {
@@ -92,53 +102,96 @@ struct MenuBarPanel: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
 
-            // Quick Actions Cockpit Strip
-            if devCleaner.totalCruftBytes > 0 || !devPorts.isEmpty || !zombieDetector.orphans.isEmpty {
-                Divider().background(Theme.hairline)
+            Divider().background(Theme.hairline)
 
-                VStack(spacing: 4) {
-                    if devCleaner.totalCruftBytes > 0 {
-                        let cruftStr = ByteCountFormatter.string(fromByteCount: devCleaner.totalCruftBytes, countStyle: .file)
-                        quickActionButton(
-                            title: "Purge All Dev Cruft (\(cruftStr))",
-                            icon: "trash.fill",
-                            color: Theme.critical
-                        ) {
-                            devCleaner.purgeAll()
-                        }
-                    }
-
-                    if !devPorts.isEmpty {
-                        quickActionButton(
-                            title: "Free All Dev Ports (\(devPorts.count) Active)",
-                            icon: "xmark.octagon.fill",
-                            color: Theme.warning
-                        ) {
-                            portScanner.freeAllDevPorts()
-                        }
-                    }
-
-                    if !zombieDetector.orphans.isEmpty {
-                        quickActionButton(
-                            title: "Purge All Orphans (\(zombieDetector.orphans.count) Runaway)",
-                            icon: "flame.fill",
-                            color: Theme.critical
-                        ) {
-                            zombieDetector.purgeAllOrphans()
-                        }
-                    }
-
+            // Quick Actions Cockpit Strip (Always present, fixed slots with dynamic status)
+            VStack(spacing: 5) {
+                // Orphan Purge Action
+                if zombieDetector.isPurging {
                     quickActionButton(
-                        title: "Flush Inactive RAM",
-                        icon: "memorychip",
-                        color: Theme.accent
+                        title: "Purging Runaways...",
+                        icon: "flame.fill",
+                        color: Theme.critical,
+                        isLoading: true,
+                        isEnabled: false
+                    ) {}
+                } else if !zombieDetector.orphans.isEmpty {
+                    quickActionButton(
+                        title: "Purge All Orphans (\(zombieDetector.orphans.count) Runaway)",
+                        icon: "flame.fill",
+                        color: Theme.critical,
+                        isEnabled: true
                     ) {
-                        devCleaner.flushRAM()
+                        zombieDetector.purgeAllOrphans()
                     }
+                } else {
+                    quickActionButton(
+                        title: "No Orphan Runaways",
+                        icon: "checkmark.shield.fill",
+                        color: Theme.good,
+                        isEnabled: false
+                    ) {}
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+
+                // Dev Cruft Purge Action
+                if devCleaner.isPurging {
+                    quickActionButton(
+                        title: "Purging Dev Cruft...",
+                        icon: "trash.fill",
+                        color: Theme.critical,
+                        isLoading: true,
+                        isEnabled: false
+                    ) {}
+                } else if devCleaner.totalCruftBytes > 0 {
+                    let cruftStr = ByteCountFormatter.string(fromByteCount: devCleaner.totalCruftBytes, countStyle: .file)
+                    quickActionButton(
+                        title: "Purge All Dev Cruft (\(cruftStr))",
+                        icon: "trash.fill",
+                        color: Theme.critical,
+                        isEnabled: true
+                    ) {
+                        devCleaner.purgeAll()
+                    }
+                } else {
+                    quickActionButton(
+                        title: "Dev Cruft Clean",
+                        icon: "checkmark.circle.fill",
+                        color: Theme.good,
+                        isEnabled: false
+                    ) {}
+                }
+
+                // Free Dev Ports Action
+                if !devPorts.isEmpty {
+                    quickActionButton(
+                        title: "Free All Dev Ports (\(devPorts.count) Active)",
+                        icon: "xmark.octagon.fill",
+                        color: Theme.warning,
+                        isEnabled: true
+                    ) {
+                        portScanner.freeAllDevPorts()
+                    }
+                } else {
+                    quickActionButton(
+                        title: "No Active Dev Ports",
+                        icon: "network",
+                        color: Theme.ink3,
+                        isEnabled: false
+                    ) {}
+                }
+
+                // RAM Flush Action
+                quickActionButton(
+                    title: "Flush Inactive RAM",
+                    icon: "memorychip",
+                    color: Theme.accent,
+                    isEnabled: true
+                ) {
+                    devCleaner.flushRAM()
+                }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
 
             Divider().background(Theme.hairline)
 
@@ -155,6 +208,7 @@ struct MenuBarPanel: View {
             .padding(8)
         }
         .frame(width: 290)
+        .fixedSize(horizontal: true, vertical: true)
         .background(Theme.panel)
         .foregroundStyle(Theme.ink1)
     }
@@ -167,30 +221,46 @@ struct MenuBarPanel: View {
         }
     }
 
-    private func quickActionButton(title: String, icon: String, color: Color, action: @escaping () -> Void) -> some View {
+    private func quickActionButton(
+        title: String,
+        icon: String,
+        color: Color,
+        isLoading: Bool = false,
+        isEnabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
         Button {
             CockpitAudio.playPing()
             action()
         } label: {
             HStack(spacing: 7) {
-                Image(systemName: icon)
-                    .font(.system(size: 10))
-                    .foregroundStyle(color)
-                    .frame(width: 14)
+                if isLoading {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 14, height: 14)
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: 10))
+                        .foregroundStyle(isEnabled ? color : Theme.ink3)
+                        .frame(width: 14)
+                }
                 Text(title)
                     .font(Theme.mono(9.5, weight: .semibold))
-                    .foregroundStyle(Theme.ink1)
+                    .foregroundStyle(isEnabled ? Theme.ink1 : Theme.ink3)
                 Spacer()
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 8))
-                    .foregroundStyle(color.opacity(0.8))
+                if isEnabled && !isLoading {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(color.opacity(0.8))
+                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(color.opacity(0.25), lineWidth: 0.8))
+            .background(color.opacity(isEnabled ? 0.12 : 0.04), in: RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4).stroke(color.opacity(isEnabled ? 0.25 : 0.08), lineWidth: 0.8))
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled || isLoading)
     }
 
     private func menuButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
@@ -222,6 +292,7 @@ struct MenuBarPanel: View {
 
     private func openDashboard() {
         NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: "dashboard")
         NSApp.windows
             .first { $0.styleMask.contains(.titled) && $0.canBecomeKey }?
             .makeKeyAndOrderFront(nil)

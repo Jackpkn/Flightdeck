@@ -4,7 +4,7 @@ import SwiftUI
 
 /// A single developer process reparented to PID 1 without a controlling terminal (orphan/zombie).
 public struct OrphanProcess: Identifiable, Hashable, Sendable {
-    public let id: UUID
+    public var id: pid_t { pid }
     public let pid: pid_t
     public let name: String
     public let path: String
@@ -12,14 +12,12 @@ public struct OrphanProcess: Identifiable, Hashable, Sendable {
     public let isZombie: Bool
 
     public init(
-        id: UUID = UUID(),
         pid: pid_t,
         name: String,
         path: String,
         memoryBytes: Int64,
         isZombie: Bool = false
     ) {
-        self.id = id
         self.pid = pid
         self.name = name
         self.path = path
@@ -78,7 +76,11 @@ public final class ZombieDetector {
             guard let self else { return }
             let detected = Self.discoverOrphans()
             DispatchQueue.main.async {
-                self.orphans = detected
+                if self.orphans != detected {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        self.orphans = detected
+                    }
+                }
                 self.isScanning = false
             }
         }
@@ -154,39 +156,50 @@ public final class ZombieDetector {
         return results.sorted { $0.memoryBytes > $1.memoryBytes }
     }
 
+    public private(set) var isPurging = false
+
     // MARK: - Actions
 
     public func killOrphan(pid: pid_t) {
         guard isKillable(pid: pid) else { return }
         CockpitAudio.playPing()
-        terminatePid(pid)
 
         withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
             orphans.removeAll { $0.pid == pid }
         }
 
-        queue.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-            self?.scan()
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.terminatePid(pid)
+            usleep(800_000)
+            self.scan()
         }
     }
 
     public func purgeAllOrphans() {
         let targets = orphans
-        guard !targets.isEmpty else { return }
-
+        guard !targets.isEmpty, !isPurging else { return }
+        isPurging = true
         CockpitAudio.playPing()
-        for target in targets {
-            if isKillable(pid: target.pid) {
-                terminatePid(target.pid)
+
+        queue.async { [weak self] in
+            guard let self else { return }
+            // Terminate all target PIDs with SIGTERM then SIGKILL
+            for target in targets {
+                if self.isKillable(pid: target.pid) {
+                    kill(target.pid, SIGTERM)
+                    kill(target.pid, SIGKILL)
+                }
             }
-        }
-
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
-            orphans.removeAll()
-        }
-
-        queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.scan()
+            // Allow launchd 1000ms to reap child processes from the system process table
+            usleep(1_000_000)
+            let detected = Self.discoverOrphans()
+            DispatchQueue.main.async {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                    self.orphans = detected
+                }
+                self.isPurging = false
+            }
         }
     }
 
@@ -198,10 +211,6 @@ public final class ZombieDetector {
 
     private func terminatePid(_ pid: pid_t) {
         kill(pid, SIGTERM)
-        queue.asyncAfter(deadline: .now() + 0.25) {
-            if kill(pid, 0) == 0 {
-                kill(pid, SIGKILL)
-            }
-        }
+        kill(pid, SIGKILL)
     }
 }

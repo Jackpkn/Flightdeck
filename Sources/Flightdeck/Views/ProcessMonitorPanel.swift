@@ -16,6 +16,7 @@ struct ProcessMonitorPanel: View {
     }
 
     @State private var filter: ProcessFilter = .apps
+    @State private var bannerDismissed = false
 
     init(actionTarget: Binding<ProcessUsage?> = .constant(nil)) {
         self._actionTarget = actionTarget
@@ -103,7 +104,7 @@ struct ProcessMonitorPanel: View {
             }
 
             // Orphan Alert Banner
-            if !zombieDetector.orphans.isEmpty && filter != .orphans {
+            if !zombieDetector.orphans.isEmpty && !bannerDismissed && filter != .orphans {
                 HStack(spacing: 7) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 9.5))
@@ -118,7 +119,9 @@ struct ProcessMonitorPanel: View {
 
                     Button {
                         CockpitAudio.playPing()
-                        filter = .orphans
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            filter = .orphans
+                        }
                     } label: {
                         Text("INSPECT")
                             .font(Theme.mono(8, weight: .bold))
@@ -131,18 +134,39 @@ struct ProcessMonitorPanel: View {
                         zombieDetector.purgeAllOrphans()
                     } label: {
                         HStack(spacing: 3) {
-                            Image(systemName: "flame.fill").font(.system(size: 7.5))
-                            Text("PURGE").font(Theme.mono(8, weight: .bold))
+                            if zombieDetector.isPurging {
+                                ProgressView()
+                                    .scaleEffect(0.5)
+                                    .frame(width: 8, height: 8)
+                                Text("PURGING...").font(Theme.mono(8, weight: .bold))
+                            } else {
+                                Image(systemName: "flame.fill").font(.system(size: 7.5))
+                                Text("PURGE").font(Theme.mono(8, weight: .bold))
+                            }
                         }
                         .foregroundStyle(Theme.critical)
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(Theme.critical.opacity(0.18), in: RoundedRectangle(cornerRadius: 3))
                     }
                     .buttonStyle(.plain)
+                    .disabled(zombieDetector.isPurging)
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            bannerDismissed = true
+                        }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 7.5, weight: .bold))
+                            .foregroundStyle(Theme.ink3)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Dismiss alert banner")
                 }
                 .padding(.horizontal, 7).padding(.vertical, 3.5)
                 .background(Theme.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.warning.opacity(0.25), lineWidth: 0.8))
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             if filter == .orphans {
@@ -173,14 +197,22 @@ struct ProcessMonitorPanel: View {
                             zombieDetector.purgeAllOrphans()
                         } label: {
                             HStack(spacing: 4) {
-                                Image(systemName: "flame.fill").font(.system(size: 8))
-                                Text("PURGE ALL ORPHANS").font(Theme.mono(8.5, weight: .bold))
+                                if zombieDetector.isPurging {
+                                    ProgressView()
+                                        .scaleEffect(0.55)
+                                        .frame(width: 10, height: 10)
+                                    Text("PURGING...").font(Theme.mono(8.5, weight: .bold))
+                                } else {
+                                    Image(systemName: "flame.fill").font(.system(size: 8))
+                                    Text("PURGE ALL ORPHANS").font(Theme.mono(8.5, weight: .bold))
+                                }
                             }
                             .foregroundStyle(Color.white)
                             .padding(.horizontal, 8).padding(.vertical, 3.5)
-                            .background(Theme.critical.opacity(0.85), in: RoundedRectangle(cornerRadius: 4))
+                            .background(Theme.critical.opacity(zombieDetector.isPurging ? 0.5 : 0.85), in: RoundedRectangle(cornerRadius: 4))
                         }
                         .buttonStyle(.plain)
+                        .disabled(zombieDetector.isPurging)
                     }
                     .padding(.horizontal, 4).padding(.vertical, 2)
 
