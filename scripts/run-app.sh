@@ -61,5 +61,10 @@ PLIST
 # Ad-hoc sign so TCC (Accessibility) can remember the grant across launches.
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 
+# Kill any existing instance so macOS launches the freshly compiled binary
+killall Flightdeck 2>/dev/null || true
+sleep 0.2
+
 echo "built $APP"
 open "$APP"
+
