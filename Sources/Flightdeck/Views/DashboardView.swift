@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 struct DashboardView: View {
-    enum Tab: String, CaseIterable { case overview = "Overview", cockpit = "Cockpit", sessions = "Sessions", activity = "Activity", timeline = "Timeline", files = "Files", spend = "Spend" }
+    enum Tab: String, CaseIterable { case overview = "Overview", sessions = "Sessions", activity = "Activity", timeline = "Timeline", files = "Files", spend = "Spend" }
 
     @Environment(DashboardStore.self) private var store
     @Environment(DiskScanner.self) private var diskScanner
@@ -116,6 +116,7 @@ struct DashboardView: View {
         case .overview:
             VStack(alignment: .leading, spacing: 18) {
                 CockpitCarePanel()
+                CockpitAvionicsDeck()
                 StatRow()
                 SessionBoard()
             }
@@ -211,8 +212,6 @@ struct DashboardView: View {
             }
         case .spend:
             SpendByProjectPanel()
-        case .cockpit:
-            CockpitView()
         }
     }
 

@@ -4,45 +4,88 @@ import SwiftUI
 /// and Disk I/O. Each draws a 270° arc with tick marks, a sweep needle, a
 /// red danger zone, and a digital readout below.
 struct EngineGaugesView: View {
+    enum Layout {
+        case horizontal
+        case grid2x2
+    }
+
     @Environment(ProcessMonitor.self) private var monitor
     let date: Date
+    let layout: Layout
+
+    init(date: Date, layout: Layout = .horizontal) {
+        self.date = date
+        self.layout = layout
+    }
 
     var body: some View {
-        HStack(spacing: 20) {
-            SingleGauge(
-                label: "CPU",
-                value: monitor.currentSystemCPU,
-                maxValue: 100,
-                unit: "%",
-                color: Theme.accent,
-                date: date
-            )
-            SingleGauge(
-                label: "GPU",
-                value: monitor.currentGPU.utilizationPercent,
-                maxValue: 100,
-                unit: "%",
-                color: Theme.gpuColor,
-                date: date
-            )
-            SingleGauge(
-                label: "RAM",
-                value: memoryPercent,
-                maxValue: 100,
-                unit: "%",
-                color: Theme.copilotColor,
-                date: date
-            )
-            SingleGauge(
-                label: "DSK",
-                value: min(diskNormalized, 100),
-                maxValue: 100,
-                unit: "%",
-                color: Theme.warning,
-                date: date
-            )
+        switch layout {
+        case .horizontal:
+            HStack(spacing: 20) {
+                cpuGauge
+                gpuGauge
+                ramGauge
+                diskGauge
+            }
+            .padding(.horizontal, 16)
+
+        case .grid2x2:
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    cpuGauge
+                    gpuGauge
+                }
+                HStack(spacing: 8) {
+                    ramGauge
+                    diskGauge
+                }
+            }
+            .padding(8)
         }
-        .padding(.horizontal, 16)
+    }
+
+    private var cpuGauge: some View {
+        SingleGauge(
+            label: "CPU",
+            value: monitor.currentSystemCPU,
+            maxValue: 100,
+            unit: "%",
+            color: Theme.accent,
+            date: date
+        )
+    }
+
+    private var gpuGauge: some View {
+        SingleGauge(
+            label: "GPU",
+            value: monitor.currentGPU.utilizationPercent,
+            maxValue: 100,
+            unit: "%",
+            color: Theme.gpuColor,
+            date: date
+        )
+    }
+
+    private var ramGauge: some View {
+        SingleGauge(
+            label: "RAM",
+            value: memoryPercent,
+            maxValue: 100,
+            unit: "%",
+            color: Theme.copilotColor,
+            date: date
+        )
+    }
+
+    private var diskGauge: some View {
+        SingleGauge(
+            label: "DSK",
+            value: min(diskNormalized, 100),
+            maxValue: 100,
+            unit: "%",
+            color: Theme.warning,
+            date: date
+        )
     }
 
     private var memoryPercent: Double {
