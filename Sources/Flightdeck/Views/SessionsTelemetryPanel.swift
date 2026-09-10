@@ -62,6 +62,7 @@ struct SessionsTelemetryPanel: View {
             kpiRibbon
             mainMasterDetail
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             if selectedSessionId == nil {
                 selectedSessionId = allSessions.first?.id
@@ -98,15 +99,25 @@ struct SessionsTelemetryPanel: View {
                 accent: Theme.claudeColor
             )
 
-            // 4. Code Velocity
+            // 4. Code Velocity or Tracked Projects
             let netLinesAdded = allSessions.reduce(0) { $0 + $1.linesAdded }
             let netLinesRemoved = allSessions.reduce(0) { $0 + $1.linesRemoved }
-            kpiCard(
-                title: "CODE VELOCITY",
-                value: "+\(netLinesAdded) / -\(netLinesRemoved)",
-                subtitle: "lines of code impacted",
-                accent: Theme.accentSecondary
-            )
+            if netLinesAdded > 0 || netLinesRemoved > 0 {
+                kpiCard(
+                    title: "CODE VELOCITY",
+                    value: "+\(netLinesAdded) / -\(netLinesRemoved)",
+                    subtitle: "lines of code impacted",
+                    accent: Theme.accentSecondary
+                )
+            } else {
+                let projectCount = Set(allSessions.map { $0.project }).count
+                kpiCard(
+                    title: "TRACKED PROJECTS",
+                    value: "\(projectCount)",
+                    subtitle: "across all local workspaces",
+                    accent: Theme.accentSecondary
+                )
+            }
         }
     }
 
@@ -136,12 +147,13 @@ struct SessionsTelemetryPanel: View {
             // Left Pane: Session List
             sessionListPane
                 .frame(width: 380)
+                .frame(maxHeight: .infinity)
 
             // Right Pane: Telemetry Inspector
             sessionInspectorPane
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minHeight: 580)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Left Pane (Session List)
@@ -219,11 +231,14 @@ struct SessionsTelemetryPanel: View {
                             sessionListItem(session)
                         }
                     }
+                    .padding(.vertical, 2)
                 }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.visible)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .padding(14)
+        .frame(maxHeight: .infinity)
         .glassPanel(cornerRadius: 12, accent: Theme.accent)
     }
 
@@ -305,15 +320,17 @@ struct SessionsTelemetryPanel: View {
                 }
 
                 // Mini Context Bar
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.06))
-                        Capsule()
-                            .fill(session.contextFraction > 0.7 ? Theme.warning : Theme.claudeColor)
-                            .frame(width: geo.size.width * CGFloat(session.contextFraction))
+                if session.contextTokens > 0 {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.white.opacity(0.06))
+                            Capsule()
+                                .fill(session.contextFraction > 0.7 ? Theme.warning : Theme.claudeColor)
+                                .frame(width: max(2, geo.size.width * CGFloat(session.contextFraction)))
+                        }
                     }
+                    .frame(height: 3)
                 }
-                .frame(height: 3)
             }
             .padding(10)
             .background(
@@ -358,7 +375,8 @@ struct SessionsTelemetryPanel: View {
                     }
                     .padding(18)
                 }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.visible)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .glassPanel(cornerRadius: 12, accent: Theme.colorForProject(session.project))
             } else {
                 VStack(spacing: 12) {
@@ -375,6 +393,7 @@ struct SessionsTelemetryPanel: View {
                 .glassPanel(cornerRadius: 12, accent: Theme.accent)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Inspector Sub-Components
@@ -429,17 +448,22 @@ struct SessionsTelemetryPanel: View {
 
     private func actionButtonsBar(_ session: SessionAgg) -> some View {
         HStack(spacing: 10) {
-            // Copy Session ID
+            // Copy Session ID / Path
             Button {
+                let toCopy = session.id.hasPrefix("proj-") ? (session.cwd.isEmpty ? session.id : session.cwd) : session.id
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(session.id, forType: .string)
+                NSPasteboard.general.setString(toCopy, forType: .string)
                 CockpitAudio.playPing()
                 copiedId = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { copiedId = false }
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: copiedId ? "checkmark" : "doc.on.doc")
-                    Text(copiedId ? "COPIED" : "UUID: \(session.id.prefix(8))...")
+                    if session.id.hasPrefix("proj-") {
+                        Text(copiedId ? "COPIED PATH" : "PROJECT WORKSPACE")
+                    } else {
+                        Text(copiedId ? "COPIED" : "UUID: \(session.id.prefix(8))...")
+                    }
                 }
                 .font(Theme.mono(10.5))
                 .foregroundStyle(copiedId ? Theme.good : Theme.ink2)
@@ -515,12 +539,18 @@ struct SessionsTelemetryPanel: View {
                 Text("BURN RATE")
                     .font(Theme.mono(9.5, weight: .medium))
                     .foregroundStyle(Theme.ink3)
-                HStack(alignment: .lastTextBaseline, spacing: 2) {
-                    Text(Formatters.usd(session.burnRatePerMin))
-                        .font(Theme.mono(22, weight: .bold))
-                        .foregroundStyle(Theme.ink1)
-                    Text("/min")
-                        .font(Theme.mono(11))
+                if session.burnRatePerMin > 0 {
+                    HStack(alignment: .lastTextBaseline, spacing: 2) {
+                        Text(Formatters.usd(session.burnRatePerMin))
+                            .font(Theme.mono(22, weight: .bold))
+                            .foregroundStyle(Theme.ink1)
+                        Text("/min")
+                            .font(Theme.mono(11))
+                            .foregroundStyle(Theme.ink3)
+                    }
+                } else {
+                    Text(session.isActive ? "measuring..." : "idle")
+                        .font(Theme.mono(18, weight: .medium))
                         .foregroundStyle(Theme.ink3)
                 }
             }
@@ -534,13 +564,19 @@ struct SessionsTelemetryPanel: View {
                 Text("CODE IMPACT")
                     .font(Theme.mono(9.5, weight: .medium))
                     .foregroundStyle(Theme.ink3)
-                HStack(spacing: 6) {
-                    Text("+\(session.linesAdded)")
-                        .font(Theme.mono(18, weight: .bold))
-                        .foregroundStyle(Theme.good)
-                    Text("-\(session.linesRemoved)")
-                        .font(Theme.mono(18, weight: .bold))
-                        .foregroundStyle(Theme.critical)
+                if session.linesAdded > 0 || session.linesRemoved > 0 {
+                    HStack(spacing: 6) {
+                        Text("+\(session.linesAdded)")
+                            .font(Theme.mono(18, weight: .bold))
+                            .foregroundStyle(Theme.good)
+                        Text("-\(session.linesRemoved)")
+                            .font(Theme.mono(18, weight: .bold))
+                            .foregroundStyle(Theme.critical)
+                    }
+                } else {
+                    Text("none")
+                        .font(Theme.mono(18, weight: .medium))
+                        .foregroundStyle(Theme.ink3)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -570,8 +606,8 @@ struct SessionsTelemetryPanel: View {
                 }
             }
 
-            // Proportional Token Bar
             if session.totalTokens > 0 {
+                // Proportional Token Bar
                 GeometryReader { proxy in
                     let total = max(1, Double(session.totalTokens))
                     let inW = (Double(session.inputTokens) / total) * proxy.size.width
@@ -590,15 +626,20 @@ struct SessionsTelemetryPanel: View {
                     .clipShape(RoundedRectangle(cornerRadius: 3))
                 }
                 .frame(height: 7)
-            }
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                tokenGridCell(title: "INPUT TOKENS", value: session.inputTokens, color: Color.blue)
-                tokenGridCell(title: "OUTPUT TOKENS", value: session.outputTokens, color: Color.purple)
-                tokenGridCell(title: "THINKING TOKENS", value: session.thinkingTokens, color: Color.pink)
-                tokenGridCell(title: "CACHE READ", value: session.cacheReadTokens, color: Color.teal)
-                tokenGridCell(title: "CACHE WRITE", value: session.cacheCreationTokens, color: Color.orange)
-                tokenGridCell(title: "TOTAL TOKENS", value: session.totalTokens, color: Theme.accent)
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    tokenGridCell(title: "INPUT TOKENS", value: session.inputTokens, color: Color.blue)
+                    tokenGridCell(title: "OUTPUT TOKENS", value: session.outputTokens, color: Color.purple)
+                    tokenGridCell(title: "THINKING TOKENS", value: session.thinkingTokens, color: Color.pink)
+                    tokenGridCell(title: "CACHE READ", value: session.cacheReadTokens, color: Color.teal)
+                    tokenGridCell(title: "CACHE WRITE", value: session.cacheCreationTokens, color: Color.orange)
+                    tokenGridCell(title: "TOTAL TOKENS", value: session.totalTokens, color: Theme.accent)
+                }
+            } else {
+                Text("No token consumption telemetry recorded for this session.")
+                    .font(Theme.ui(12))
+                    .foregroundStyle(Theme.ink3)
+                    .padding(.vertical, 4)
             }
         }
         .padding(14)
@@ -827,11 +868,14 @@ struct SessionsTelemetryPanel: View {
                     .tracking(0.7)
                     .foregroundStyle(Theme.ink3)
                 Spacer()
+            if session.contextTokens > 0 {
                 Text("\(Formatters.tokens(session.contextTokens)) / \(Formatters.tokens(session.contextTotalTokens)) · \(Int(session.contextFraction * 100))%")
                     .font(Theme.mono(11, weight: .semibold))
                     .foregroundStyle(session.contextFraction > 0.7 ? Theme.warning : Theme.claudeColor)
             }
+        }
 
+        if session.contextTokens > 0 {
             GeometryReader { proxy in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 4).fill(Color.white.opacity(0.06))
@@ -841,6 +885,7 @@ struct SessionsTelemetryPanel: View {
                 }
             }
             .frame(height: 7)
+        }
 
             Divider().background(Theme.hairline2)
 

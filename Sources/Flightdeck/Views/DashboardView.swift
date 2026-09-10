@@ -113,18 +113,24 @@ struct DashboardView: View {
             TopBar(showGraph: $showGraph, showPalette: $showPalette)
             TabPicker(selected: $tab)
 
-            ScrollView {
+            if tab == .sessions {
                 tabContent
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .coordinateSpace(name: "dashboard")
-                    .overlay(EmitterTrailOverlay(particles: particles, color: Theme.accent).allowsHitTesting(false))
-                    .onPreferenceChange(FramePreferenceKey.self) { newFrames in
-                        frameBox.map = newFrames
-                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                ScrollView {
+                    tabContent
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .coordinateSpace(name: "dashboard")
+                        .overlay(EmitterTrailOverlay(particles: particles, color: Theme.accent).allowsHitTesting(false))
+                        .onPreferenceChange(FramePreferenceKey.self) { newFrames in
+                            frameBox.map = newFrames
+                        }
+                }
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
         }
         .padding(EdgeInsets(top: 22, leading: 28, bottom: 28, trailing: 28))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(ambientGround)
         .foregroundStyle(Theme.ink1)
         .onChange(of: store.costEvents.count) { _, _ in spawnParticle() }

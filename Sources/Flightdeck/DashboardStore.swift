@@ -187,6 +187,7 @@ final class DashboardStore {
     /// JSONL tailing provides: costLedger (per-turn), activity entries, lastFile.
     private func mergeLiveSessions(_ records: [SessionLiveRecord]) {
         for record in records {
+            if record.sessionId.hasPrefix("test-") { continue }
             var agg = sessions[record.sessionId] ?? SessionAgg(id: record.sessionId, project: record.project)
             if !record.project.isEmpty { agg.project = record.project }
             if !record.branch.isEmpty { agg.branch = record.branch }
@@ -209,6 +210,7 @@ final class DashboardStore {
 
     private func mergeAIEvents(_ records: [AIEventRecord]) {
         for r in records {
+            if r.sessionId.hasPrefix("test-") { continue }
             let kind: ActivityEntry.Kind
             let text: String
             switch r.event.lowercased() {
@@ -289,14 +291,43 @@ final class DashboardStore {
         }
 
         for (path, proj) in projects {
-            guard let lastSessionId = proj["lastSessionId"] as? String, !lastSessionId.isEmpty else { continue }
-            let lastCost = proj["lastCost"] as? Double ?? 0
+            let sessionId: String
+            if let lastSid = proj["lastSessionId"] as? String, !lastSid.isEmpty {
+                sessionId = lastSid
+            } else {
+                sessionId = "proj-\(abs(path.hashValue))"
+            }
 
-            var agg = sessions[lastSessionId] ?? SessionAgg(id: lastSessionId, project: URL(fileURLWithPath: path).lastPathComponent)
+            let lastCost = proj["lastCost"] as? Double ?? 0
+            let projectName = Self.friendlyName(fromCwd: path)
+
+            var agg = sessions[sessionId] ?? SessionAgg(id: sessionId, project: projectName)
             agg.cwd = path
             if lastCost > 0 {
                 agg.liveTotalCost = max(agg.liveTotalCost ?? 0, lastCost)
             }
+
+            // Real timestamp from lastStartTime, or lastSessionModified, or exampleFilesGeneratedAt, or folder modification date
+            if let startTimeMs = proj["lastStartTime"] as? Double, startTimeMs > 0 {
+                let d = Date(timeIntervalSince1970: startTimeMs / 1000.0)
+                agg.lastSeen = max(agg.lastSeen ?? .distantPast, d)
+            } else if let modMs = proj["lastSessionModified"] as? Double, modMs > 0 {
+                let d = Date(timeIntervalSince1970: modMs / 1000.0)
+                agg.lastSeen = max(agg.lastSeen ?? .distantPast, d)
+            } else if let genMs = proj["exampleFilesGeneratedAt"] as? Double, genMs > 0 {
+                let d = Date(timeIntervalSince1970: genMs / 1000.0)
+                agg.lastSeen = max(agg.lastSeen ?? .distantPast, d)
+            } else if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+                      let modDate = attrs[.modificationDate] as? Date {
+                agg.lastSeen = max(agg.lastSeen ?? .distantPast, modDate)
+            } else if agg.lastSeen == nil {
+                agg.lastSeen = Date()
+            }
+
+            if let prompt = proj["lastSessionFirstPrompt"] as? String, !prompt.isEmpty, agg.lastPrompt.isEmpty {
+                agg.lastPrompt = prompt
+            }
+
             if let lastInput = proj["lastTotalInputTokens"] as? Int { agg.inputTokens = max(agg.inputTokens, lastInput) }
             if let lastOutput = proj["lastTotalOutputTokens"] as? Int { agg.outputTokens = max(agg.outputTokens, lastOutput) }
             if let lastCacheCreation = proj["lastTotalCacheCreationInputTokens"] as? Int { agg.cacheCreationTokens = max(agg.cacheCreationTokens, lastCacheCreation) }
@@ -330,8 +361,8 @@ final class DashboardStore {
                     agg.modelUsages[modelName] = summary
                 }
             }
-            sessions[lastSessionId] = agg
-            if inspectedSession?.id == lastSessionId {
+            sessions[sessionId] = agg
+            if inspectedSession?.id == sessionId {
                 inspectedSession = agg
             }
         }
@@ -382,7 +413,7 @@ final class DashboardStore {
     }
 
     private func apply(_ entry: ClaudeLogLine, projectHint: String) {
-        guard let sessionId = entry.sessionId else { return }
+        guard let sessionId = entry.sessionId, !sessionId.hasPrefix("test-") else { return }
         let ts = entry.timestamp.flatMap(isoFormatter.date(from:)) ?? Date()
 
         var agg = sessions[sessionId] ?? SessionAgg(id: sessionId, project: projectHint)
@@ -579,8 +610,9 @@ final class DashboardStore {
         let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
         for s in sessions.values {
             let sum = s.costLedger.filter { $0.0 > cutoff }.reduce(0) { $0 + $1.1 }
-            guard sum > 0 else { continue }
-            totals[s.project, default: 0] += sum
+            let cost = sum > 0 ? sum : s.totalCost
+            guard cost > 0 else { continue }
+            totals[s.project, default: 0] += cost
         }
         return totals.sorted { $0.value > $1.value }.map { ($0.key, $0.value) }
     }

@@ -37,7 +37,7 @@ struct FlightdeckApp: App {
                 .environment(devCleaner)
                 .environment(appUninstaller)
                 .environment(duplicateScanner)
-                .frame(minWidth: 1180, minHeight: 780)
+                .frame(minWidth: 1180, maxWidth: .infinity, minHeight: 780, maxHeight: .infinity)
                 .background(Theme.page)
                 .preferredColorScheme(.dark)
                 .onAppear {
@@ -52,7 +52,7 @@ struct FlightdeckApp: App {
                     devCleaner.start()
                 }
         }
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
         .defaultSize(width: 1200, height: 820)
 
         // Lets the app keep tracking with the dashboard window closed — which

@@ -182,8 +182,9 @@ struct SessionAgg: Identifiable {
 
     /// Exact model from the JSON payload — no hardcoded vendor mapping.
     var displayModel: String {
-        guard !model.isEmpty else { return "model unknown" }
-        return model
+        if !model.isEmpty { return model }
+        if let first = modelUsages.keys.first, !first.isEmpty { return first }
+        return "claude-code"
     }
 
     var isActive: Bool {

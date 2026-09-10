@@ -59,9 +59,7 @@ struct ClaudeIntegrationTests {
 
     @Test("ActivityDatabase upserts and fetches live session records with dynamic context total")
     func databaseSessionLiveOperations() throws {
-        guard let db = ActivityDatabase.shared else {
-            return
-        }
+        let db = try ActivityDatabase.inMemory()
 
         let id = "test-live-" + UUID().uuidString
         let record = SessionLiveRecord(
@@ -115,9 +113,7 @@ struct ClaudeIntegrationTests {
 
     @Test("ActivityDatabase inserts and fetches AI event records")
     func databaseAIEventOperations() throws {
-        guard let db = ActivityDatabase.shared else {
-            return
-        }
+        let db = try ActivityDatabase.inMemory()
 
         let sid = "test-event-" + UUID().uuidString
         let event = AIEventRecord(

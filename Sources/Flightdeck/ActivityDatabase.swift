@@ -32,13 +32,20 @@ final class ActivityDatabase {
         }
     }()
 
-    private init() throws {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Flightdeck", isDirectory: true)
-        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-
-        dbQueue = try DatabaseQueue(path: support.appendingPathComponent("flightdeck.sqlite").path)
+    init(inMemory: Bool = false) throws {
+        if inMemory {
+            dbQueue = try DatabaseQueue()
+        } else {
+            let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("Flightdeck", isDirectory: true)
+            try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+            dbQueue = try DatabaseQueue(path: support.appendingPathComponent("flightdeck.sqlite").path)
+        }
         try Self.migrator.migrate(dbQueue)
+    }
+
+    static func inMemory() throws -> ActivityDatabase {
+        try ActivityDatabase(inMemory: true)
     }
 
     private static var migrator: DatabaseMigrator {
