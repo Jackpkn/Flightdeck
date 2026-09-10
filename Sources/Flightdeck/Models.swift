@@ -12,6 +12,19 @@ struct ClaudeLogLine: Decodable {
     let sessionId: String?
     let message: MessagePayload?
 
+    // Direct cost fields emitted in Claude Code's cost-state records
+    let totalCostUSD: Double?
+    let costUSD: Double?
+    let modelUsage: [String: ModelUsage]?
+
+    struct ModelUsage: Decodable {
+        let inputTokens: Int?
+        let outputTokens: Int?
+        let cacheReadInputTokens: Int?
+        let cacheCreationInputTokens: Int?
+        let costUSD: Double?
+    }
+
     struct MessagePayload: Decodable {
         let model: String?
         let usage: Usage?
@@ -48,10 +61,13 @@ struct SessionAgg: Identifiable {
     var lastSeen: Date?
     var lastErrorAt: Date?
     var contextTokens: Int = 0
+    var contextTotalTokens: Int = 200_000
     /// (timestamp, cost-in-usd) for every assistant turn seen, trimmed to the last 7 days.
     var costLedger: [(Date, Double)] = []
     var liveTotalCost: Double? = nil
 
+    /// Total cost from Claude Code's JSON (cost-state, statusline, or ~/.claude.json).
+    /// Uses real cost from JSON rather than relying on hardcoded price estimations.
     var totalCost: Double {
         if let liveTotalCost, liveTotalCost > 0 {
             return max(liveTotalCost, costLedger.reduce(0) { $0 + $1.1 })
@@ -59,16 +75,10 @@ struct SessionAgg: Identifiable {
         return costLedger.reduce(0) { $0 + $1.1 }
     }
 
-    var friendlyModelName: String {
-        let m = model.lowercased()
-        if m.contains("fable-5-1") || m.contains("fable 5.1") { return "Fable 5.1" }
-        if m.contains("fable-5") || m.contains("fable 5") { return "Fable 5" }
-        if m.contains("fable") { return "Fable" }
-        if m.contains("mythos") { return "Mythos" }
-        if m.contains("opus-5") || m.contains("opus 5") { return "Opus 5" }
-        if m.contains("sonnet-5") || m.contains("sonnet 5") { return "Sonnet 5" }
-        if m.contains("haiku") { return "Haiku" }
-        return model.isEmpty ? "model unknown" : model
+    /// Exact model from the JSON payload — no hardcoded vendor mapping.
+    var displayModel: String {
+        guard !model.isEmpty else { return "model unknown" }
+        return model
     }
 
     var isActive: Bool {
@@ -77,7 +87,8 @@ struct SessionAgg: Identifiable {
     }
 
     var contextFraction: Double {
-        min(Double(contextTokens) / 200_000, 1)
+        let total = max(1, contextTotalTokens)
+        return min(Double(contextTokens) / Double(total), 1)
     }
 
     var burnRatePerMin: Double {
@@ -155,6 +166,7 @@ struct SessionLiveRecord: Codable, FetchableRecord, PersistableRecord {
     var branch: String
     var model: String
     var contextTokens: Int
+    var contextTotalTokens: Int = 200_000
     var totalCostUsd: Double
     var lastFile: String
     var updatedAt: Date

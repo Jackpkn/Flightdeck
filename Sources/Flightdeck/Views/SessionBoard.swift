@@ -54,7 +54,11 @@ private struct SessionCard: View {
                     .foregroundStyle(Theme.ink3)
                     .lineLimit(1)
             }
-            ContextMeter(fraction: session.contextFraction, tokens: session.contextTokens)
+            ContextMeter(
+                fraction: session.contextFraction,
+                tokens: session.contextTokens,
+                totalTokens: session.contextTotalTokens
+            )
             HStack(alignment: .bottom) {
                 (Text(Formatters.usd(session.burnRatePerMin)).font(Theme.mono(16, weight: .semibold))
                  + Text("/min").font(Theme.mono(11)).foregroundStyle(Theme.ink3))
@@ -94,7 +98,7 @@ private struct SessionCard: View {
                     RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 8, height: 8)
                     Text(session.project).font(Theme.ui(15, weight: .semibold))
                 }
-                Text(session.friendlyModelName)
+                Text(session.displayModel)
                     .font(Theme.mono(11)).foregroundStyle(Theme.ink3)
             }
             Spacer()
@@ -123,6 +127,7 @@ private struct StatusPill: View {
 private struct ContextMeter: View {
     let fraction: Double
     let tokens: Int
+    let totalTokens: Int
 
     private var fillColor: Color { fraction > 0.7 ? Theme.warning : Theme.claudeColor }
 
@@ -131,7 +136,7 @@ private struct ContextMeter: View {
             HStack {
                 Text("CONTEXT").font(Theme.mono(11)).foregroundStyle(Theme.ink3)
                 Spacer()
-                Text("\(Formatters.tokens(tokens)) / 200,000 · \(Int(fraction * 100))%")
+                Text("\(Formatters.tokens(tokens)) / \(Formatters.tokens(totalTokens)) · \(Int(fraction * 100))%")
                     .font(Theme.mono(11, weight: .semibold))
                     .foregroundStyle(Theme.ink1)
             }

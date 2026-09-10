@@ -71,7 +71,7 @@ struct ClaudeIntegrationTests {
         #expect(abs(agg.totalCost - 0.15) < 0.0001)
     }
 
-    @Test("ActivityDatabase upserts and fetches live session records")
+    @Test("ActivityDatabase upserts and fetches live session records with dynamic context total")
     func databaseSessionLiveOperations() throws {
         guard let db = ActivityDatabase.shared else {
             return
@@ -82,8 +82,9 @@ struct ClaudeIntegrationTests {
             sessionId: id,
             project: "Flightdeck",
             branch: "main",
-            model: "claude-fable-5",
+            model: "claude-fable-5-1[1m]",
             contextTokens: 12000,
+            contextTotalTokens: 1_000_000,
             totalCostUsd: 0.88,
             lastFile: "Sources/Flightdeck/App.swift",
             updatedAt: Date()
@@ -94,9 +95,36 @@ struct ClaudeIntegrationTests {
         let sessions = db.fetchLiveSessions()
         let match = sessions.first { $0.sessionId == id }
         #expect(match != nil)
-        #expect(match?.model == "claude-fable-5")
+        #expect(match?.model == "claude-fable-5-1[1m]")
         #expect(match?.contextTokens == 12000)
+        #expect(match?.contextTotalTokens == 1_000_000)
         #expect(match?.totalCostUsd == 0.88)
+    }
+
+    @Test("ClaudeLogLine parses real cost-state records with totalCostUSD from JSON")
+    func costStateDecoding() throws {
+        let json = """
+        {
+            "type": "cost-state",
+            "sessionId": "sess-cost-999",
+            "totalCostUSD": 33.1432,
+            "modelUsage": {
+                "claude-fable-5-1[1m]": {
+                    "inputTokens": 6770,
+                    "outputTokens": 353652,
+                    "costUSD": 33.139
+                }
+            }
+        }
+        """
+
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ClaudeLogLine.self, from: data)
+
+        #expect(entry.type == "cost-state")
+        #expect(entry.sessionId == "sess-cost-999")
+        #expect(entry.totalCostUSD == 33.1432)
+        #expect(entry.modelUsage?["claude-fable-5-1[1m]"]?.costUSD == 33.139)
     }
 
     @Test("ActivityDatabase inserts and fetches AI event records")

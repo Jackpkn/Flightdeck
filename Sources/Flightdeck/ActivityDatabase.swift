@@ -95,6 +95,13 @@ final class ActivityDatabase {
             )
         }
 
+        // Add dynamic context window size from statusline JSON
+        migrator.registerMigration("addContextTotalTokens") { db in
+            try db.alter(table: SessionLiveRecord.databaseTableName) { t in
+                t.add(column: "contextTotalTokens", .integer).notNull().defaults(to: 200_000)
+            }
+        }
+
         return migrator
     }
 

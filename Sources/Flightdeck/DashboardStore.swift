@@ -192,6 +192,9 @@ final class DashboardStore {
             if !record.model.isEmpty { agg.model = record.model }
             if !record.lastFile.isEmpty { agg.lastFile = record.lastFile }
             agg.contextTokens = max(agg.contextTokens, record.contextTokens)
+            if record.contextTotalTokens > 0 {
+                agg.contextTotalTokens = record.contextTotalTokens
+            }
             agg.lastSeen = max(agg.lastSeen ?? .distantPast, record.updatedAt)
             if record.totalCostUsd > 0 {
                 agg.liveTotalCost = record.totalCostUsd
@@ -265,8 +268,36 @@ final class DashboardStore {
         for file in discoverLogFiles() {
             consume(file: file)
         }
+        loadClaudeJsonProjects()
         if activity.count > 200 {
             activity.removeLast(activity.count - 200)
+        }
+    }
+
+    /// Read Claude Code's global ~/.claude.json to ingest exact session costs
+    /// and model usages computed directly by Claude Code.
+    private func loadClaudeJsonProjects() {
+        let claudeJsonURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
+        guard let data = try? Data(contentsOf: claudeJsonURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let projects = json["projects"] as? [String: [String: Any]] else {
+            return
+        }
+
+        for (path, proj) in projects {
+            guard let lastSessionId = proj["lastSessionId"] as? String, !lastSessionId.isEmpty else { continue }
+            let lastCost = proj["lastCost"] as? Double ?? 0
+
+            var agg = sessions[lastSessionId] ?? SessionAgg(id: lastSessionId, project: URL(fileURLWithPath: path).lastPathComponent)
+            if lastCost > 0 {
+                agg.liveTotalCost = max(agg.liveTotalCost ?? 0, lastCost)
+            }
+            if let modelUsage = proj["lastModelUsage"] as? [String: Any] {
+                if let firstModel = modelUsage.keys.first, agg.model.isEmpty {
+                    agg.model = firstModel
+                }
+            }
+            sessions[lastSessionId] = agg
         }
     }
 
@@ -323,16 +354,42 @@ final class DashboardStore {
         if let branch = entry.gitBranch { agg.branch = branch }
         agg.lastSeen = max(agg.lastSeen ?? .distantPast, ts)
 
+        // 1. Direct cost from JSON (type: "cost-state")
+        if let directCost = entry.totalCostUSD ?? entry.costUSD {
+            agg.liveTotalCost = max(agg.liveTotalCost ?? 0, directCost)
+            agg.costLedger.append((ts, directCost))
+            let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
+            agg.costLedger.removeAll { $0.0 < cutoff }
+            if directCost > 0 {
+                costEvents.append(.init(sessionId: sessionId, amount: directCost, timestamp: ts))
+            }
+        }
+
+        // 2. Direct model usage from JSON
+        if let modelUsage = entry.modelUsage {
+            if let firstModel = modelUsage.keys.first, !firstModel.isEmpty {
+                agg.model = firstModel
+            }
+            let sumFromUsage = modelUsage.values.compactMap(\.costUSD).reduce(0, +)
+            if sumFromUsage > 0 {
+                agg.liveTotalCost = max(agg.liveTotalCost ?? 0, sumFromUsage)
+            }
+        }
+
+        // 3. Message turn usage & fallback calculation
         if let usage = entry.message?.usage {
-            let cost = PricingTable.cost(model: entry.message?.model, usage: usage)
-            if let model = entry.message?.model { agg.model = model }
+            if let model = entry.message?.model, !model.isEmpty {
+                agg.model = model
+            }
             agg.contextTokens = (usage.input_tokens ?? 0)
                 + (usage.cache_read_input_tokens ?? 0)
                 + (usage.cache_creation_input_tokens ?? 0)
-            agg.costLedger.append((ts, cost))
-            let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
-            agg.costLedger.removeAll { $0.0 < cutoff }
-            if cost > 0 {
+
+            let cost = PricingTable.cost(model: entry.message?.model, usage: usage)
+            if agg.liveTotalCost == nil && cost > 0 {
+                agg.costLedger.append((ts, cost))
+                let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
+                agg.costLedger.removeAll { $0.0 < cutoff }
                 costEvents.append(.init(sessionId: sessionId, amount: cost, timestamp: ts))
             }
         }

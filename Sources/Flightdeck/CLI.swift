@@ -54,6 +54,7 @@ enum CLI {
             branch: payload.git_branch ?? "",
             model: payload.model ?? "",
             contextTokens: payload.context_window?.used ?? 0,
+            contextTotalTokens: payload.context_window?.total ?? 200_000,
             totalCostUsd: payload.total_cost ?? 0,
             lastFile: "",
             updatedAt: Date()
