@@ -1,0 +1,183 @@
+---
+// A segmented radial gauge, drawn in SVG. No JavaScript: the arc length is
+// computed at build time, so the gauge is correct in the first painted frame.
+interface Props {
+  label: string;
+  display: string;
+  /** 0-1. Drives the arc length, so it must be the real proportion. */
+  value: number;
+  tone?: "accent" | "good" | "cost" | "critical" | "ink";
+  note?: string;
+  /** Renders the app's "not exactly attributable" treatment. */
+  marked?: boolean;
+}
+
+const { label, display, value, tone = "accent", note, marked = false } = Astro.props;
+
+const R = 46;
+const CIRCUMFERENCE = 2 * Math.PI * R;
+const clamped = Math.min(1, Math.max(0, value));
+const arc = clamped * CIRCUMFERENCE;
+
+// 30 ticks around the dial; the ones under the arc light up.
+const TICKS = 30;
+const ticks = Array.from({ length: TICKS }, (_, i) => {
+  const angle = (i / TICKS) * 2 * Math.PI - Math.PI / 2;
+  const inner = R + 6;
+  const outer = R + (i % 5 === 0 ? 12 : 9);
+  return {
+    x1: 60 + Math.cos(angle) * inner,
+    y1: 60 + Math.sin(angle) * inner,
+    x2: 60 + Math.cos(angle) * outer,
+    y2: 60 + Math.sin(angle) * outer,
+    lit: i / TICKS <= clamped,
+    major: i % 5 === 0,
+  };
+});
+---
+
+<figure class="gauge" data-tone={tone}>
+  <svg viewBox="0 0 120 120" role="img" aria-label={`${label}: ${display}`}>
+    <!-- track -->
+    <circle cx="60" cy="60" r={R} class="track" />
+    <!-- value arc, started at 12 o'clock -->
+    <circle
+      cx="60"
+      cy="60"
+      r={R}
+      class="arc"
+      stroke-dasharray={`${arc} ${CIRCUMFERENCE}`}
+      transform="rotate(-90 60 60)"
+    />
+    <!-- segmented bezel -->
+    <g class="ticks">
+      {
+        ticks.map((t) => (
+          <line
+            x1={t.x1}
+            y1={t.y1}
+            x2={t.x2}
+            y2={t.y2}
+            class={t.lit ? "lit" : ""}
+            stroke-width={t.major ? 1.4 : 0.8}
+          />
+        ))
+      }
+    </g>
+    <!-- crosshair, a quiet nod to the app's own panels -->
+    <g class="crosshair">
+      <line x1="60" y1="8" x2="60" y2="14" />
+      <line x1="60" y1="106" x2="60" y2="112" />
+      <line x1="8" y1="60" x2="14" y2="60" />
+      <line x1="106" y1="60" x2="112" y2="60" />
+    </g>
+  </svg>
+  <figcaption>
+    <span class="val num">{display}</span>
+    <span class="label">{label}</span>
+    {note && <span class={marked ? "note marked" : "note"}>{note}</span>}
+  </figcaption>
+</figure>
+
+<style>
+  .gauge {
+    margin: 0;
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    padding: 18px 10px;
+  }
+
+  svg {
+    width: clamp(104px, 13vw, 132px);
+    height: auto;
+    overflow: visible;
+  }
+
+  .track {
+    fill: none;
+    stroke: var(--track);
+    stroke-width: 3;
+  }
+
+  .arc {
+    fill: none;
+    stroke: var(--tone-color);
+    stroke-width: 3;
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 5px var(--tone-glow));
+  }
+
+  .ticks line {
+    stroke: var(--ink3);
+    opacity: 0.4;
+  }
+
+  .ticks line.lit {
+    stroke: var(--tone-color);
+    opacity: 0.9;
+  }
+
+  .crosshair line {
+    stroke: var(--ink3);
+    stroke-width: 1;
+    opacity: 0.45;
+  }
+
+  figcaption {
+    display: grid;
+    justify-items: center;
+    gap: 3px;
+    text-align: center;
+  }
+
+  .val {
+    font-size: clamp(17px, 2.1vw, 21px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--tone-color);
+    line-height: 1.1;
+  }
+
+  .label {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink3);
+  }
+
+  .note {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--ink3);
+    max-width: 20ch;
+    line-height: 1.5;
+  }
+
+  .note.marked {
+    color: var(--cost);
+  }
+
+  /* tone is the only thing that varies between gauges */
+  [data-tone="accent"] {
+    --tone-color: var(--accent);
+    --tone-glow: rgba(0, 240, 255, 0.45);
+  }
+  [data-tone="good"] {
+    --tone-color: var(--good);
+    --tone-glow: rgba(16, 185, 129, 0.45);
+  }
+  [data-tone="cost"] {
+    --tone-color: var(--cost);
+    --tone-glow: rgba(255, 184, 0, 0.45);
+  }
+  [data-tone="critical"] {
+    --tone-color: var(--critical);
+    --tone-glow: rgba(255, 59, 59, 0.45);
+  }
+  [data-tone="ink"] {
+    --tone-color: var(--ink1);
+    --tone-glow: rgba(240, 242, 245, 0.25);
+  }
+</style>

@@ -965,31 +965,18 @@ struct SessionsTelemetryPanel: View {
                 .foregroundStyle(Color.purple)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("GITHUB PULL REQUEST #\(session.prNumber ?? 1)")
+                Text(session.prTitle)
                     .font(Theme.mono(11, weight: .bold))
                     .foregroundStyle(Theme.ink1)
-                Text(session.prRepository.isEmpty ? session.prUrl : session.prRepository)
+                Text(session.prSubtitle)
                     .font(Theme.mono(10.5))
                     .foregroundStyle(Theme.ink3)
             }
 
             Spacer()
 
-            if let url = URL(string: session.prUrl) {
-                Button {
-                    NSWorkspace.shared.open(url)
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("VIEW ON GITHUB")
-                        Image(systemName: "arrow.up.right")
-                    }
-                    .font(Theme.mono(10.5, weight: .semibold))
-                    .foregroundStyle(Color.purple)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(Color.purple.opacity(0.16), in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.purple.opacity(0.4), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
+            if let url = session.prLink {
+                GitHubLinkButton(url: url)
             }
         }
         .padding(12)

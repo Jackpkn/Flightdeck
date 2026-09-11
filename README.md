@@ -5,9 +5,9 @@
 **The Cyberpunk Activity Monitor & Developer Cockpit for macOS**
 
 [![macOS](https://img.shields.io/badge/macOS-14.0%2B-000000?style=for-the-badge&logo=apple&logoColor=white)](https://apple.com)
-[![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=for-the-badge&logo=swift&logoColor=white)](https://swift.org)
+[![Swift](https://img.shields.io/badge/Swift-5.9%2B-F05138?style=for-the-badge&logo=swift&logoColor=white)](https://swift.org)
 [![License](https://img.shields.io/badge/License-MIT-00f0ff?style=for-the-badge)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-213%20Passing-39ff88?style=for-the-badge)](Tests/)
+[![Tests](https://img.shields.io/badge/Tests-239%20Passing-39ff88?style=for-the-badge)](Tests/)
 
 *Flightdeck is a hyper-dense, high-performance telemetry dashboard and file intelligence cockpit built purely in Swift & SwiftUI with native Mach kernel and BSD C-level integrations.*
 
