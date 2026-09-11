@@ -294,7 +294,7 @@ const rail = [
       <div class="wrap">
         <div class="sec-head">
           <p class="eyebrow">Install</p>
-          <h2>Two steps, and one warning to expect.</h2>
+          <h2>Two steps, and one honest warning.</h2>
         </div>
         <ol class="steps">
           <li>
@@ -308,6 +308,21 @@ const rail = [
             </p>
           </li>
         </ol>
+
+        <div class="aside">
+          <p class="eyebrow">If you would rather not see that dialog at all</p>
+          <p class="body-copy">
+            macOS attaches a <code>com.apple.quarantine</code> flag to anything your browser
+            downloads. It records where a file came from and says nothing about the code inside
+            it. Clear it and the app opens normally:
+          </p>
+          <pre class="cmd"><code>xattr -dr com.apple.quarantine /Applications/Flightdeck.app</code></pre>
+          <p class="small">
+            Only ever run that on software you meant to download. It does the same thing as
+            right-click &rarr; Open, without the dialog.
+          </p>
+        </div>
+
         <div class="cta">
           <a class="btn" href={dmg} download>Download the DMG &middot; 12&nbsp;MB</a>
           <span class="build num">v{version} &middot; universal &middot; arm64 + x86_64</span>
@@ -820,5 +835,38 @@ const rail = [
 
   .steps::marker {
     font-family: var(--mono);
+  }
+
+  .aside {
+    border: 1px solid var(--hairline);
+    border-left: 2px solid var(--cost);
+    background: var(--panel);
+    padding: 18px 20px;
+    display: grid;
+    gap: 11px;
+    max-width: 72ch;
+    margin-bottom: 30px;
+  }
+
+  .cmd {
+    margin: 0;
+    overflow-x: auto;
+    background: var(--ground);
+    border: 1px solid var(--hairline2);
+    padding: 12px 14px;
+  }
+
+  .cmd code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink1);
+    white-space: pre;
+  }
+
+  .small {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.7;
+    color: var(--ink3);
   }
 </style>
