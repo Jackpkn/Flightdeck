@@ -54,7 +54,7 @@ if ! codesign -dv "dist/Flightdeck.app" 2>&1 | grep -q "Authority=Developer ID";
   echo
   echo "!! This build is ad-hoc signed, not notarised."
   echo "   Anyone who downloads it sees \"Apple could not verify Flightdeck is"
-  echo "   free of malware\" and must right-click -> Open on first launch."
+  echo "   free of malware\" and must clear the quarantine flag before it opens."
   echo
   if [ -z "${ALLOW_UNSIGNED:-}" ]; then
     echo "   Set ALLOW_UNSIGNED=1 to publish anyway, or set DEVELOPER_ID and"
@@ -95,11 +95,15 @@ if [ -z "$DRY_RUN" ] && [ "$BRANCHES" = "0" ]; then
     echo "## Install"
     echo
     echo "1. Open the DMG and drag Flightdeck to Applications."
-    echo "2. On first launch, right-click the app and choose **Open**."
+    echo "2. Run this once, in Terminal, then open the app normally:"
+    echo
+    echo "       xattr -dr com.apple.quarantine /Applications/Flightdeck.app"
     echo
     echo "Step 2 is needed until the app is notarised with an Apple Developer certificate."
-    echo "macOS will say it cannot verify the developer; right-click → Open gives you a way"
-    echo "through, where double-clicking does not."
+    echo "The com.apple.quarantine flag your browser attaches records where a file came from"
+    echo "and says nothing about the code inside it. Control-clicking and choosing Open does"
+    echo "**not** work on macOS 15 Sequoia or later — Apple removed that bypass. Without"
+    echo "Terminal, use System Settings → Privacy & Security → Open Anyway."
     echo
     echo "Requires macOS 14 or later. Universal: Apple silicon and Intel."
   } > "$SEED/README.md"
@@ -118,11 +122,16 @@ Flightdeck $TAG — universal ($ARCHS), $SIZE.
 
 **Install**
 1. Open the DMG and drag Flightdeck to Applications.
-2. On first launch, right-click the app and choose **Open**.
+2. Run this once, in Terminal, then open the app normally:
 
-Step 2 is needed because this build is not yet notarised with an Apple Developer
-certificate. macOS will say it cannot verify the developer; right-click → Open
-gives you a way through, where double-clicking does not.
+       xattr -dr com.apple.quarantine /Applications/Flightdeck.app
+
+This build is not notarised with an Apple Developer certificate, so macOS blocks
+it. The com.apple.quarantine flag your browser attaches records where a file came
+from and says nothing about the code; the bundle itself is signed and verifies
+cleanly. Control-clicking and choosing Open does NOT work on macOS 15 Sequoia or
+later — Apple removed that bypass. Without Terminal, use System Settings ->
+Privacy & Security -> Open Anyway.
 
 **What it does**
 Reads your Claude Code transcripts and the git history of the repos they touched,
