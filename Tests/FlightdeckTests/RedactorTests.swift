@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Flightdeck
 
@@ -102,6 +103,35 @@ struct RedactorTests {
         let a = redactor(["integ"])
         let b = redactor(["integ"])
         #expect(a.fileName("pipeline.py") == b.fileName("pipeline.py"))
+    }
+
+    @Test("The account name is replaced wherever a path shows it")
+    func userNameMasked() {
+        let r = redactor([])
+        #expect(r.userName(NSUserName()) == "you")
+        #expect(r.userName("Users") == "Users", "structural components survive")
+        #expect(r.userName("Downloads") == "Downloads")
+    }
+
+    @Test("Paths are shown relative to home, without the account name")
+    func homeRelativePaths() {
+        let r = redactor([])
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        #expect(r.homeRelative("\(home)/Projects/thing") == "~/Projects/thing")
+        #expect(r.homeRelative("/usr/local/bin") == "/usr/local/bin")
+    }
+
+    @Test("Standard home folders keep their names; anything else is masked")
+    func entryNamesMasked() {
+        let r = redactor([])
+        // These say nothing about you — masking them would make the browser
+        // unreadable for no privacy gain.
+        for safe in ["Downloads", "Desktop", "Documents", "Applications", "Pictures"] {
+            #expect(r.entryName(safe) == safe)
+        }
+        #expect(r.entryName("q-20260619-142023.png") != "q-20260619-142023.png")
+        #expect(r.entryName("client-contract.pdf").hasSuffix(".pdf"))
+        #expect(!r.entryName("client-contract.pdf").contains("client"))
     }
 
     @Test("The machine name is replaced")

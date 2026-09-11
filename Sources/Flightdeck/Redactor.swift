@@ -86,6 +86,36 @@ struct Redactor: Equatable, Sendable {
         return ext.isEmpty ? "file-\(token)" : "\(token).\(ext)"
     }
 
+    /// Standard home folders name nothing about you, and masking them would
+    /// make the file browser unreadable for no privacy gain.
+    private static let neutralFolders: Set<String> = [
+        "Downloads", "Desktop", "Documents", "Applications", "Movies", "Music",
+        "Pictures", "Public", "Library", "Developer", "Users", "Projects",
+    ]
+
+    /// The account name sits in every absolute path and identifies you directly.
+    func userName(_ component: String) -> String {
+        guard isEnabled, !component.isEmpty else { return component }
+        return component == NSUserName() ? "you" : component
+    }
+
+    func homeRelative(_ path: String) -> String {
+        guard isEnabled, !path.isEmpty else { return path }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        guard path.hasPrefix(home) else { return path }
+        return "~" + path.dropFirst(home.count)
+    }
+
+    /// A file browser row. Folders everyone has keep their names; everything
+    /// else keeps only its extension.
+    func entryName(_ name: String) -> String {
+        guard isEnabled, !name.isEmpty else { return name }
+        if Self.neutralFolders.contains(name) || name == NSUserName() {
+            return name == NSUserName() ? "you" : name
+        }
+        return fileName(name)
+    }
+
     func hostname(_ name: String) -> String {
         guard isEnabled, !name.isEmpty else { return name }
         return "this-mac"
