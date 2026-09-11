@@ -131,6 +131,27 @@ DEVELOPER_ID="Developer ID Application: Your Name (TEAMID)" \
 NOTARY_PROFILE="flightdeck" ./scripts/release.sh
 ```
 
+Publish the DMG so people can download it while this repo stays private — release
+assets inherit their repository's visibility, so they go to a separate public one:
+
+```bash
+./scripts/publish-release.sh      # -> github.com/Jackpkn/Flightdeck-releases
+```
+
+> **Unnotarised builds and Gatekeeper.** Without a Developer ID, macOS blocks the
+> app on first launch and the fix is one command:
+>
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/Flightdeck.app
+> ```
+>
+> Control-clicking the app and choosing **Open** does *not* work on macOS 15
+> Sequoia or later — Apple removed that bypass. The GUI route is now
+> System Settings → Privacy & Security → **Open Anyway**.
+>
+> A build compiled locally (`./scripts/run-app.sh`, or `brew install` from source)
+> never gets quarantined at all, so none of this applies to it.
+
 ---
 
 ## 🔒 Privacy & Permissions
