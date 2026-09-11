@@ -18,6 +18,7 @@ struct FlightdeckApp: App {
     @State private var mcpScanner = MCPServerScanner.shared
     @State private var usageMonitor = ClaudeUsageMonitor()
     @State private var outcomeStore = SessionOutcomeStore()
+    @State private var alerts = AlertNotifier()
 
     init() {
         FontLoader.registerBundledFonts()
@@ -43,6 +44,7 @@ struct FlightdeckApp: App {
                 .environment(mcpScanner)
                 .environment(usageMonitor)
                 .environment(outcomeStore)
+                .environment(alerts)
                 .frame(minWidth: 1180, maxWidth: .infinity, minHeight: 780, maxHeight: .infinity)
                 .background(Theme.page)
                 .preferredColorScheme(.dark)
@@ -58,6 +60,7 @@ struct FlightdeckApp: App {
                     devCleaner.start()
                     mcpScanner.start()
                     usageMonitor.start()
+                    alerts.start(store: store, usage: usageMonitor)
                 }
         }
         .windowResizability(.contentMinSize)
@@ -70,6 +73,7 @@ struct FlightdeckApp: App {
             MenuBarPanel(
                 store: store,
                 usage: usageMonitor,
+                alerts: alerts,
                 watcher: activityWatcher,
                 monitor: processMonitor,
                 portScanner: portScanner,

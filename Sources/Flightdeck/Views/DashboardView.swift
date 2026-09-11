@@ -100,6 +100,7 @@ struct DashboardView: View {
     @Environment(ActionCenter.self) private var actions
     @Environment(FileBrowser.self) private var browser
     @Environment(ProcessMonitor.self) private var processMonitor
+    @Environment(AlertNotifier.self) private var alertNotifier
     @State private var showGraph = false
     @State private var showPalette = false
     @State private var tab: Tab = .cockpit
@@ -393,6 +394,7 @@ private struct TopBar: View {
     @Environment(DiskScanner.self) private var diskScanner
     @Environment(ActionCenter.self) private var actions
     @Environment(ProcessMonitor.self) private var processMonitor
+    @Environment(AlertNotifier.self) private var alertNotifier
     @Binding var showGraph: Bool
     @Binding var showPalette: Bool
     @State private var now = Date()
@@ -422,6 +424,15 @@ private struct TopBar: View {
                 title: "Context Window Alert",
                 detail: "\(store.contextAlertCount) session(s) over 70% context limit",
                 severity: .warning
+            ))
+        }
+        // Plan-limit and budget conditions, so the bell and the notifications
+        // that AlertNotifier delivers never disagree about what is wrong.
+        for alert in alertNotifier.recent.prefix(4) {
+            alerts.append(SystemAlertItem(
+                title: alert.title,
+                detail: alert.body,
+                severity: alert.isCritical ? .critical : .warning
             ))
         }
         if let lastErr = store.lastErrorAt, lastErr.timeIntervalSinceNow > -300 {

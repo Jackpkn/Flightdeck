@@ -9,6 +9,7 @@ struct MenuBarPanel: View {
 
     let store: DashboardStore
     let usage: ClaudeUsageMonitor
+    let alerts: AlertNotifier
     let watcher: ActivityWatcher
     let monitor: ProcessMonitor
     let portScanner: PortScanner
@@ -216,6 +217,11 @@ struct MenuBarPanel: View {
                     launchAtLogin ? "Disable Launch at Login" : "Launch at Login",
                     icon: launchAtLogin ? "checkmark.circle" : "circle",
                     action: toggleLaunchAtLogin
+                )
+                menuButton(
+                    alerts.isEnabled ? "Disable Alerts" : "Enable Alerts",
+                    icon: alerts.isEnabled ? "bell.fill" : "bell.slash",
+                    action: { alerts.isEnabled.toggle() }
                 )
                 menuButton("Quit Flightdeck", icon: "power") { NSApp.terminate(nil) }
             }
