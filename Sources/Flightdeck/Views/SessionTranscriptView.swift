@@ -119,119 +119,17 @@ struct SessionTranscriptView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// One conversation turn.
+    ///
+    /// Split into named sub-views rather than one long builder: as a single
+    /// expression this took the Swift type-checker ~22 seconds on its own, which
+    /// dominated every build of the whole app.
+    @ViewBuilder
     private func turnCard(_ turn: ConversationTurn) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Turn Header
-            HStack(spacing: 8) {
-                Text("TURN #\(turn.turnIndex)")
-                    .font(Theme.mono(10.5, weight: .bold))
-                    .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
-
-                Text(turn.timestamp.formatted(date: .omitted, time: .standard))
-                    .font(Theme.mono(10))
-                    .foregroundStyle(Theme.ink3)
-
-                if !turn.model.isEmpty {
-                    Text("· \(turn.model)")
-                        .font(Theme.mono(10))
-                        .foregroundStyle(Theme.claudeColor)
-                }
-
-                Spacer()
-
-                // Token & Cost pill
-                HStack(spacing: 6) {
-                    if turn.totalTokens > 0 {
-                        Text("\(Formatters.tokens(turn.totalTokens)) tok")
-                            .font(Theme.mono(10))
-                            .foregroundStyle(Theme.ink3)
-                    }
-                    if let cost = turn.costUSD, cost > 0 {
-                        Text(Formatters.usd(cost))
-                            .font(Theme.mono(10.5, weight: .semibold))
-                            .foregroundStyle(Theme.good)
-                    }
-                }
-                .padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Color.white.opacity(0.03), in: Capsule())
-
-                // Copy Turn
-                Button {
-                    let fullText = "User: \(turn.userPrompt)\n\nAssistant: \(turn.assistantText)"
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(fullText, forType: .string)
-                    CockpitAudio.playPing()
-                    copiedTurnId = turn.id
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { copiedTurnId = nil }
-                } label: {
-                    Image(systemName: copiedTurnId == turn.id ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 10))
-                        .foregroundStyle(copiedTurnId == turn.id ? Theme.good : Theme.ink3)
-                }
-                .buttonStyle(.plain)
-            }
-
-            // User Prompt Bubble
-            if !turn.userPrompt.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "person.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(Theme.accent)
-                        .padding(.top, 3)
-
-                    Text(turn.userPrompt)
-                        .font(Theme.ui(12.5, weight: .medium))
-                        .foregroundStyle(Theme.ink1)
-                        .textSelection(.enabled)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.accent.opacity(0.25), lineWidth: 1))
-            }
-
-            // Thinking block (Collapsible)
-            if let thinking = turn.thinkingText, !thinking.isEmpty {
-                let isExpanded = expandedThinkingIds.contains(turn.id)
-                VStack(alignment: .leading, spacing: 6) {
-                    Button {
-                        if isExpanded {
-                            expandedThinkingIds.remove(turn.id)
-                        } else {
-                            expandedThinkingIds.insert(turn.id)
-                        }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 9))
-                            Image(systemName: "brain.head.profile")
-                                .font(.system(size: 10))
-                            Text("THINKING PROCESS (\(thinking.count) chars)")
-                                .font(Theme.mono(9.5, weight: .semibold))
-                            Spacer()
-                        }
-                        .foregroundStyle(Color.pink.opacity(0.85))
-                    }
-                    .buttonStyle(.plain)
-
-                    if isExpanded {
-                        Text(thinking)
-                            .font(Theme.mono(11))
-                            .foregroundStyle(Theme.ink2)
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
-                            .textSelection(.enabled)
-                    }
-                }
-                .padding(8)
-                .background(Color.pink.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.pink.opacity(0.18), lineWidth: 1))
-            }
-
-            // Tool Calls
+            turnHeader(turn)
+            userPromptBubble(turn)
+            thinkingBlock(turn)
             if !turn.toolCalls.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(turn.toolCalls) { tool in
@@ -239,30 +137,157 @@ struct SessionTranscriptView: View {
                     }
                 }
             }
-
-            // Assistant Response
-            if !turn.assistantText.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.claudeColor)
-                        .padding(.top, 3)
-
-                    Text(turn.assistantText)
-                        .font(Theme.ui(12))
-                        .foregroundStyle(Theme.ink1)
-                        .lineSpacing(2.5)
-                        .textSelection(.enabled)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 7))
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.hairline2, lineWidth: 1))
-            }
+            assistantResponse(turn)
         }
         .padding(14)
         .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.hairline, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func turnHeader(_ turn: ConversationTurn) -> some View {
+        HStack(spacing: 8) {
+            Text("TURN #\(turn.turnIndex)")
+                .font(Theme.mono(10.5, weight: .bold))
+                .foregroundStyle(Theme.accent)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+
+            Text(turn.timestamp.formatted(date: .omitted, time: .standard))
+                .font(Theme.mono(10))
+                .foregroundStyle(Theme.ink3)
+
+            if !turn.model.isEmpty {
+                Text("· \(turn.model)")
+                    .font(Theme.mono(10))
+                    .foregroundStyle(Theme.claudeColor)
+            }
+
+            Spacer()
+
+            turnCostPill(turn)
+            copyTurnButton(turn)
+        }
+    }
+
+    @ViewBuilder
+    private func turnCostPill(_ turn: ConversationTurn) -> some View {
+        HStack(spacing: 6) {
+            if turn.totalTokens > 0 {
+                Text("\(Formatters.tokens(turn.totalTokens)) tok")
+                    .font(Theme.mono(10))
+                    .foregroundStyle(Theme.ink3)
+            }
+            if let cost = turn.costUSD, cost > 0 {
+                Text(Formatters.usd(cost))
+                    .font(Theme.mono(10.5, weight: .semibold))
+                    .foregroundStyle(Theme.good)
+            }
+        }
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(Color.white.opacity(0.03), in: Capsule())
+    }
+
+    @ViewBuilder
+    private func copyTurnButton(_ turn: ConversationTurn) -> some View {
+        Button {
+            let fullText = "User: \(turn.userPrompt)\n\nAssistant: \(turn.assistantText)"
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(fullText, forType: .string)
+            CockpitAudio.playPing()
+            copiedTurnId = turn.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { copiedTurnId = nil }
+        } label: {
+            Image(systemName: copiedTurnId == turn.id ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 10))
+                .foregroundStyle(copiedTurnId == turn.id ? Theme.good : Theme.ink3)
+        }
+        .buttonStyle(.plain)
+        .help("Copy this turn")
+    }
+
+    @ViewBuilder
+    private func userPromptBubble(_ turn: ConversationTurn) -> some View {
+        if !turn.userPrompt.isEmpty {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "person.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Theme.accent)
+                    .padding(.top, 3)
+
+                Text(turn.userPrompt)
+                    .font(Theme.ui(12.5, weight: .medium))
+                    .foregroundStyle(Theme.ink1)
+                    .textSelection(.enabled)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.accent.opacity(0.25), lineWidth: 1))
+        }
+    }
+
+    @ViewBuilder
+    private func thinkingBlock(_ turn: ConversationTurn) -> some View {
+        if let thinking = turn.thinkingText, !thinking.isEmpty {
+            let isExpanded = expandedThinkingIds.contains(turn.id)
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    if isExpanded {
+                        expandedThinkingIds.remove(turn.id)
+                    } else {
+                        expandedThinkingIds.insert(turn.id)
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9))
+                        Image(systemName: "brain.head.profile")
+                            .font(.system(size: 10))
+                        Text("THINKING PROCESS (\(thinking.count) chars)")
+                            .font(Theme.mono(9.5, weight: .semibold))
+                        Spacer()
+                    }
+                    .foregroundStyle(Color.pink.opacity(0.85))
+                }
+                .buttonStyle(.plain)
+
+                if isExpanded {
+                    Text(thinking)
+                        .font(Theme.mono(11))
+                        .foregroundStyle(Theme.ink2)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(8)
+            .background(Color.pink.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.pink.opacity(0.18), lineWidth: 1))
+        }
+    }
+
+    @ViewBuilder
+    private func assistantResponse(_ turn: ConversationTurn) -> some View {
+        if !turn.assistantText.isEmpty {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.claudeColor)
+                    .padding(.top, 3)
+
+                Text(turn.assistantText)
+                    .font(Theme.ui(12))
+                    .foregroundStyle(Theme.ink1)
+                    .lineSpacing(2.5)
+                    .textSelection(.enabled)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Theme.hairline2, lineWidth: 1))
+        }
     }
 
     private func toolCallRow(_ tool: TranscriptToolCall) -> some View {
