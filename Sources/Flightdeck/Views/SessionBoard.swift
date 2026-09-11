@@ -67,14 +67,7 @@ private struct SessionCard: View {
                 tokens: session.contextTokens,
                 totalTokens: session.contextTotalTokens
             )
-            HStack(alignment: .bottom) {
-                (Text(Formatters.usd(session.burnRatePerMin)).font(Theme.mono(16, weight: .semibold))
-                 + Text("/min").font(Theme.mono(11)).foregroundStyle(Theme.ink3))
-                    .reportFrame(session.id)
-                Spacer()
-                Sparkline(values: session.sparkline, color: color)
-                    .frame(width: 90, height: 28)
-            }
+            costRow
         }
         .padding(EdgeInsets(top: 16, leading: 20, bottom: 16, trailing: 18))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -108,8 +101,25 @@ private struct SessionCard: View {
             spawnRipple(color: Theme.critical)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { glitching = false }
         }
-        .onChange(of: session.costLedger.count) { _, _ in
+        .onChange(of: session.totalCost) { _, _ in
             spawnRipple(color: color)
+        }
+    }
+
+    /// Session cost to date. The trend only renders when Claude Code has written
+    /// more than one cost checkpoint — a single point is not a trend, and padding
+    /// it with zeros drew a fake cliff.
+    private var costRow: some View {
+        let trend = session.sparkline
+        return HStack(alignment: .bottom) {
+            Text(Formatters.usd(session.totalCost))
+                .font(Theme.mono(16, weight: .semibold))
+                .reportFrame(session.id)
+            Spacer()
+            if trend.count > 1 {
+                Sparkline(values: trend, color: color)
+                    .frame(width: 90, height: 28)
+            }
         }
     }
 

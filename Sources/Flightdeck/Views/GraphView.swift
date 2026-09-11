@@ -37,7 +37,7 @@ struct GraphView: View {
                             HStack(spacing: 7) {
                                 Circle().fill(Theme.colorForProject(s.project)).frame(width: 7, height: 7)
                                 Text(s.project).font(Theme.mono(11)).foregroundStyle(Theme.ink2)
-                                Text(Formatters.usd(s.costLedger.reduce(0) { $0 + $1.1 }))
+                                Text(Formatters.usd(s.totalCost))
                                     .font(Theme.mono(10.5)).foregroundStyle(Theme.ink3)
                             }
                         }

@@ -16,6 +16,8 @@ struct FlightdeckApp: App {
     @State private var appUninstaller = AppUninstaller.shared
     @State private var duplicateScanner = DuplicateScanner.shared
     @State private var mcpScanner = MCPServerScanner.shared
+    @State private var usageMonitor = ClaudeUsageMonitor()
+    @State private var outcomeStore = SessionOutcomeStore()
 
     init() {
         FontLoader.registerBundledFonts()
@@ -39,6 +41,8 @@ struct FlightdeckApp: App {
                 .environment(appUninstaller)
                 .environment(duplicateScanner)
                 .environment(mcpScanner)
+                .environment(usageMonitor)
+                .environment(outcomeStore)
                 .frame(minWidth: 1180, maxWidth: .infinity, minHeight: 780, maxHeight: .infinity)
                 .background(Theme.page)
                 .preferredColorScheme(.dark)
@@ -53,6 +57,7 @@ struct FlightdeckApp: App {
                     zombieDetector.start()
                     devCleaner.start()
                     mcpScanner.start()
+                    usageMonitor.start()
                 }
         }
         .windowResizability(.contentMinSize)
@@ -64,6 +69,7 @@ struct FlightdeckApp: App {
         MenuBarExtra {
             MenuBarPanel(
                 store: store,
+                usage: usageMonitor,
                 watcher: activityWatcher,
                 monitor: processMonitor,
                 portScanner: portScanner,

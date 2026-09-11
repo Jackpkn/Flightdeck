@@ -171,19 +171,16 @@ struct SessionDetailModal: View {
             .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline, lineWidth: 1))
 
-            // Burn Rate
+            // Session duration — real wall-clock time reported by Claude Code.
             VStack(alignment: .leading, spacing: 4) {
-                Text("BURN RATE")
+                Text("SESSION LENGTH")
                     .font(Theme.mono(9.5, weight: .medium))
                     .tracking(0.6)
                     .foregroundStyle(Theme.ink3)
                 HStack(alignment: .lastTextBaseline, spacing: 3) {
-                    Text(Formatters.usd(session.burnRatePerMin))
+                    Text(Formatters.duration(session.duration))
                         .font(Theme.mono(22, weight: .bold))
-                        .foregroundStyle(Theme.ink1)
-                    Text("/min")
-                        .font(Theme.mono(11))
-                        .foregroundStyle(Theme.ink3)
+                        .foregroundStyle(session.duration == nil ? Theme.ink3 : Theme.ink1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -241,7 +238,7 @@ struct SessionDetailModal: View {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                 TokenMetricCell(label: "INPUT TOKENS", value: session.inputTokens, color: Color.blue)
                 TokenMetricCell(label: "OUTPUT TOKENS", value: session.outputTokens, color: Color.purple)
-                TokenMetricCell(label: "THINKING TOKENS", value: session.thinkingTokens, color: Color.pink)
+                TokenMetricCell(label: "THINKING TOKENS", value: session.thinkingTokens, color: Color.pink, footnote: "part of output")
                 TokenMetricCell(label: "CACHE READ", value: session.cacheReadTokens, color: Color.teal)
                 TokenMetricCell(label: "CACHE WRITE", value: session.cacheCreationTokens, color: Color.orange)
                 TokenMetricCell(label: "TOTAL TOKENS", value: session.totalTokens, color: Theme.accent)
@@ -257,14 +254,23 @@ struct SessionDetailModal: View {
             let total = max(1, Double(session.totalTokens))
             let inW = (Double(session.inputTokens) / total) * proxy.size.width
             let outW = (Double(session.outputTokens) / total) * proxy.size.width
-            let thinkW = (Double(session.thinkingTokens) / total) * proxy.size.width
             let readW = (Double(session.cacheReadTokens) / total) * proxy.size.width
             let createW = (Double(session.cacheCreationTokens) / total) * proxy.size.width
+            // Thinking tokens are part of output, so they are nested inside that
+            // segment rather than added as a sixth one that overflows the bar.
+            let thinkShare = session.outputTokens > 0
+                ? Double(session.thinkingTokens) / Double(session.outputTokens) : 0
 
             HStack(spacing: 2) {
                 if inW > 0 { Rectangle().fill(Color.blue).frame(width: max(2, inW)) }
-                if outW > 0 { Rectangle().fill(Color.purple).frame(width: max(2, outW)) }
-                if thinkW > 0 { Rectangle().fill(Color.pink).frame(width: max(2, thinkW)) }
+                if outW > 0 {
+                    Rectangle()
+                        .fill(Color.purple)
+                        .frame(width: max(2, outW))
+                        .overlay(alignment: .leading) {
+                            Rectangle().fill(Color.pink).frame(width: max(2, outW) * thinkShare)
+                        }
+                }
                 if readW > 0 { Rectangle().fill(Color.teal).frame(width: max(2, readW)) }
                 if createW > 0 { Rectangle().fill(Color.orange).frame(width: max(2, createW)) }
             }
@@ -391,6 +397,8 @@ private struct TokenMetricCell: View {
     let label: String
     let value: Int
     let color: Color
+    /// Set for buckets that break down another figure instead of adding to it.
+    var footnote: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -404,6 +412,11 @@ private struct TokenMetricCell: View {
             Text(Formatters.tokens(value))
                 .font(Theme.mono(14, weight: .semibold))
                 .foregroundStyle(Theme.ink1)
+            if let footnote {
+                Text(footnote)
+                    .font(Theme.mono(8.5))
+                    .foregroundStyle(Theme.ink3)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(8)

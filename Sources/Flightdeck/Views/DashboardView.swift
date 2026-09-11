@@ -402,17 +402,19 @@ private struct TopBar: View {
             }
             .help(activeAlerts.isEmpty ? "No active alerts" : "\(activeAlerts.count) system alert(s)")
 
-            // Burn Rate with projection tooltip (only when active spending is occurring)
-            if store.burnRatePerMin > 0 {
-                let dailyEstimate = store.burnRatePerMin * 60 * 24
+            // Spend so far today. Claude Code reports cumulative session cost, not a
+            // rate — anything per-minute here would be invented, so it is not shown.
+            if store.todaySpend > 0 {
                 HStack(spacing: 6) {
                     Circle().fill(Theme.warning).frame(width: 5, height: 5)
                         .shadow(color: Theme.warning.opacity(0.8), radius: 3)
-                    Text(Formatters.usd(store.burnRatePerMin) + "/min burning")
+                    Text((store.todaySpendIsExact ? "" : "≤ ") + Formatters.usd(store.todaySpend) + " today")
                         .font(Theme.mono(11.5))
                         .foregroundStyle(Theme.warning)
                 }
-                .help("At this rate: \(Formatters.usd(dailyEstimate))/day")
+                .help(store.todaySpendIsExact
+                      ? "Spend attributed to today from Claude Code's own cost checkpoints"
+                      : "Upper bound — a session was already running before midnight, so part of this may be yesterday's spend")
                 .reportFrame("__ticker__")
             }
 
@@ -523,9 +525,9 @@ private struct StatRow: View {
                 deltaColor: Theme.ink3
             )
             StatTile(
-                label: "Avg burn rate",
-                value: Formatters.usd(store.burnRatePerMin) + "/min",
-                delta: "last 2 min",
+                label: "Today's spend",
+                value: (store.todaySpendIsExact ? "" : "≤ ") + Formatters.usd(store.todaySpend),
+                delta: store.todaySpendIsExact ? "since midnight" : "upper bound",
                 deltaColor: Theme.ink3
             )
             StatTile(
