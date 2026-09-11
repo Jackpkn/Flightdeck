@@ -14,3 +14,9 @@ DerivedData/
 
 # Flightdeck Local
 *.app
+
+# Editor swap files
+*.swp
+*.swo
+
+dist/
