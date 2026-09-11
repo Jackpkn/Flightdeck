@@ -2,16 +2,97 @@ import SwiftUI
 import AppKit
 
 struct DashboardView: View {
+    /// Five top-level tabs, each grouping related sections.
+    ///
+    /// This was ten flat tabs. Nothing was removed — the panels moved behind a second
+    /// level so the top bar stays scannable while the app still covers the machine and
+    /// Claude Code in one window.
     enum Tab: String, CaseIterable {
-        case overview = "Overview"
-        case cleanup = "Cleanup"
-        case processes = "Processes"
-        case ports = "Ports"
-        case activity = "Activity"
-        case files = "Files"
-        case sessions = "Sessions"
-        case mcp = "MCP Hub"
+        case cockpit = "Cockpit"
+        case claude = "Claude Code"
+        case system = "System"
+        case storage = "Storage"
         case spend = "Spend"
+
+        /// ⌘1…⌘5. A cockpit that can only be navigated by mouse isn't one.
+        var shortcut: KeyEquivalent {
+            switch self {
+            case .cockpit: return "1"
+            case .claude:  return "2"
+            case .system:  return "3"
+            case .storage: return "4"
+            case .spend:   return "5"
+            }
+        }
+    }
+
+    /// Everything about Claude Code: live sessions, what the spend produced, and the
+    /// MCP servers wired into it.
+    enum ClaudeSection: String, SubTab {
+        case sessions, insights, mcp
+
+        static var allCases: [ClaudeSection] { [.sessions, .insights, .mcp] }
+
+        var title: String {
+            switch self {
+            case .sessions: return "Sessions"
+            case .insights: return "Insights"
+            case .mcp:      return "MCP Servers"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .sessions: return "bubble.left.and.bubble.right.fill"
+            case .insights: return "chart.line.uptrend.xyaxis"
+            case .mcp:      return "server.rack"
+            }
+        }
+    }
+
+    /// What the machine itself is doing right now.
+    enum SystemSection: String, SubTab {
+        case activity, processes, ports
+
+        static var allCases: [SystemSection] { [.activity, .processes, .ports] }
+
+        var title: String {
+            switch self {
+            case .activity:  return "Vitals"
+            case .processes: return "Processes"
+            case .ports:     return "Ports"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .activity:  return "waveform.path.ecg"
+            case .processes: return "cpu.fill"
+            case .ports:     return "network"
+            }
+        }
+    }
+
+    /// Everything that takes up disk.
+    enum StorageSection: String, SubTab {
+        case files, duplicates, uninstaller, devCleanup
+
+        static var allCases: [StorageSection] { [.files, .duplicates, .uninstaller, .devCleanup] }
+
+        var title: String {
+            switch self {
+            case .files:      return "Disk Space"
+            case .duplicates: return "Duplicates"
+            case .uninstaller: return "Uninstaller"
+            case .devCleanup: return "Build Cruft"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .files:       return "folder.fill"
+            case .duplicates:  return "doc.on.doc.fill"
+            case .uninstaller: return "trash.fill"
+            case .devCleanup:  return "hammer.fill"
+            }
+        }
     }
 
     @Environment(DashboardStore.self) private var store
@@ -21,7 +102,7 @@ struct DashboardView: View {
     @Environment(ProcessMonitor.self) private var processMonitor
     @State private var showGraph = false
     @State private var showPalette = false
-    @State private var tab: Tab = .overview
+    @State private var tab: Tab = .cockpit
     private final class FrameBox {
         var map: [String: CGRect] = [:]
     }
@@ -29,21 +110,9 @@ struct DashboardView: View {
     @State private var particles: [FountainParticle] = []
     @State private var editing: FileEditTarget?
     @State private var processActionTarget: ProcessUsage?
-    enum FilesSubMode: String, CaseIterable {
-        case files = "Disk Space"
-        case duplicates = "Duplicates"
-        case uninstaller = "Uninstaller"
-
-        var icon: String {
-            switch self {
-            case .files: return "folder.fill"
-            case .duplicates: return "doc.on.doc.fill"
-            case .uninstaller: return "trash.fill"
-            }
-        }
-    }
-
-    @State private var filesSubMode: FilesSubMode = .files
+    @State private var claudeSection: ClaudeSection = .sessions
+    @State private var systemSection: SystemSection = .activity
+    @State private var storageSection: StorageSection = .files
     @State private var selectedVitalCategory: VitalCategory?
 
 
@@ -113,8 +182,11 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 16) {
             TopBar(showGraph: $showGraph, showPalette: $showPalette)
             TabPicker(selected: $tab)
+            sectionBar
 
-            if tab == .sessions || tab == .mcp {
+            // The Claude Code panels manage their own scrolling and want the full
+            // height; wrapping them in another ScrollView collapses them.
+            if tab == .claude {
                 tabContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
@@ -140,86 +212,116 @@ struct DashboardView: View {
     @ViewBuilder
     private var tabContent: some View {
         switch tab {
-        case .overview:
-            VStack(alignment: .leading, spacing: 18) {
-                CockpitHubView()
-                StatRow()
-                SessionBoard()
-            }
-        case .cleanup:
-            DevCleanerPanel()
+        case .cockpit: cockpitTab
+        case .claude:  claudeTab
+        case .system:  systemTab
+        case .storage: storageTab
+        case .spend:   SpendByProjectPanel()
+        }
+    }
+
+    @ViewBuilder
+    private var cockpitTab: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            CockpitHubView()
+            StatRow()
+            SessionBoard()
+        }
+    }
+
+    /// The active tab's section selector, pinned above the scrolling content.
+    @ViewBuilder
+    private var sectionBar: some View {
+        switch tab {
+        case .claude:
+            SubTabBar(selection: $claudeSection, badge: claudeBadge)
+        case .system:
+            SubTabBar(selection: $systemSection)
+        case .storage:
+            SubTabBar(selection: $storageSection)
+        case .cockpit, .spend:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var claudeTab: some View {
+        claudeSectionContent
+    }
+
+    /// Surfaces work waiting on the user without making them go and look for it.
+    private func claudeBadge(_ section: ClaudeSection) -> String? {
+        guard section == .insights, store.contextAlertCount > 0 else { return nil }
+        return "\(store.contextAlertCount)"
+    }
+
+    @ViewBuilder
+    private var claudeSectionContent: some View {
+        switch claudeSection {
+        case .sessions: SessionsTelemetryPanel()
+        case .insights: InsightsPanel()
+        case .mcp:      MCPHubPanel()
+        }
+    }
+
+    @ViewBuilder
+    private var systemTab: some View {
+        VStack(spacing: 14) {
+            systemSectionContent
+        }
+    }
+
+    @ViewBuilder
+    private var systemSectionContent: some View {
+        switch systemSection {
+        case .activity:
+            UsageGraphPanel()
+            SystemVitalsStrip(selectedCategory: $selectedVitalCategory)
+            ActivityWatcherPanel()
+            ActivityFeedPanel()
         case .processes:
             ProcessMonitorPanel(actionTarget: $processActionTarget)
         case .ports:
             PortHunterPanel()
-        case .activity:
-            VStack(spacing: 14) {
-                UsageGraphPanel()
-                SystemVitalsStrip(selectedCategory: $selectedVitalCategory)
-                ActivityWatcherPanel()
-                ActivityFeedPanel()
-            }
-        case .files:
-            VStack(spacing: 14) {
-                // Sub-mode segmented selector
-                HStack(spacing: 4) {
-                    ForEach(FilesSubMode.allCases, id: \.self) { subMode in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                filesSubMode = subMode
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: subMode.icon)
-                                    .font(.system(size: 11))
-                                Text(subMode.rawValue)
-                                    .font(Theme.ui(11.5, weight: filesSubMode == subMode ? .semibold : .regular))
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(filesSubMode == subMode ? Theme.accent.opacity(0.18) : Color.white.opacity(0.03))
-                            .foregroundStyle(filesSubMode == subMode ? Theme.accent : Theme.ink2)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    Spacer()
-                }
-                .padding(3)
-                .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
 
-                switch filesSubMode {
-                case .files:
-                    HStack(alignment: .top, spacing: 14) {
-                        FilesPanel(editing: $editing)
-                            .frame(maxWidth: .infinity)
-                        DiskRadarPanel()
-                            .frame(width: 500)
-                    }
-                    if diskScanner.result.filesScanned > 0 {
-                        DiskExplorerPanel()
-                        HStack(alignment: .top, spacing: 14) {
-                            DiskTypePanel()
-                                .frame(maxWidth: .infinity)
-                            DiskDistributionPanel()
-                                .frame(maxWidth: .infinity)
-                        }
-                        .frame(height: 252)
-                    }
-                case .duplicates:
-                    DuplicateHunterPanel()
-                        .frame(minHeight: 640)
-                case .uninstaller:
-                    AppUninstallerPanel()
-                        .frame(minHeight: 640)
-                }
+    @ViewBuilder
+    private var storageTab: some View {
+        VStack(spacing: 14) {
+            storageSectionContent
+        }
+    }
+
+    @ViewBuilder
+    private var storageSectionContent: some View {
+        switch storageSection {
+        case .files:
+            diskSpaceSection
+        case .duplicates:
+            DuplicateHunterPanel().frame(minHeight: 640)
+        case .uninstaller:
+            AppUninstallerPanel().frame(minHeight: 640)
+        case .devCleanup:
+            DevCleanerPanel()
+        }
+    }
+
+    @ViewBuilder
+    private var diskSpaceSection: some View {
+        HStack(alignment: .top, spacing: 14) {
+            FilesPanel(editing: $editing)
+                .frame(maxWidth: .infinity)
+            DiskRadarPanel()
+                .frame(width: 500)
+        }
+        if diskScanner.result.filesScanned > 0 {
+            DiskExplorerPanel()
+            HStack(alignment: .top, spacing: 14) {
+                DiskTypePanel().frame(maxWidth: .infinity)
+                DiskDistributionPanel().frame(maxWidth: .infinity)
             }
-        case .sessions:
-            SessionsTelemetryPanel()
-        case .mcp:
-            MCPHubPanel()
-        case .spend:
-            SpendByProjectPanel()
+            .frame(height: 252)
         }
     }
 
@@ -273,6 +375,10 @@ private struct TabPicker: View {
                         )
                 }
                 .buttonStyle(.plain)
+                // ⌘1…⌘5. Routed through the main menu by SwiftUI, which is why the
+                // app has to run as a real bundle — see scripts/make-app.sh.
+                .keyboardShortcut(t.shortcut, modifiers: .command)
+                .help("\(t.rawValue)  ⌘\(t.shortcut.character)")
             }
         }
         .padding(3)
