@@ -1077,7 +1077,7 @@ struct SessionsTelemetryPanel: View {
                             .font(Theme.mono(10))
                             .foregroundStyle(Theme.ink3)
                     }
-                    .help(session.filesModified.sorted().prefix(12).joined(separator: "\n"))
+                    .help(session.filesModified.sorted().prefix(12).map(store.redactor.path).joined(separator: "\n"))
                 }
 
                 if session.linesAdded > 0 || session.linesRemoved > 0 {

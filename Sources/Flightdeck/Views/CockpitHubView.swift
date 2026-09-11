@@ -7,6 +7,7 @@ import SwiftUI
 /// - Idle state uses zero continuous timeline loops (< 0.5% CPU, < 50MB RAM).
 /// - 30 FPS animations only engage during an active scan sequence.
 struct CockpitHubView: View {
+    @Environment(DashboardStore.self) private var store
     @Environment(DevCleaner.self) private var devCleaner
     @Environment(ZombieDetector.self) private var zombies
     @Environment(PortScanner.self) private var ports
@@ -197,7 +198,7 @@ struct CockpitHubView: View {
                     Text("•")
                         .font(Theme.mono(9.5))
                         .foregroundStyle(Theme.hairline)
-                    Text(ProcessInfo.processInfo.hostName)
+                    Text(store.redactor.hostname(ProcessInfo.processInfo.hostName))
                         .font(Theme.mono(10))
                         .foregroundStyle(Theme.ink2)
                         .lineLimit(1)
