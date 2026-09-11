@@ -129,13 +129,17 @@ const rail = [
           It is also a full system monitor: CPU and memory straight from the Mach kernel, every
           listening port, what is draining the battery, and where the disk went.
         </p>
+        <pre class="cmd hero-cmd"><code>brew tap Jackpkn/flightdeck
+brew trust jackpkn/flightdeck
+brew install flightdeck</code></pre>
         <div class="cta">
-          <a class="btn" href={dmg} download>Download the DMG &middot; 12&nbsp;MB</a>
-          <a class="btn ghost" href={RELEASES}>All releases</a>
+          <a class="btn" href="#install">How it installs</a>
+          <a class="btn ghost" href={dmg} download>Download the DMG</a>
         </div>
         <p class="gatekeeper">
-          Not notarised yet, so macOS blocks it on first launch. One Terminal command fixes
-          it — <a href="#install">ten seconds</a>.
+          Installed by Homebrew, macOS raises no security warning at all —
+          <a href="#install">here is why</a>. The DMG is a browser download, so it does get
+          blocked; that is fixable in one command.
         </p>
       </div>
       <HoloGlobe />
@@ -294,47 +298,40 @@ const rail = [
       <div class="wrap">
         <div class="sec-head">
           <p class="eyebrow">Install</p>
-          <h2>Two steps, and one honest warning.</h2>
+          <h2>One command, and no security warning.</h2>
+          <p class="body-copy">
+            macOS only blocks files carrying a <code>com.apple.quarantine</code> flag, and that
+            flag is set by whatever fetched the file. Browsers set it; <code>curl</code> does
+            not. Homebrew fetches with <code>curl</code> — so an app it installs never carries
+            the flag, and Gatekeeper never runs. No certificate is involved anywhere.
+          </p>
         </div>
-        <ol class="steps">
-          <li><p><b>Open the DMG and drag Flightdeck to Applications.</b></p></li>
-          <li>
-            <p><b>Run this once, in Terminal.</b> Then open the app normally &mdash; that is
-              the whole install.</p>
-            <pre class="cmd"><code>xattr -dr com.apple.quarantine /Applications/Flightdeck.app</code></pre>
-          </li>
-        </ol>
+
+        <pre class="cmd"><code>brew tap Jackpkn/flightdeck
+brew trust jackpkn/flightdeck
+brew install flightdeck</code></pre>
+
+        <p class="body-copy after-cmd">
+          Then run <code>flightdeck</code>. To put it in Spotlight and the Dock as well:
+        </p>
+        <pre class="cmd"><code>ln -sfn "$(brew --prefix flightdeck)/Flightdeck.app" /Applications/Flightdeck.app</code></pre>
 
         <div class="aside">
-          <p class="eyebrow">Why that second step exists</p>
+          <p class="eyebrow">If you would rather have the DMG</p>
           <p class="body-copy">
-            macOS attaches a <code>com.apple.quarantine</code> flag to anything your browser
-            downloads. It records <em>where a file came from</em> and says nothing about the code
-            inside it. Gatekeeper sees the flag, looks for an Apple Developer&nbsp;ID signature,
-            finds none, and refuses to launch. Removing the flag tells macOS you know where this
-            came from.
+            A browser download <em>is</em> quarantined, so macOS blocks it. Drag Flightdeck to
+            Applications, then run this once:
           </p>
+          <pre class="cmd"><code>xattr -dr com.apple.quarantine /Applications/Flightdeck.app</code></pre>
           <p class="body-copy">
-            Nothing about the app is broken. The bundle is signed and verifies cleanly &mdash;
-            <code>codesign --verify --deep --strict</code> reports it valid on disk and satisfying
-            its designated requirement. It is not <em>notarised by Apple</em>, which needs a paid
-            developer membership.
+            That clears the download-origin flag. It says nothing about the code: the bundle is
+            signed and verifies cleanly, it is simply not <em>notarised by Apple</em>. Only run
+            it on software you meant to download.
           </p>
           <p class="small">
-            Only ever run that on software you meant to download.
-          </p>
-        </div>
-
-        <div class="aside warn">
-          <p class="eyebrow">If you would rather not use Terminal</p>
-          <p class="body-copy">
-            Double-click Flightdeck, click <b>Done</b> on the block, then open
-            <b>System&nbsp;Settings &rarr; Privacy &amp; Security</b>, scroll to <b>Security</b>,
-            and click <b>Open Anyway</b> next to the message about Flightdeck.
-          </p>
-          <p class="small">
-            On macOS&nbsp;15 Sequoia and later, Control-clicking the app and choosing Open no
-            longer works. Apple removed that bypass; the route above replaced it.
+            Without Terminal: System&nbsp;Settings &rarr; Privacy&nbsp;&amp;&nbsp;Security &rarr;
+            <b>Open Anyway</b>. Control-clicking and choosing Open stopped working in
+            macOS&nbsp;15.
           </p>
         </div>
 
@@ -846,6 +843,14 @@ const rail = [
   .steps b {
     color: var(--ink1);
     font-weight: 600;
+  }
+
+  .hero-cmd {
+    margin-top: 4px;
+  }
+
+  .after-cmd {
+    margin-block: 16px 10px;
   }
 
   .steps::marker {
