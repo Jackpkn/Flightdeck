@@ -161,6 +161,38 @@ struct SessionAgg: Identifiable {
     var prNumber: Int? = nil
     var prRepository: String = ""
 
+    /// GitHub puts the number in the URL (`…/pull/1343`), so when a transcript
+    /// reports the URL without `prNumber` we read it back from there. An
+    /// unreadable URL yields no number — a placeholder would name a real but
+    /// different pull request.
+    var resolvedPRNumber: Int? {
+        if let prNumber { return prNumber }
+        let segments = prUrl.split(separator: "/", omittingEmptySubsequences: true)
+        guard let pull = segments.lastIndex(of: "pull") else { return nil }
+        let next = segments.index(after: pull)
+        guard next < segments.endIndex else { return nil }
+        return Int(segments[next])
+    }
+
+    var prTitle: String {
+        guard let number = resolvedPRNumber else { return "GITHUB PULL REQUEST" }
+        return "GITHUB PULL REQUEST #\(number)"
+    }
+
+    var prSubtitle: String { prRepository.isEmpty ? prUrl : prRepository }
+
+    /// The link to hand to the system, or nil. Transcripts are shareable, so
+    /// `prUrl` is attacker-influenced: anything but http(s) — `file://`,
+    /// `javascript:` — is refused rather than launched on click.
+    var prLink: URL? {
+        let trimmed = prUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let url = URL(string: trimmed) else { return nil }
+        guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else {
+            return nil
+        }
+        return url
+    }
+
     // Code velocity & project impact
     var linesAdded: Int = 0
     var linesRemoved: Int = 0
