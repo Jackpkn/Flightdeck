@@ -402,17 +402,19 @@ private struct TopBar: View {
             }
             .help(activeAlerts.isEmpty ? "No active alerts" : "\(activeAlerts.count) system alert(s)")
 
-            // Burn Rate with projection tooltip
-            let dailyEstimate = store.burnRatePerMin * 60 * 24
-            HStack(spacing: 6) {
-                Circle().fill(Theme.warning).frame(width: 5, height: 5)
-                    .shadow(color: Theme.warning.opacity(0.8), radius: 3)
-                Text(Formatters.usd(store.burnRatePerMin) + "/min burning")
-                    .font(Theme.mono(11.5))
-                    .foregroundStyle(Theme.warning)
+            // Burn Rate with projection tooltip (only when active spending is occurring)
+            if store.burnRatePerMin > 0 {
+                let dailyEstimate = store.burnRatePerMin * 60 * 24
+                HStack(spacing: 6) {
+                    Circle().fill(Theme.warning).frame(width: 5, height: 5)
+                        .shadow(color: Theme.warning.opacity(0.8), radius: 3)
+                    Text(Formatters.usd(store.burnRatePerMin) + "/min burning")
+                        .font(Theme.mono(11.5))
+                        .foregroundStyle(Theme.warning)
+                }
+                .help("At this rate: \(Formatters.usd(dailyEstimate))/day")
+                .reportFrame("__ticker__")
             }
-            .help("At this rate: \(Formatters.usd(dailyEstimate))/day")
-            .reportFrame("__ticker__")
 
             Text(now.formatted(date: .omitted, time: .standard))
                 .font(Theme.mono(12))

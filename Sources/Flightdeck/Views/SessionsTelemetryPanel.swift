@@ -640,32 +640,38 @@ struct SessionsTelemetryPanel: View {
                 Text("SESSION SPEND")
                     .font(Theme.mono(9.5, weight: .medium))
                     .foregroundStyle(Theme.ink3)
-                Text(Formatters.usd(session.totalCost))
-                    .font(Theme.mono(22, weight: .bold))
-                    .foregroundStyle(Theme.good)
+                if session.totalCost > 0 {
+                    Text(Formatters.usd(session.totalCost))
+                        .font(Theme.mono(22, weight: .bold))
+                        .foregroundStyle(Theme.good)
+                } else {
+                    Text("$0.00")
+                        .font(Theme.mono(22, weight: .bold))
+                        .foregroundStyle(Theme.ink3)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
             .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline, lineWidth: 1))
 
-            // Burn Rate
+            // Total Tokens (100% exact from Claude Code JSON logs)
             VStack(alignment: .leading, spacing: 4) {
-                Text("BURN RATE")
+                Text("TOTAL TOKENS")
                     .font(Theme.mono(9.5, weight: .medium))
                     .foregroundStyle(Theme.ink3)
-                if session.burnRatePerMin > 0 {
-                    HStack(alignment: .lastTextBaseline, spacing: 2) {
-                        Text(Formatters.usd(session.burnRatePerMin))
+                if session.totalTokens > 0 {
+                    HStack(alignment: .lastTextBaseline, spacing: 3) {
+                        Text(Formatters.tokens(session.totalTokens))
                             .font(Theme.mono(22, weight: .bold))
                             .foregroundStyle(Theme.ink1)
-                        Text("/min")
-                            .font(Theme.mono(11))
+                        Text("tokens")
+                            .font(Theme.mono(10))
                             .foregroundStyle(Theme.ink3)
                     }
                 } else {
-                    Text(session.isActive ? "measuring..." : "idle")
-                        .font(Theme.mono(18, weight: .medium))
+                    Text("0")
+                        .font(Theme.mono(22, weight: .bold))
                         .foregroundStyle(Theme.ink3)
                 }
             }
@@ -689,7 +695,7 @@ struct SessionsTelemetryPanel: View {
                             .foregroundStyle(Theme.critical)
                     }
                 } else {
-                    Text("none")
+                    Text("0 lines")
                         .font(Theme.mono(18, weight: .medium))
                         .foregroundStyle(Theme.ink3)
                 }

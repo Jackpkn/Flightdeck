@@ -26,6 +26,16 @@ final class DashboardStore {
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
+    private let isoFormatterNoFrac: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    private func parseDate(_ string: String?) -> Date? {
+        guard let string, !string.isEmpty else { return nil }
+        return isoFormatter.date(from: string) ?? isoFormatterNoFrac.date(from: string)
+    }
 
     private var root: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -320,8 +330,6 @@ final class DashboardStore {
             } else if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
                       let modDate = attrs[.modificationDate] as? Date {
                 agg.lastSeen = max(agg.lastSeen ?? .distantPast, modDate)
-            } else if agg.lastSeen == nil {
-                agg.lastSeen = Date()
             }
 
             if let prompt = proj["lastSessionFirstPrompt"] as? String, !prompt.isEmpty, agg.lastPrompt.isEmpty {
@@ -410,11 +418,21 @@ final class DashboardStore {
                   let entry = try? decoder.decode(ClaudeLogLine.self, from: lineData) else { continue }
             apply(entry, projectHint: projectHint)
         }
+
+        // If lastSeen was not populated by a line timestamp, use file's modification date on disk
+        let sid = file.deletingPathExtension().lastPathComponent
+        if var agg = sessions[sid], agg.lastSeen == nil {
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+               let modDate = attrs[.modificationDate] as? Date {
+                agg.lastSeen = modDate
+                sessions[sid] = agg
+            }
+        }
     }
 
     private func apply(_ entry: ClaudeLogLine, projectHint: String) {
         guard let sessionId = entry.sessionId, !sessionId.hasPrefix("test-") else { return }
-        let ts = entry.timestamp.flatMap(isoFormatter.date(from:)) ?? Date()
+        let ts = parseDate(entry.timestamp)
 
         var agg = sessions[sessionId] ?? SessionAgg(id: sessionId, project: projectHint)
         if let cwd = entry.cwd {
@@ -422,16 +440,19 @@ final class DashboardStore {
             agg.project = Self.friendlyName(fromCwd: cwd)
         }
         if let branch = entry.gitBranch { agg.branch = branch }
-        agg.lastSeen = max(agg.lastSeen ?? .distantPast, ts)
+        if let ts {
+            agg.lastSeen = max(agg.lastSeen ?? .distantPast, ts)
+        }
 
         // 1. Direct cost from JSON (type: "cost-state")
         if let directCost = entry.totalCostUSD ?? entry.costUSD {
             agg.liveTotalCost = max(agg.liveTotalCost ?? 0, directCost)
-            agg.costLedger.append((ts, directCost))
+            let eventDate = ts ?? agg.lastSeen ?? Date()
+            agg.costLedger.append((eventDate, directCost))
             let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
             agg.costLedger.removeAll { $0.0 < cutoff }
             if directCost > 0 {
-                costEvents.append(.init(sessionId: sessionId, amount: directCost, timestamp: ts))
+                costEvents.append(.init(sessionId: sessionId, amount: directCost, timestamp: eventDate))
             }
         }
 
@@ -501,17 +522,18 @@ final class DashboardStore {
             for block in blocks {
                 if block.type == "tool_use" {
                     agg.toolUseCount += 1
+                    let actTs = ts ?? agg.lastSeen ?? Date()
                     if let path = block.input?.file_path {
                         agg.lastFile = path
                         let name = URL(fileURLWithPath: path).lastPathComponent
                         activity.insert(
-                            .init(timestamp: ts, project: agg.project, sessionId: sessionId, kind: .edit, text: "edited \(name)"),
+                            .init(timestamp: actTs, project: agg.project, sessionId: sessionId, kind: .edit, text: "edited \(name)"),
                             at: 0
                         )
                     } else if let cmd = block.input?.command {
                         activity.insert(
                             .init(
-                                timestamp: ts,
+                                timestamp: actTs,
                                 project: agg.project,
                                 sessionId: sessionId,
                                 kind: .forCommand(cmd),
@@ -521,9 +543,10 @@ final class DashboardStore {
                         )
                     }
                 } else if block.type == "tool_result", block.is_error == true {
-                    agg.lastErrorAt = ts
+                    if let ts { agg.lastErrorAt = ts }
+                    let actTs = ts ?? agg.lastSeen ?? Date()
                     activity.insert(
-                        .init(timestamp: ts, project: agg.project, sessionId: sessionId, kind: .error, text: "⚠ tool call failed"),
+                        .init(timestamp: actTs, project: agg.project, sessionId: sessionId, kind: .error, text: "⚠ tool call failed"),
                         at: 0
                     )
                 }
