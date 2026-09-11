@@ -15,6 +15,7 @@ struct FlightdeckApp: App {
     @State private var devCleaner = DevCleaner()
     @State private var appUninstaller = AppUninstaller.shared
     @State private var duplicateScanner = DuplicateScanner.shared
+    @State private var mcpScanner = MCPServerScanner.shared
 
     init() {
         FontLoader.registerBundledFonts()
@@ -37,6 +38,7 @@ struct FlightdeckApp: App {
                 .environment(devCleaner)
                 .environment(appUninstaller)
                 .environment(duplicateScanner)
+                .environment(mcpScanner)
                 .frame(minWidth: 1180, maxWidth: .infinity, minHeight: 780, maxHeight: .infinity)
                 .background(Theme.page)
                 .preferredColorScheme(.dark)
@@ -50,6 +52,7 @@ struct FlightdeckApp: App {
                     portScanner.start()
                     zombieDetector.start()
                     devCleaner.start()
+                    mcpScanner.start()
                 }
         }
         .windowResizability(.contentMinSize)

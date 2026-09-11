@@ -10,6 +10,7 @@ struct DashboardView: View {
         case activity = "Activity"
         case files = "Files"
         case sessions = "Sessions"
+        case mcp = "MCP Hub"
         case spend = "Spend"
     }
 
@@ -113,7 +114,7 @@ struct DashboardView: View {
             TopBar(showGraph: $showGraph, showPalette: $showPalette)
             TabPicker(selected: $tab)
 
-            if tab == .sessions {
+            if tab == .sessions || tab == .mcp {
                 tabContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
@@ -215,6 +216,8 @@ struct DashboardView: View {
             }
         case .sessions:
             SessionsTelemetryPanel()
+        case .mcp:
+            MCPHubPanel()
         case .spend:
             SpendByProjectPanel()
         }
