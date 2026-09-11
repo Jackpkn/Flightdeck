@@ -1,0 +1,240 @@
+/* Tokens are the app's own, from Sources/Flightdeck/Theme.swift, so the site and
+   the product read as one thing. Semantic colours keep the app's rules: amber is
+   only ever cost, red is only ever a problem, emerald is only ever nominal. */
+:root {
+  color-scheme: dark;
+
+  --ground: #08080c;
+  --panel: #0c0c12;
+  --surface: #12121a;
+  --track: #1c1c26;
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline2: rgba(255, 255, 255, 0.05);
+
+  --ink1: #f0f2f5;
+  --ink2: #9aa3ad;
+  --ink3: #5c6570;
+
+  --accent: #00f0ff;
+  --sky: #38bdf8;
+  --cost: #ffb800;
+  --good: #10b981;
+  --critical: #ff3b3b;
+
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  --edge: clamp(20px, 5vw, 44px);
+  --col: 1140px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink1);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+img,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+/* ── layout ───────────────────────────────────────────────────── */
+.wrap {
+  max-width: var(--col);
+  margin-inline: auto;
+  padding-inline: var(--edge);
+}
+
+section {
+  padding-block: clamp(52px, 7.5vw, 92px);
+  border-top: 1px solid var(--hairline2);
+  position: relative;
+}
+
+.sec-head {
+  display: grid;
+  gap: 13px;
+  margin-bottom: 34px;
+}
+
+/* ── type roles ───────────────────────────────────────────────── */
+h1,
+h2,
+h3 {
+  margin: 0;
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: clamp(36px, 5.6vw, 66px);
+  font-weight: 800;
+  letter-spacing: -0.034em;
+  line-height: 1.03;
+}
+
+h2 {
+  font-size: clamp(25px, 3.3vw, 35px);
+  font-weight: 800;
+  letter-spacing: -0.026em;
+  line-height: 1.11;
+}
+
+h3 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ink3);
+}
+
+.lede {
+  font-size: clamp(16.5px, 1.9vw, 19px);
+  color: var(--ink2);
+  max-width: 60ch;
+}
+
+.body-copy {
+  color: var(--ink2);
+  max-width: 66ch;
+}
+
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* ── HUD chrome: all of this is CSS, none of it costs JavaScript ── */
+
+/* dot-matrix ground, fixed so it reads as a display behind the content */
+.matrix {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-image: radial-gradient(circle at 1px 1px, rgba(0, 240, 255, 0.11) 1px, transparent 0);
+  background-size: 26px 26px;
+  mask-image: radial-gradient(ellipse 90% 60% at 50% 0%, #000 35%, transparent 78%);
+}
+
+/* scanlines. Static by default; only the hero band sweeps. */
+.scanlines {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.016) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+/* corner brackets — the app draws these around its panels */
+.bracket {
+  position: relative;
+}
+
+.bracket::before,
+.bracket::after {
+  content: "";
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border-color: var(--accent);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.bracket::before {
+  top: -1px;
+  left: -1px;
+  border-top: 1px solid;
+  border-left: 1px solid;
+}
+
+.bracket::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 1px solid;
+  border-right: 1px solid;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  flex: none;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.32;
+  }
+}
+
+/* ── reduced motion: kill every ambient animation ─────────────── */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,191 @@
+---
+// The hero display. An SVG wireframe globe is always present, so the first
+// painted frame already looks like the finished thing; the WebGL canvas fades
+// in over it only when the device and the viewer's settings both allow it.
+const MERIDIANS = [0.22, 0.46, 0.7, 0.94];
+---
+
+<div class="holo bracket">
+  <!-- at rest: pure SVG, no JavaScript, no network -->
+  <svg class="fallback" viewBox="0 0 220 220" aria-hidden="true">
+    <circle cx="110" cy="110" r="74" class="limb" />
+    <circle cx="110" cy="110" r="52" class="limb faint" />
+    {MERIDIANS.map((r) => <ellipse cx="110" cy="110" rx={74 * r} ry="74" class="grid" />)}
+    <line x1="36" y1="110" x2="184" y2="110" class="grid" />
+    <ellipse cx="110" cy="110" rx="74" ry="26" class="grid" />
+    <ellipse cx="110" cy="110" rx="74" ry="52" class="grid" />
+    <circle cx="110" cy="110" r="92" class="bezel" />
+  </svg>
+
+  <canvas class="stage" aria-hidden="true"></canvas>
+
+  <!-- telemetry furniture: dense, tiny, and entirely static -->
+  <span class="tag tl">SESSION 41d7a11b</span>
+  <span class="tag tr">GIT · HEAD</span>
+  <span class="tag bl">55 FILES TRACKED</span>
+  <span class="tag br">LOCAL ONLY</span>
+  <span class="sweep" aria-hidden="true"></span>
+</div>
+
+<script>
+  // Load Three.js only when it is actually worth it. Any of these being true
+  // means the SVG globe stays, and nothing is fetched.
+  const host = document.querySelector<HTMLElement>(".holo");
+  const canvas = host?.querySelector<HTMLCanvasElement>("canvas.stage");
+
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const narrow = window.matchMedia("(max-width: 700px)").matches;
+  const fewCores = (navigator.hardwareConcurrency ?? 8) <= 4;
+  const saveData =
+    (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData ===
+    true;
+
+  const webglAvailable = () => {
+    try {
+      const probe = document.createElement("canvas");
+      return Boolean(
+        probe.getContext("webgl2") ?? probe.getContext("webgl")
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  if (host && canvas && !reducedMotion && !narrow && !fewCores && !saveData && webglAvailable()) {
+    const once = new IntersectionObserver(
+      async ([entry], self) => {
+        if (!entry.isIntersecting) return;
+        self.disconnect();
+        // Dynamic import: this is the code-split chunk, fetched at this moment
+        // and never on a first paint.
+        const { mountHoloGlobe } = await import("../scripts/holoGlobe");
+        mountHoloGlobe(canvas);
+        host.dataset.live = "true";
+      },
+      { rootMargin: "150px" }
+    );
+    once.observe(host);
+  }
+</script>
+
+<style>
+  .holo {
+    position: relative;
+    aspect-ratio: 1;
+    width: 100%;
+    max-width: 420px;
+    justify-self: center;
+    border: 1px solid var(--hairline);
+    background:
+      radial-gradient(circle at 50% 45%, rgba(0, 240, 255, 0.07), transparent 62%),
+      var(--panel);
+    overflow: hidden;
+  }
+
+  .fallback,
+  .stage {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .fallback {
+    padding: 8%;
+    transition: opacity 700ms ease;
+  }
+
+  /* Once WebGL is running the SVG steps back but stays as the bezel layer. */
+  .holo[data-live="true"] .fallback {
+    opacity: 0.18;
+  }
+
+  .stage {
+    opacity: 0;
+    transition: opacity 900ms ease;
+  }
+
+  .holo[data-live="true"] .stage {
+    opacity: 1;
+  }
+
+  .limb {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 0.9;
+    opacity: 0.5;
+  }
+
+  .limb.faint {
+    stroke: var(--sky);
+    opacity: 0.26;
+  }
+
+  .grid {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 0.55;
+    opacity: 0.24;
+  }
+
+  .bezel {
+    fill: none;
+    stroke: var(--ink3);
+    stroke-width: 0.6;
+    opacity: 0.35;
+    stroke-dasharray: 2 6;
+  }
+
+  .tag {
+    position: absolute;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--ink3);
+    white-space: nowrap;
+  }
+
+  .tl {
+    top: 12px;
+    left: 14px;
+  }
+  .tr {
+    top: 12px;
+    right: 14px;
+  }
+  .bl {
+    bottom: 12px;
+    left: 14px;
+  }
+  .br {
+    bottom: 12px;
+    right: 14px;
+  }
+
+  /* the one sweeping element on the page */
+  .sweep {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 28%;
+    top: -28%;
+    pointer-events: none;
+    background: linear-gradient(to bottom, transparent, rgba(0, 240, 255, 0.07), transparent);
+    animation: sweep 6.5s linear infinite;
+  }
+
+  @keyframes sweep {
+    0% {
+      transform: translateY(0);
+    }
+    100% {
+      transform: translateY(460%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sweep {
+      display: none;
+    }
+  }
+</style>
