@@ -19,6 +19,8 @@ struct SessionsTelemetryPanel: View {
     }
 
     @State private var inspectorTab: InspectorTab = .metrics
+    @State private var showSetup = false
+    @State private var integrationStatus: ClaudeIntegrationInstaller.Status?
     @State private var loadedTurns: [ConversationTurn] = []
     @State private var isLoadingTurns: Bool = false
 
@@ -68,12 +70,21 @@ struct SessionsTelemetryPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            integrationBanner
             kpiRibbon
+            HStack(alignment: .top, spacing: 12) {
+                UsageLimitsStrip()
+                SkillUsageStrip().frame(width: 300)
+            }
             BudgetGuardrailStrip()
             mainMasterDetail
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .sheet(isPresented: $showSetup, onDismiss: refreshIntegrationStatus) {
+            IntegrationSetupSheet()
+        }
         .onAppear {
+            refreshIntegrationStatus()
             if selectedSessionId == nil {
                 selectedSessionId = allSessions.first?.id
             }
@@ -85,6 +96,51 @@ struct SessionsTelemetryPanel: View {
             if let newId {
                 fetchTranscript(sessionId: newId)
             }
+        }
+    }
+
+    // MARK: - Integration Banner
+
+    /// Transcripts alone can't report live context size, running cost, or tool events.
+    /// When that channel isn't wired up, say so here rather than quietly showing
+    /// partial data as if it were the whole picture.
+    @ViewBuilder
+    private var integrationBanner: some View {
+        if let integrationStatus, !integrationStatus.isFullyInstalled {
+            HStack(spacing: 10) {
+                Image(systemName: "bolt.horizontal.circle")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.warning)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("LIVE TELEMETRY NOT CONNECTED")
+                        .font(Theme.mono(9.5, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(Theme.warning)
+                    Text("Reading transcripts only — context size is inferred and cost updates lag until a session ends.")
+                        .font(Theme.ui(11))
+                        .foregroundStyle(Theme.ink3)
+                }
+                Spacer()
+                Button("Set up") { showSetup = true }
+                    .font(Theme.ui(11.5, weight: .semibold))
+            }
+            .padding(EdgeInsets(top: 9, leading: 12, bottom: 9, trailing: 12))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.warning.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.warning.opacity(0.25), lineWidth: 1))
+        }
+    }
+
+    private func refreshIntegrationStatus() {
+        switch ClaudeIntegrationInstaller.readSettings(from: ClaudeIntegrationInstaller.defaultSettingsURL()) {
+        case .missing:
+            integrationStatus = ClaudeIntegrationInstaller.status(in: [:])
+        case .parsed(let settings):
+            integrationStatus = ClaudeIntegrationInstaller.status(in: settings)
+        case .unreadable:
+            // Unknown, not "not installed" — the banner would otherwise nag about a
+            // problem it cannot actually see. The setup sheet reports the real reason.
+            integrationStatus = nil
         }
     }
 
@@ -113,7 +169,7 @@ struct SessionsTelemetryPanel: View {
             kpiCard(
                 title: "TOTAL TOKENS",
                 value: Formatters.tokens(totalTokens),
-                subtitle: "input, output, think, cache",
+                subtitle: "input, output, cache — billed",
                 accent: Theme.claudeColor
             )
 
@@ -419,6 +475,9 @@ struct SessionsTelemetryPanel: View {
                             if !session.mcpServers.isEmpty {
                                 mcpServersCard(session)
                             }
+                            if !session.subagents.isEmpty || session.filesModifiedCount > 0 {
+                                workProductCard(session)
+                            }
                             contextAndEnvCard(session)
                         } else {
                             SessionTranscriptView(
@@ -588,7 +647,7 @@ struct SessionsTelemetryPanel: View {
         CockpitAudio.playPing()
         let cwd = session.cwd.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : session.cwd
         let cmd: String
-        if session.id.hasPrefix("proj-") || session.id.isEmpty {
+        if session.id.isEmpty {
             cmd = "cd \"\(cwd)\" && claude"
         } else {
             cmd = "cd \"\(cwd)\" && claude --resume \(session.id)"
@@ -641,9 +700,21 @@ struct SessionsTelemetryPanel: View {
                     .font(Theme.mono(9.5, weight: .medium))
                     .foregroundStyle(Theme.ink3)
                 if session.totalCost > 0 {
-                    Text(Formatters.usd(session.totalCost))
-                        .font(Theme.mono(22, weight: .bold))
-                        .foregroundStyle(Theme.good)
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        // Claude Code flags sessions where it priced a model it has no
+                        // rate for; the total is then a floor, and is labelled as one.
+                        if !session.costIsComplete {
+                            Text("≥")
+                                .font(Theme.mono(15, weight: .bold))
+                                .foregroundStyle(Theme.warning)
+                        }
+                        Text(Formatters.usd(session.totalCost))
+                            .font(Theme.mono(22, weight: .bold))
+                            .foregroundStyle(Theme.good)
+                    }
+                    .help(session.costIsComplete
+                          ? "Total reported by Claude Code"
+                          : "At least this much — this session used a model Claude Code has no price for")
                 } else {
                     Text("$0.00")
                         .font(Theme.mono(22, weight: .bold))
@@ -733,14 +804,25 @@ struct SessionsTelemetryPanel: View {
                     let total = max(1, Double(session.totalTokens))
                     let inW = (Double(session.inputTokens) / total) * proxy.size.width
                     let outW = (Double(session.outputTokens) / total) * proxy.size.width
-                    let thinkW = (Double(session.thinkingTokens) / total) * proxy.size.width
                     let readW = (Double(session.cacheReadTokens) / total) * proxy.size.width
                     let createW = (Double(session.cacheCreationTokens) / total) * proxy.size.width
+                    // Thinking is a slice of output, not a fifth bucket — drawing it
+                    // alongside the others made the segments exceed the bar's own total.
+                    let thinkShare = session.outputTokens > 0
+                        ? Double(session.thinkingTokens) / Double(session.outputTokens) : 0
 
                     HStack(spacing: 2) {
                         if inW > 0 { Rectangle().fill(Color.blue).frame(width: max(2, inW)) }
-                        if outW > 0 { Rectangle().fill(Color.purple).frame(width: max(2, outW)) }
-                        if thinkW > 0 { Rectangle().fill(Color.pink).frame(width: max(2, thinkW)) }
+                        if outW > 0 {
+                            Rectangle()
+                                .fill(Color.purple)
+                                .frame(width: max(2, outW))
+                                .overlay(alignment: .leading) {
+                                    Rectangle()
+                                        .fill(Color.pink)
+                                        .frame(width: max(2, outW) * thinkShare)
+                                }
+                        }
                         if readW > 0 { Rectangle().fill(Color.teal).frame(width: max(2, readW)) }
                         if createW > 0 { Rectangle().fill(Color.orange).frame(width: max(2, createW)) }
                     }
@@ -751,7 +833,7 @@ struct SessionsTelemetryPanel: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     tokenGridCell(title: "INPUT TOKENS", value: session.inputTokens, color: Color.blue)
                     tokenGridCell(title: "OUTPUT TOKENS", value: session.outputTokens, color: Color.purple)
-                    tokenGridCell(title: "THINKING TOKENS", value: session.thinkingTokens, color: Color.pink)
+                    tokenGridCell(title: "THINKING TOKENS", value: session.thinkingTokens, color: Color.pink, footnote: "part of output")
                     tokenGridCell(title: "CACHE READ", value: session.cacheReadTokens, color: Color.teal)
                     tokenGridCell(title: "CACHE WRITE", value: session.cacheCreationTokens, color: Color.orange)
                     tokenGridCell(title: "TOTAL TOKENS", value: session.totalTokens, color: Theme.accent)
@@ -768,7 +850,9 @@ struct SessionsTelemetryPanel: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.hairline, lineWidth: 1))
     }
 
-    private func tokenGridCell(title: String, value: Int, color: Color) -> some View {
+    /// `footnote` exists for buckets that are a breakdown of another figure rather
+    /// than an addition to it, so the grid doesn't read as six things that sum.
+    private func tokenGridCell(title: String, value: Int, color: Color, footnote: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 Circle().fill(color).frame(width: 5, height: 5)
@@ -779,6 +863,11 @@ struct SessionsTelemetryPanel: View {
             Text(Formatters.tokens(value))
                 .font(Theme.mono(15, weight: .semibold))
                 .foregroundStyle(Theme.ink1)
+            if let footnote {
+                Text(footnote)
+                    .font(Theme.mono(8.5))
+                    .foregroundStyle(Theme.ink3)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(8)
@@ -977,6 +1066,74 @@ struct SessionsTelemetryPanel: View {
         .padding(14)
         .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.hairline, lineWidth: 1))
+    }
+
+    // MARK: - Work Product Card
+
+    /// What the session actually produced: the files Claude Code checkpointed a change
+    /// to, and the subagents it ran. Both come from records Claude Code writes itself —
+    /// `file-history-delta` and `agent-name` — not from counting tool calls.
+    private func workProductCard(_ session: SessionAgg) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("WORK PRODUCT")
+                .font(Theme.mono(9.5, weight: .bold))
+                .tracking(0.7)
+                .foregroundStyle(Theme.ink3)
+
+            HStack(alignment: .top, spacing: 18) {
+                if session.filesModifiedCount > 0 {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("\(session.filesModifiedCount)")
+                            .font(Theme.mono(20, weight: .bold))
+                            .foregroundStyle(Theme.ink1)
+                        Text("files changed")
+                            .font(Theme.mono(10))
+                            .foregroundStyle(Theme.ink3)
+                    }
+                    .help(session.filesModified.sorted().prefix(12).joined(separator: "\n"))
+                }
+
+                if session.linesAdded > 0 || session.linesRemoved > 0 {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 4) {
+                            Text("+\(Formatters.tokens(session.linesAdded))")
+                                .font(Theme.mono(20, weight: .bold))
+                                .foregroundStyle(Theme.good)
+                            Text("−\(Formatters.tokens(session.linesRemoved))")
+                                .font(Theme.mono(14, weight: .semibold))
+                                .foregroundStyle(Theme.critical)
+                        }
+                        Text("lines")
+                            .font(Theme.mono(10))
+                            .foregroundStyle(Theme.ink3)
+                    }
+                }
+
+                Spacer()
+            }
+
+            if !session.subagents.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("SUBAGENTS RUN")
+                        .font(Theme.mono(9, weight: .medium))
+                        .tracking(0.5)
+                        .foregroundStyle(Theme.ink3)
+                    FlowRow(spacing: 6) {
+                        ForEach(session.subagents, id: \.self) { name in
+                            Text(name)
+                                .font(Theme.mono(10))
+                                .foregroundStyle(Theme.accentSecondary)
+                                .padding(.horizontal, 6).padding(.vertical, 2.5)
+                                .background(Theme.accentSecondary.opacity(0.12), in: Capsule())
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).stroke(Theme.hairline, lineWidth: 1))
     }
 
     // MARK: - Context & Environment Card

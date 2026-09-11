@@ -20,6 +20,9 @@ final class DashboardStore {
     var inspectedSession: SessionAgg? = nil
 
     private var offsets: [String: UInt64] = [:]
+    /// Learns each model's real context-window size from observed usage, so the
+    /// gauge is not pinned to a constant that is wrong for long-context models.
+    private var contextResolver = ContextWindowResolver()
     private let decoder = JSONDecoder()
     private let isoFormatter: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -55,6 +58,7 @@ final class DashboardStore {
     // Fallback timer — only fires if FSEvents misses something (belt + suspenders)
     private var fallbackTimer: Timer?
 
+    @MainActor
     func start() {
         // Initial load of all existing JSONL data
         refresh()
@@ -133,20 +137,9 @@ final class DashboardStore {
     /// Called by FSEvents when any file under ~/.claude/projects/ changes.
     /// Filters for .jsonl files and triggers incremental tailing.
     fileprivate func handleFSEvent(paths: [String]) {
-        var consumed = false
-        for path in paths where path.hasSuffix(".jsonl") {
-            let url = URL(fileURLWithPath: path)
-            consume(file: url)
-            consumed = true
-        }
-        if consumed {
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if self.activity.count > 200 {
-                    self.activity.removeLast(self.activity.count - 200)
-                }
-            }
-        }
+        let transcripts = paths.filter { $0.hasSuffix(".jsonl") }.map { URL(fileURLWithPath: $0) }
+        guard !transcripts.isEmpty else { return }
+        ingest(files: transcripts)
     }
 
     // MARK: - GRDB Session Observation
@@ -193,8 +186,10 @@ final class DashboardStore {
     }
 
     /// Merge statusline data into the in-memory SessionAgg dictionary.
-    /// Statusline provides: model, contextTokens, totalCostUsd, project, branch.
-    /// JSONL tailing provides: costLedger (per-turn), activity entries, lastFile.
+    /// Statusline provides: model, contextTokens, contextTotalTokens (authoritative),
+    /// totalCostUsd, project, branch. JSONL tailing provides the cumulative cost
+    /// checkpoints, activity entries and lastFile.
+    @MainActor
     private func mergeLiveSessions(_ records: [SessionLiveRecord]) {
         for record in records {
             if record.sessionId.hasPrefix("test-") { continue }
@@ -203,9 +198,18 @@ final class DashboardStore {
             if !record.branch.isEmpty { agg.branch = record.branch }
             if !record.model.isEmpty { agg.model = record.model }
             if !record.lastFile.isEmpty { agg.lastFile = record.lastFile }
-            agg.contextTokens = max(agg.contextTokens, record.contextTokens)
+            // A point-in-time reading, not a high-water mark: context genuinely drops
+            // after Claude Code compacts, and clamping with max() left the "near limit"
+            // alert stuck on for the rest of the session.
+            if record.contextTokens > 0 {
+                agg.contextTokens = record.contextTokens
+            }
             if record.contextTotalTokens > 0 {
+                // Claude Code reported the real window size — trusted over inference,
+                // and remembered for this model so transcript-only sessions benefit too.
+                contextResolver.recordAuthoritative(model: record.model, total: record.contextTotalTokens)
                 agg.contextTotalTokens = record.contextTotalTokens
+                agg.contextWindowSource = .statusline
             }
             agg.lastSeen = max(agg.lastSeen ?? .distantPast, record.updatedAt)
             if record.totalCostUsd > 0 {
@@ -218,6 +222,7 @@ final class DashboardStore {
         }
     }
 
+    @MainActor
     private func mergeAIEvents(_ records: [AIEventRecord]) {
         for r in records {
             if r.sessionId.hasPrefix("test-") { continue }
@@ -262,6 +267,7 @@ final class DashboardStore {
     }
 
 
+    @MainActor
     private func addShellCommand(_ item: ShellFeed.ShellCommand) {
         let entry = ActivityEntry(
             timestamp: item.timestamp,
@@ -280,97 +286,164 @@ final class DashboardStore {
         }
     }
 
+    /// Full rescan. Discovery and parsing happen on `fsQueue`; only the merge runs
+    /// on main, so a large first load never blocks rendering.
     func refresh() {
-        for file in discoverLogFiles() {
-            consume(file: file)
-        }
-        loadClaudeJsonProjects()
-        if activity.count > 200 {
-            activity.removeLast(activity.count - 200)
+        fsQueue.async { [weak self] in
+            guard let self else { return }
+            let batches = self.discoverLogFiles().compactMap { self.readBatch(from: $0) }
+            let projectData = Self.readClaudeJsonProjects()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if !batches.isEmpty { self.applyBatches(batches) }
+                self.mergeClaudeJsonProjects(projectData)
+                self.trimActivity()
+            }
         }
     }
 
-    /// Read Claude Code's global ~/.claude.json to ingest exact session costs
-    /// and model usages computed directly by Claude Code.
-    private func loadClaudeJsonProjects() {
-        let claudeJsonURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
-        guard let data = try? Data(contentsOf: claudeJsonURL),
+    /// One project's "last session" telemetry from `~/.claude.json`, parsed into a
+    /// `Sendable` value so it can cross from the reader queue to the main thread.
+    struct ClaudeProjectSnapshot: Sendable {
+        let sessionId: String
+        let cwd: String
+        var lastCost: Double = 0
+        var startedAt: Date?
+        var modifiedAt: Date?
+        var firstPrompt: String = ""
+        var inputTokens: Int = 0
+        var outputTokens: Int = 0
+        var cacheCreationTokens: Int = 0
+        var cacheReadTokens: Int = 0
+        var linesAdded: Int = 0
+        var linesRemoved: Int = 0
+        var apiDurationMs: Int = 0
+        var toolDurationMs: Int = 0
+        var totalDurationMs: Int = 0
+        var webSearchRequests: Int = 0
+        var versionBase: String = ""
+        var mcpServers: [String] = []
+        var modelUsages: [String: ModelUsageSummary] = [:]
+    }
+
+    /// Reads and parses `~/.claude.json`. Pure — touches no instance state — so it is
+    /// safe to call from the reader queue.
+    static func readClaudeJsonProjects() -> [ClaudeProjectSnapshot] {
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")
+        guard let data = try? Data(contentsOf: url),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let projects = json["projects"] as? [String: [String: Any]] else {
-            return
+            return []
         }
 
-        for (path, proj) in projects {
-            let sessionId: String
-            if let lastSid = proj["lastSessionId"] as? String, !lastSid.isEmpty {
-                sessionId = lastSid
-            } else {
-                sessionId = "proj-\(abs(path.hashValue))"
+        return projects.compactMap { path, proj in
+            // Only real sessions get a card. The previous fallback synthesised an id
+            // from `path.hashValue`, which Swift re-seeds every launch — so a project
+            // that had never run a session produced a differently-named phantom
+            // session on each start, with no transcript behind it.
+            guard let sessionId = proj["lastSessionId"] as? String, !sessionId.isEmpty else { return nil }
+
+            var snap = ClaudeProjectSnapshot(sessionId: sessionId, cwd: path)
+            snap.lastCost = proj["lastCost"] as? Double ?? 0
+
+            // `lastStartTime` is when the session began — it anchors duration and
+            // day-attribution, and is not the same thing as when it was last active.
+            if let ms = proj["lastStartTime"] as? Double, ms > 0 {
+                snap.startedAt = Date(timeIntervalSince1970: ms / 1000.0)
             }
-
-            let lastCost = proj["lastCost"] as? Double ?? 0
-            let projectName = Self.friendlyName(fromCwd: path)
-
-            var agg = sessions[sessionId] ?? SessionAgg(id: sessionId, project: projectName)
-            agg.cwd = path
-            if lastCost > 0 {
-                agg.liveTotalCost = max(agg.liveTotalCost ?? 0, lastCost)
+            // `exampleFilesGeneratedAt` and the project folder's mtime were previously
+            // used as activity proxies. Neither tracks session activity — a build or a
+            // checkout moves the folder mtime — so idle sessions looked recently active.
+            if let ms = proj["lastSessionModified"] as? Double, ms > 0 {
+                snap.modifiedAt = Date(timeIntervalSince1970: ms / 1000.0)
             }
+            snap.firstPrompt = proj["lastSessionFirstPrompt"] as? String ?? ""
 
-            // Real timestamp from lastStartTime, or lastSessionModified, or exampleFilesGeneratedAt, or folder modification date
-            if let startTimeMs = proj["lastStartTime"] as? Double, startTimeMs > 0 {
-                let d = Date(timeIntervalSince1970: startTimeMs / 1000.0)
-                agg.lastSeen = max(agg.lastSeen ?? .distantPast, d)
-            } else if let modMs = proj["lastSessionModified"] as? Double, modMs > 0 {
-                let d = Date(timeIntervalSince1970: modMs / 1000.0)
-                agg.lastSeen = max(agg.lastSeen ?? .distantPast, d)
-            } else if let genMs = proj["exampleFilesGeneratedAt"] as? Double, genMs > 0 {
-                let d = Date(timeIntervalSince1970: genMs / 1000.0)
-                agg.lastSeen = max(agg.lastSeen ?? .distantPast, d)
-            } else if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-                      let modDate = attrs[.modificationDate] as? Date {
-                agg.lastSeen = max(agg.lastSeen ?? .distantPast, modDate)
-            }
+            snap.inputTokens = proj["lastTotalInputTokens"] as? Int ?? 0
+            snap.outputTokens = proj["lastTotalOutputTokens"] as? Int ?? 0
+            snap.cacheCreationTokens = proj["lastTotalCacheCreationInputTokens"] as? Int ?? 0
+            snap.cacheReadTokens = proj["lastTotalCacheReadInputTokens"] as? Int ?? 0
+            snap.linesAdded = proj["lastLinesAdded"] as? Int ?? 0
+            snap.linesRemoved = proj["lastLinesRemoved"] as? Int ?? 0
+            snap.apiDurationMs = proj["lastAPIDuration"] as? Int ?? 0
+            snap.toolDurationMs = proj["lastToolDuration"] as? Int ?? 0
+            snap.totalDurationMs = proj["lastDuration"] as? Int ?? 0
+            snap.webSearchRequests = proj["lastTotalWebSearchRequests"] as? Int ?? 0
+            snap.versionBase = proj["lastVersionBase"] as? String ?? ""
 
-            if let prompt = proj["lastSessionFirstPrompt"] as? String, !prompt.isEmpty, agg.lastPrompt.isEmpty {
-                agg.lastPrompt = prompt
-            }
-
-            if let lastInput = proj["lastTotalInputTokens"] as? Int { agg.inputTokens = max(agg.inputTokens, lastInput) }
-            if let lastOutput = proj["lastTotalOutputTokens"] as? Int { agg.outputTokens = max(agg.outputTokens, lastOutput) }
-            if let lastCacheCreation = proj["lastTotalCacheCreationInputTokens"] as? Int { agg.cacheCreationTokens = max(agg.cacheCreationTokens, lastCacheCreation) }
-            if let lastCacheRead = proj["lastTotalCacheReadInputTokens"] as? Int { agg.cacheReadTokens = max(agg.cacheReadTokens, lastCacheRead) }
-
-            if let linesAdded = proj["lastLinesAdded"] as? Int { agg.linesAdded = max(agg.linesAdded, linesAdded) }
-            if let linesRemoved = proj["lastLinesRemoved"] as? Int { agg.linesRemoved = max(agg.linesRemoved, linesRemoved) }
-            if let apiDur = proj["lastAPIDuration"] as? Int { agg.apiDurationMs = max(agg.apiDurationMs, apiDur) }
-            if let toolDur = proj["lastToolDuration"] as? Int { agg.toolDurationMs = max(agg.toolDurationMs, toolDur) }
-            if let dur = proj["lastDuration"] as? Int { agg.totalDurationMs = max(agg.totalDurationMs, dur) }
-            if let webSearches = proj["lastTotalWebSearchRequests"] as? Int { agg.webSearchRequests = max(agg.webSearchRequests, webSearches) }
-            if let ver = proj["lastVersionBase"] as? String, !ver.isEmpty { agg.versionBase = ver }
             if let mcp = proj["mcpServers"] as? [String: Any] {
-                agg.mcpServers = Array(mcp.keys.sorted())
-            } else if let enabledMcp = proj["enabledMcpjsonServers"] as? [String] {
-                agg.mcpServers = enabledMcp
+                snap.mcpServers = mcp.keys.sorted()
+            } else if let enabled = proj["enabledMcpjsonServers"] as? [String] {
+                snap.mcpServers = enabled
             }
 
             if let modelUsage = proj["lastModelUsage"] as? [String: Any] {
-                if let firstModel = modelUsage.keys.first, agg.model.isEmpty {
-                    agg.model = firstModel
-                }
                 for (modelName, rawVal) in modelUsage {
-                    guard let u = rawVal as? [String: Any] else { continue }
-                    var summary = agg.modelUsages[modelName] ?? ModelUsageSummary()
-                    summary.inputTokens = max(summary.inputTokens, u["inputTokens"] as? Int ?? 0)
-                    summary.outputTokens = max(summary.outputTokens, u["outputTokens"] as? Int ?? 0)
-                    summary.cacheReadTokens = max(summary.cacheReadTokens, u["cacheReadInputTokens"] as? Int ?? 0)
-                    summary.cacheCreationTokens = max(summary.cacheCreationTokens, u["cacheCreationInputTokens"] as? Int ?? 0)
-                    summary.costUSD = max(summary.costUSD, u["costUSD"] as? Double ?? 0.0)
-                    agg.modelUsages[modelName] = summary
+                    guard ClaudeModelPicker.isReal(modelName), let u = rawVal as? [String: Any] else { continue }
+                    snap.modelUsages[modelName] = ModelUsageSummary(
+                        inputTokens: u["inputTokens"] as? Int ?? 0,
+                        outputTokens: u["outputTokens"] as? Int ?? 0,
+                        cacheReadTokens: u["cacheReadInputTokens"] as? Int ?? 0,
+                        cacheCreationTokens: u["cacheCreationInputTokens"] as? Int ?? 0,
+                        costUSD: u["costUSD"] as? Double ?? 0
+                    )
                 }
             }
-            sessions[sessionId] = agg
-            if inspectedSession?.id == sessionId {
+            return snap
+        }
+    }
+
+    /// Merges parsed project telemetry into the live session map. Main thread only.
+    @MainActor
+    private func mergeClaudeJsonProjects(_ snapshots: [ClaudeProjectSnapshot]) {
+        for snap in snapshots {
+            var agg = sessions[snap.sessionId]
+                ?? SessionAgg(id: snap.sessionId, project: Self.friendlyName(fromCwd: snap.cwd))
+            agg.cwd = snap.cwd
+
+            if snap.lastCost > 0 {
+                agg.liveTotalCost = max(agg.liveTotalCost ?? 0, snap.lastCost)
+            }
+            if let started = snap.startedAt {
+                agg.sessionStart = min(agg.sessionStart ?? started, started)
+                agg.lastSeen = max(agg.lastSeen ?? .distantPast, started)
+            }
+            if let modified = snap.modifiedAt {
+                agg.lastSeen = max(agg.lastSeen ?? .distantPast, modified)
+            }
+            if !snap.firstPrompt.isEmpty, agg.lastPrompt.isEmpty {
+                agg.lastPrompt = snap.firstPrompt
+            }
+
+            agg.inputTokens = max(agg.inputTokens, snap.inputTokens)
+            agg.outputTokens = max(agg.outputTokens, snap.outputTokens)
+            agg.cacheCreationTokens = max(agg.cacheCreationTokens, snap.cacheCreationTokens)
+            agg.cacheReadTokens = max(agg.cacheReadTokens, snap.cacheReadTokens)
+            agg.linesAdded = max(agg.linesAdded, snap.linesAdded)
+            agg.linesRemoved = max(agg.linesRemoved, snap.linesRemoved)
+            agg.apiDurationMs = max(agg.apiDurationMs, snap.apiDurationMs)
+            agg.toolDurationMs = max(agg.toolDurationMs, snap.toolDurationMs)
+            agg.totalDurationMs = max(agg.totalDurationMs, snap.totalDurationMs)
+            agg.webSearchRequests = max(agg.webSearchRequests, snap.webSearchRequests)
+            if !snap.versionBase.isEmpty { agg.versionBase = snap.versionBase }
+            if !snap.mcpServers.isEmpty { agg.mcpServers = snap.mcpServers }
+
+            for (modelName, usage) in snap.modelUsages {
+                var summary = agg.modelUsages[modelName] ?? ModelUsageSummary()
+                summary.inputTokens = max(summary.inputTokens, usage.inputTokens)
+                summary.outputTokens = max(summary.outputTokens, usage.outputTokens)
+                summary.cacheReadTokens = max(summary.cacheReadTokens, usage.cacheReadTokens)
+                summary.cacheCreationTokens = max(summary.cacheCreationTokens, usage.cacheCreationTokens)
+                summary.costUSD = max(summary.costUSD, usage.costUSD)
+                agg.modelUsages[modelName] = summary
+            }
+            if !ClaudeModelPicker.isReal(agg.model),
+               let dominant = ClaudeModelPicker.dominant(in: agg.modelUsages) {
+                agg.model = dominant
+            }
+
+            sessions[snap.sessionId] = agg
+            if inspectedSession?.id == snap.sessionId {
                 inspectedSession = agg
             }
         }
@@ -392,14 +465,27 @@ final class DashboardStore {
 
     // MARK: - Incremental read
 
-    private func consume(file: URL) {
+    /// One transcript file's newly-appended lines, already parsed off the main thread.
+    private struct TranscriptBatch {
+        let sessionIdHint: String
+        let projectHint: String
+        let entries: [ClaudeLogLine]
+        let fileModified: Date?
+    }
+
+    /// Reads and parses new lines from a transcript. Runs on `fsQueue` only, which is
+    /// also the sole owner of `offsets` — no observable state is touched here, so this
+    /// can never race the main thread's rendering.
+    private func readBatch(from file: URL) -> TranscriptBatch? {
+        dispatchPrecondition(condition: .onQueue(fsQueue))
+
         let path = file.path
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return }
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
 
         let startOffset = offsets[path] ?? 0
-        guard (try? handle.seek(toOffset: startOffset)) != nil else { return }
-        guard let data = try? handle.readToEnd(), !data.isEmpty else { return }
+        guard (try? handle.seek(toOffset: startOffset)) != nil else { return nil }
+        guard let data = try? handle.readToEnd(), !data.isEmpty else { return nil }
 
         let text = String(decoding: data, as: UTF8.self)
         var lines = text.split(separator: "\n", omittingEmptySubsequences: true)
@@ -412,26 +498,64 @@ final class DashboardStore {
         }
         offsets[path] = startOffset + UInt64(consumedBytes)
 
-        let projectHint = Self.friendlyName(fromSanitizedDir: file.deletingLastPathComponent().lastPathComponent)
-        for line in lines {
-            guard let lineData = line.data(using: .utf8),
-                  let entry = try? decoder.decode(ClaudeLogLine.self, from: lineData) else { continue }
-            apply(entry, projectHint: projectHint)
+        let entries = lines.compactMap { line -> ClaudeLogLine? in
+            guard let lineData = line.data(using: .utf8) else { return nil }
+            return try? decoder.decode(ClaudeLogLine.self, from: lineData)
         }
+        guard !entries.isEmpty else { return nil }
 
-        // If lastSeen was not populated by a line timestamp, use file's modification date on disk
-        let sid = file.deletingPathExtension().lastPathComponent
-        if var agg = sessions[sid], agg.lastSeen == nil {
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-               let modDate = attrs[.modificationDate] as? Date {
-                agg.lastSeen = modDate
-                sessions[sid] = agg
+        let attrs = try? FileManager.default.attributesOfItem(atPath: path)
+        return TranscriptBatch(
+            sessionIdHint: file.deletingPathExtension().lastPathComponent,
+            projectHint: Self.friendlyName(fromSanitizedDir: file.deletingLastPathComponent().lastPathComponent),
+            entries: entries,
+            fileModified: attrs?[.modificationDate] as? Date
+        )
+    }
+
+    /// Applies parsed batches to the observable state. Main thread only — every
+    /// mutation of `sessions`, `activity`, `costEvents` and `contextResolver` goes
+    /// through here or through the GRDB merges, which also hop to main.
+    @MainActor
+    private func applyBatches(_ batches: [TranscriptBatch]) {
+        for batch in batches {
+            for entry in batch.entries {
+                apply(entry, projectHint: batch.projectHint, sessionIdHint: batch.sessionIdHint)
+            }
+            // Fall back to the transcript's own mtime when no line carried a timestamp.
+            if var agg = sessions[batch.sessionIdHint], agg.lastSeen == nil, let modified = batch.fileModified {
+                agg.lastSeen = modified
+                sessions[batch.sessionIdHint] = agg
+            }
+        }
+        trimActivity()
+    }
+
+    /// Reads the given transcripts on `fsQueue`, then applies them on main.
+    private func ingest(files: [URL]) {
+        fsQueue.async { [weak self] in
+            guard let self else { return }
+            let batches = files.compactMap { self.readBatch(from: $0) }
+            guard !batches.isEmpty else { return }
+            Task { @MainActor [weak self] in
+                self?.applyBatches(batches)
             }
         }
     }
 
-    private func apply(_ entry: ClaudeLogLine, projectHint: String) {
-        guard let sessionId = entry.sessionId, !sessionId.hasPrefix("test-") else { return }
+    private func trimActivity() {
+        if activity.count > 200 {
+            activity.removeLast(activity.count - 200)
+        }
+    }
+
+    @MainActor
+    /// `sessionIdHint` is the transcript's filename, which *is* the session id.
+    /// Some record types — `file-history-delta` among them — carry no `sessionId`
+    /// field at all, so requiring one silently discarded every file-change record.
+    private func apply(_ entry: ClaudeLogLine, projectHint: String, sessionIdHint: String = "") {
+        let sessionId = entry.sessionId ?? sessionIdHint
+        guard !sessionId.isEmpty, !sessionId.hasPrefix("test-") else { return }
         let ts = parseDate(entry.timestamp)
 
         var agg = sessions[sessionId] ?? SessionAgg(id: sessionId, project: projectHint)
@@ -442,26 +566,51 @@ final class DashboardStore {
         if let branch = entry.gitBranch { agg.branch = branch }
         if let ts {
             agg.lastSeen = max(agg.lastSeen ?? .distantPast, ts)
+            agg.firstSeen = min(agg.firstSeen ?? .distantFuture, ts)
         }
 
-        // 1. Direct cost from JSON (type: "cost-state")
-        if let directCost = entry.totalCostUSD ?? entry.costUSD {
-            agg.liveTotalCost = max(agg.liveTotalCost ?? 0, directCost)
+        // 1. Direct cost from JSON (type: "cost-state").
+        // `totalCostUSD` is the session's running total at that checkpoint, so it is
+        // recorded as a snapshot. Treating it as a per-turn delta multiplied every
+        // session's cost by the number of checkpoints it happened to write.
+        if let startMs = entry.startTime, startMs > 0 {
+            let started = Date(timeIntervalSince1970: startMs / 1000.0)
+            agg.sessionStart = min(agg.sessionStart ?? started, started)
+        }
+        if let cumulative = entry.totalCostUSD {
             let eventDate = ts ?? agg.lastSeen ?? Date()
-            agg.costLedger.append((eventDate, directCost))
-            let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
-            agg.costLedger.removeAll { $0.0 < cutoff }
-            if directCost > 0 {
-                costEvents.append(.init(sessionId: sessionId, amount: directCost, timestamp: eventDate))
+            let previousTotal = agg.costLedger.total
+            agg.costLedger.record(cumulative, at: eventDate)
+            agg.costLedger.prune(before: Date().addingTimeInterval(-7 * 24 * 3600))
+            agg.liveTotalCost = max(agg.liveTotalCost ?? 0, cumulative)
+            // The fountain visualises real new spend — the delta, not the running total.
+            let delta = agg.costLedger.total - previousTotal
+            if delta > 0 {
+                costEvents.append(.init(sessionId: sessionId, amount: delta, timestamp: eventDate))
             }
+        }
+        if entry.hasUnknownModelCost == true {
+            agg.hasUnknownModelCost = true
+        }
+
+        // Session totals from `cost-state`. These describe this session specifically,
+        // where the `last*` keys in ~/.claude.json describe a project's most recent run.
+        if let added = entry.totalLinesAdded { agg.linesAdded = max(agg.linesAdded, added) }
+        if let removed = entry.totalLinesRemoved { agg.linesRemoved = max(agg.linesRemoved, removed) }
+        if let api = entry.totalAPIDuration { agg.apiDurationMs = max(agg.apiDurationMs, api) }
+        if let tool = entry.totalToolDuration { agg.toolDurationMs = max(agg.toolDurationMs, tool) }
+        if let total = entry.totalDuration { agg.totalDurationMs = max(agg.totalDurationMs, total) }
+
+        // Subagent runs and real file checkpoints.
+        if let agentName = entry.agentName { agg.noteSubagent(agentName) }
+        if let path = entry.trackingPath {
+            agg.noteFileModified(trackingPath: path, realParentDir: entry.backup?.realParentDir)
         }
 
         // 2. Direct model usage from JSON
         if let modelUsage = entry.modelUsage {
-            if let firstModel = modelUsage.keys.first, !firstModel.isEmpty {
-                agg.model = firstModel
-            }
             for (modelName, mUsage) in modelUsage {
+                guard ClaudeModelPicker.isReal(modelName) else { continue }
                 var summary = agg.modelUsages[modelName] ?? ModelUsageSummary()
                 if let it = mUsage.inputTokens { summary.inputTokens = max(summary.inputTokens, it) }
                 if let ot = mUsage.outputTokens { summary.outputTokens = max(summary.outputTokens, ot) }
@@ -469,6 +618,9 @@ final class DashboardStore {
                 if let cc = mUsage.cacheCreationInputTokens { summary.cacheCreationTokens = max(summary.cacheCreationTokens, cc) }
                 if let cost = mUsage.costUSD { summary.costUSD = max(summary.costUSD, cost) }
                 agg.modelUsages[modelName] = summary
+            }
+            if let dominant = ClaudeModelPicker.dominant(in: agg.modelUsages) {
+                agg.model = dominant
             }
             let sumFromUsage = modelUsage.values.compactMap(\.costUSD).reduce(0, +)
             if sumFromUsage > 0 {
@@ -486,8 +638,11 @@ final class DashboardStore {
 
         // 3. Message turn usage: set model and tokens from the JSON
         if let usage = entry.message?.usage {
-            let turnModel = entry.message?.model ?? agg.model
-            if !turnModel.isEmpty {
+            let rawModel = entry.message?.model ?? agg.model
+            // `<synthetic>` marks Claude Code's own bookkeeping messages — not a model
+            // the user ran, and never something to display or attribute usage to.
+            let turnModel = ClaudeModelPicker.isReal(rawModel) ? rawModel : agg.model
+            if ClaudeModelPicker.isReal(turnModel) {
                 agg.model = turnModel
             }
             let inT = usage.input_tokens ?? 0
@@ -502,7 +657,7 @@ final class DashboardStore {
             agg.cacheReadTokens += readT
             agg.cacheCreationTokens += createT
 
-            if !turnModel.isEmpty {
+            if ClaudeModelPicker.isReal(turnModel) {
                 var summary = agg.modelUsages[turnModel] ?? ModelUsageSummary()
                 summary.inputTokens += inT
                 summary.outputTokens += outT
@@ -512,10 +667,12 @@ final class DashboardStore {
                 agg.modelUsages[turnModel] = summary
             }
 
+            // Context held for this turn = fresh input + everything replayed from cache.
             agg.contextTokens = inT + readT + createT
-            if agg.contextTokens > agg.contextTotalTokens {
-                agg.contextTotalTokens = max(agg.contextTotalTokens, agg.contextTokens > 200_000 ? 1_000_000 : 200_000)
-            }
+            contextResolver.observe(model: turnModel, contextTokens: agg.contextTokens)
+            let resolved = contextResolver.resolve(model: turnModel)
+            agg.contextTotalTokens = resolved.total
+            agg.contextWindowSource = resolved.source
         }
 
         if let blocks = entry.message?.content {
@@ -543,6 +700,7 @@ final class DashboardStore {
                         )
                     }
                 } else if block.type == "tool_result", block.is_error == true {
+                    agg.toolErrorCount += 1
                     if let ts { agg.lastErrorAt = ts }
                     let actTs = ts ?? agg.lastSeen ?? Date()
                     activity.insert(
@@ -602,18 +760,32 @@ final class DashboardStore {
 
     // MARK: - Derived stats consumed by the views
 
+    /// Spend in a window, aggregated per session so cumulative checkpoints are
+    /// differenced rather than summed. `isExact` is false when any session's
+    /// contribution could not be isolated to the window.
+    func spend(since cutoff: Date) -> (amount: Double, isExact: Bool) {
+        var total = 0.0
+        var exact = true
+        for session in sessions.values {
+            let contribution = session.spend(since: cutoff)
+            total += contribution.amount
+            if !contribution.isExact, contribution.amount > 0 { exact = false }
+        }
+        return (total, exact)
+    }
+
     var todaySpend: Double {
-        let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: Date())
-        let ledgerSpend = sessions.values.flatMap(\.costLedger).filter { $0.0 >= startOfDay }.reduce(0) { $0 + $1.1 }
-        if ledgerSpend > 0 { return ledgerSpend }
-        let activeTodaySpend = sessions.values.filter { ($0.lastSeen ?? .distantPast) >= startOfDay }.map(\.totalCost).reduce(0, +)
-        return max(ledgerSpend, activeTodaySpend)
+        spend(since: Calendar.current.startOfDay(for: Date())).amount
+    }
+
+    /// False when today's figure is an upper bound — a session was already running
+    /// before midnight and Claude Code wrote no checkpoint to measure against.
+    var todaySpendIsExact: Bool {
+        spend(since: Calendar.current.startOfDay(for: Date())).isExact
     }
 
     var last24hSpend: Double {
-        let cutoff = Date().addingTimeInterval(-24 * 3600)
-        return sessions.values.flatMap(\.costLedger).filter { $0.0 > cutoff }.reduce(0) { $0 + $1.1 }
+        spend(since: Date().addingTimeInterval(-24 * 3600)).amount
     }
 
     var activeSessions: [SessionAgg] {
@@ -623,18 +795,22 @@ final class DashboardStore {
 
     var activeCount: Int { sessions.values.filter(\.isActive).count }
 
-    var burnRatePerMin: Double {
-        sessions.values.reduce(0) { $0 + $1.burnRatePerMin }
-    }
-
     var contextAlertCount: Int {
         highContextSessions.count
     }
 
+    /// Sessions close enough to their context limit to be worth acting on.
+    /// Only counts sessions whose window size is measured or inferred — a defaulted
+    /// 200K guess on a long-context model would flag everything as critical.
     var highContextSessions: [SessionAgg] {
-        sessions.values.filter { $0.contextFraction > 0.7 }
+        sessions.values
+            .filter { $0.contextWindowSource != .fallback && $0.contextFraction > Self.highContextThreshold }
             .sorted { $0.contextFraction > $1.contextFraction }
     }
+
+    /// Claude Code auto-compacts near the top of the window, so 70% is the last
+    /// point where a manual `/compact` or a fresh session is still a free choice.
+    static let highContextThreshold = 0.7
 
     /// Most recent real tool-call failure across every tracked session, not just
     /// the handful currently shown as cards — the signal a global flash reacts to.
@@ -646,8 +822,7 @@ final class DashboardStore {
         var totals: [String: Double] = [:]
         let cutoff = Date().addingTimeInterval(-7 * 24 * 3600)
         for s in sessions.values {
-            let sum = s.costLedger.filter { $0.0 > cutoff }.reduce(0) { $0 + $1.1 }
-            let cost = sum > 0 ? sum : s.totalCost
+            let cost = s.spend(since: cutoff).amount
             guard cost > 0 else { continue }
             totals[s.project, default: 0] += cost
         }

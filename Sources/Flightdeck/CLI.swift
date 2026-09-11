@@ -106,106 +106,48 @@ enum CLI {
 
     // MARK: - Install Hooks
 
-    /// Reads ~/.claude/settings.json, appends Flightdeck's statusline and hook entries
-    /// if not already present, and writes back. Prints what was added.
+    /// Applies Flightdeck's statusline and hook entries to ~/.claude/settings.json.
+    /// The GUI setup sheet drives the same `ClaudeIntegrationInstaller`, so there is
+    /// exactly one implementation of what "installed" means.
     private static func handleInstallHooks() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let settingsURL = home.appendingPathComponent(".claude/settings.json")
+        let binaryPath = ClaudeIntegrationInstaller.installCLIBinary()
+        let settingsURL = ClaudeIntegrationInstaller.defaultSettingsURL()
 
-        let appSupport = home.appendingPathComponent("Library/Application Support/Flightdeck", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        let targetCLI = appSupport.appendingPathComponent("flightdeck-cli").path
-
-        // Install or update the stable CLI binary at ~/Library/Application Support/Flightdeck/flightdeck-cli
-        let currentExecutable = ProcessInfo.processInfo.arguments[0]
-        if currentExecutable != targetCLI {
-            try? FileManager.default.removeItem(atPath: targetCLI)
-            do {
-                try FileManager.default.copyItem(atPath: currentExecutable, toPath: targetCLI)
-                print("✓ Installed CLI helper → \(targetCLI)")
-            } catch {
-                print("· Using current binary path: \(currentExecutable)")
-            }
-        }
-        let binaryPath = FileManager.default.fileExists(atPath: targetCLI) ? targetCLI : currentExecutable
-
-
-        // Read existing settings or start fresh
-        var settings: [String: Any]
-        if let data = try? Data(contentsOf: settingsURL),
-           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            settings = parsed
-        } else {
+        let settings: [String: Any]
+        switch ClaudeIntegrationInstaller.readSettings(from: settingsURL) {
+        case .missing:
             settings = [:]
+        case .parsed(let existing):
+            settings = existing
+        case .unreadable(let reason):
+            // The file exists and holds real configuration we simply could not parse.
+            // Writing now would replace all of it with Flightdeck's keys alone.
+            fputs("Refusing to modify \(settingsURL.path): \(reason)\n", stderr)
+            exit(1)
         }
 
-        var changed = false
+        let baseline = ClaudeIntegrationInstaller.currentBytes(of: settingsURL)
+        let change = ClaudeIntegrationInstaller.applyInstall(to: settings, binaryPath: binaryPath)
 
-        // 1. Add statusline if not present
-        if settings["statusLine"] == nil {
-            settings["statusLine"] = [
-                "type": "command",
-                "command": "\(binaryPath) statusline",
-                "padding": 0,
-            ] as [String: Any]
-            changed = true
-            print("✓ Added statusline → \(binaryPath) statusline")
-        } else {
-            print("· statusline already configured — skipping")
+        for note in change.notes { print("· \(note)") }
+
+        guard change.didChange else {
+            print("\nNothing to update — Flightdeck is already installed.")
+            exit(0)
         }
 
-        // 2. Add hooks if not present
-        var hooks = settings["hooks"] as? [String: Any] ?? [:]
-        let hookTypes: [(event: String, desc: String)] = [
-            ("PostToolUse", "Flightdeck: track tool use in activity feed"),
-            ("SessionStart", "Flightdeck: record session start"),
-            ("Stop", "Flightdeck: record session stop / cost update"),
-        ]
-
-        for hookType in hookTypes {
-            var eventHooks = hooks[hookType.event] as? [[String: Any]] ?? []
-
-            // Check if Flightdeck hook already exists
-            let alreadyInstalled = eventHooks.contains { entry in
-                guard let entryHooks = entry["hooks"] as? [[String: Any]] else { return false }
-                return entryHooks.contains { ($0["command"] as? String)?.contains("flightdeck") == true
-                    || ($0["command"] as? String)?.contains("Flightdeck") == true }
+        do {
+            let backup = try ClaudeIntegrationInstaller.write(
+                change.settings, to: settingsURL, expecting: baseline
+            )
+            if let backup {
+                print("\nBacked up your previous settings → \(backup.path)")
             }
-
-            if !alreadyInstalled {
-                let hookEntry: [String: Any] = [
-                    "matcher": "*",
-                    "hooks": [[
-                        "type": "command",
-                        "command": "\(binaryPath) hook \(hookType.event.lowercased())",
-                        "async": true,
-                        "timeout": 5,
-                    ] as [String: Any]],
-                    "description": hookType.desc,
-                ]
-                eventHooks.append(hookEntry)
-                hooks[hookType.event] = eventHooks
-                changed = true
-                print("✓ Added \(hookType.event) hook")
-            } else {
-                print("· \(hookType.event) hook already installed — skipping")
-            }
+            print("Settings written to \(settingsURL.path)")
+        } catch {
+            fputs("Failed to write settings: \(error)\n", stderr)
+            exit(1)
         }
-
-        if changed {
-            settings["hooks"] = hooks
-            do {
-                let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
-                try data.write(to: settingsURL, options: .atomic)
-                print("\n✓ Settings written to \(settingsURL.path)")
-            } catch {
-                fputs("✗ Failed to write settings: \(error)\n", stderr)
-                exit(1)
-            }
-        } else {
-            print("\n· Nothing to update — Flightdeck hooks already installed.")
-        }
-
         exit(0)
     }
 

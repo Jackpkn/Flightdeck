@@ -8,6 +8,8 @@ struct MenuBarPanel: View {
     @Environment(\.openWindow) private var openWindow
 
     let store: DashboardStore
+    let usage: ClaudeUsageMonitor
+    let alerts: AlertNotifier
     let watcher: ActivityWatcher
     let monitor: ProcessMonitor
     let portScanner: PortScanner
@@ -49,7 +51,20 @@ struct MenuBarPanel: View {
             // System & Dev Telemetry (Fixed slots — zero layout jumping)
             VStack(spacing: 8) {
                 row(label: "24H SPEND", value: Formatters.usd(store.last24hSpend), color: Theme.ink1)
-                row(label: "BURN RATE", value: Formatters.usd(store.burnRatePerMin) + "/min", color: Theme.warning)
+                row(
+                    label: "TODAY",
+                    value: (store.todaySpendIsExact ? "" : "≤ ") + Formatters.usd(store.todaySpend),
+                    color: Theme.warning
+                )
+                // The plan window closest to its ceiling — the limit that bites first.
+                if let headline = usage.snapshot?.headline(now: usage.tick) {
+                    row(
+                        label: headline.label,
+                        value: "\(headline.percent)% · \(Formatters.countdown(headline.timeUntilReset(now: usage.tick)))",
+                        color: headline.effectiveSeverity == .critical ? Theme.critical
+                             : headline.effectiveSeverity == .warning ? Theme.warning : Theme.good
+                    )
+                }
                 row(
                     label: "SYSTEM CPU",
                     value: String(format: "%.0f%%", monitor.cpuHistory.last ?? 0),
@@ -202,6 +217,11 @@ struct MenuBarPanel: View {
                     launchAtLogin ? "Disable Launch at Login" : "Launch at Login",
                     icon: launchAtLogin ? "checkmark.circle" : "circle",
                     action: toggleLaunchAtLogin
+                )
+                menuButton(
+                    alerts.isEnabled ? "Disable Alerts" : "Enable Alerts",
+                    icon: alerts.isEnabled ? "bell.fill" : "bell.slash",
+                    action: { alerts.isEnabled.toggle() }
                 )
                 menuButton("Quit Flightdeck", icon: "power") { NSApp.terminate(nil) }
             }

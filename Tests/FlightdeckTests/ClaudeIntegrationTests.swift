@@ -35,26 +35,39 @@ struct ClaudeIntegrationTests {
     }
 
 
-    @Test("SessionAgg merges live total cost and preserves max value")
+    /// Every cost source Claude Code exposes is a running total for the whole
+    /// session, so they reconcile with `max`. This test previously asserted the
+    /// ledger was *summed*, which multiplied a session's cost by the number of
+    /// `cost-state` checkpoints it wrote.
+    @Test("SessionAgg reconciles cumulative cost sources without summing them")
     func sessionAggCostMerging() {
         var agg = SessionAgg(id: "sess-1", project: "Flightdeck")
         #expect(agg.totalCost == 0.0)
 
-        // Add some ledger turns
+        // Two checkpoints from one session: the second supersedes the first.
         let now = Date()
-        agg.costLedger = [
-            (now.addingTimeInterval(-100), 0.05),
-            (now.addingTimeInterval(-50), 0.10)
-        ]
-        #expect(abs(agg.totalCost - 0.15) < 0.0001)
+        agg.costLedger.record(0.05, at: now.addingTimeInterval(-100))
+        agg.costLedger.record(0.10, at: now.addingTimeInterval(-50))
+        #expect(abs(agg.totalCost - 0.10) < 0.0001)
 
-        // Live statusline reports cumulative cost higher than ledger
+        // Live statusline reports a higher running total — it wins.
         agg.liveTotalCost = 0.25
         #expect(agg.totalCost == 0.25)
 
-        // If live cost is lower (e.g. older), ledger sum takes precedence
-        agg.liveTotalCost = 0.10
-        #expect(abs(agg.totalCost - 0.15) < 0.0001)
+        // A stale, lower live figure must not walk the displayed total backwards.
+        agg.liveTotalCost = 0.02
+        #expect(abs(agg.totalCost - 0.10) < 0.0001)
+    }
+
+    /// The exact shape seen on disk: Claude Code rewrote the same running total
+    /// twice for one session. Summing turned $33.14 into $66.29.
+    @Test("Repeated cost checkpoints report the session's real cost")
+    func repeatedCheckpointsDoNotInflate() {
+        var agg = SessionAgg(id: "1e56dddf", project: "Flightdeck")
+        let now = Date()
+        agg.costLedger.record(33.14324060000002, at: now.addingTimeInterval(-200))
+        agg.costLedger.record(33.14324060000002, at: now.addingTimeInterval(-100))
+        #expect(abs(agg.totalCost - 33.14324060000002) < 0.0000001)
     }
 
     @Test("ActivityDatabase upserts and fetches live session records with dynamic context total")
@@ -176,7 +189,10 @@ struct ClaudeIntegrationTests {
         agg.cacheReadTokens = 9000
         agg.cacheCreationTokens = 4000
 
-        #expect(agg.totalTokens == 14700)
+        // 1000 + 500 + 9000 + 4000. The 200 thinking tokens are NOT added: the API
+        // reports them inside `output_tokens_details`, so they are already counted
+        // within `outputTokens`. The old expectation of 14700 double-counted them.
+        #expect(agg.totalTokens == 14500)
         // Cache hit ratio = 9000 / (9000 + 1000) = 0.90 (90%)
         #expect(abs(agg.cacheHitRatio - 0.90) < 0.001)
 
@@ -185,7 +201,8 @@ struct ClaudeIntegrationTests {
         modelSummary.outputTokens = 100
         modelSummary.thinkingTokens = 50
         modelSummary.costUSD = 0.12
-        #expect(modelSummary.totalTokens == 650)
+        // 500 + 100, with the 50 thinking tokens already inside the output figure.
+        #expect(modelSummary.totalTokens == 600)
         agg.modelUsages["claude-sonnet-5"] = modelSummary
 
         #expect(agg.modelUsages["claude-sonnet-5"]?.costUSD == 0.12)
