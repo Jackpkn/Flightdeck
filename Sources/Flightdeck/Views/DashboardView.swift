@@ -103,6 +103,7 @@ struct DashboardView: View {
     @Environment(AlertNotifier.self) private var alertNotifier
     @State private var showGraph = false
     @State private var showPalette = false
+    @State private var showOnboarding = !OnboardingSheet.hasBeenSeen
     @State private var tab: Tab = .cockpit
     private final class FrameBox {
         var map: [String: CGRect] = [:]
@@ -177,6 +178,12 @@ struct DashboardView: View {
             }
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.8), value: actions.banner?.id)
+        // Shown once on first launch: what the app reads, whether to connect live
+        // telemetry, and where things are. Without it a new user judges Flightdeck
+        // in its transcripts-only mode without knowing that is what they are seeing.
+        .sheet(isPresented: $showOnboarding) {
+            OnboardingSheet()
+        }
     }
 
     private var dashboard: some View {
