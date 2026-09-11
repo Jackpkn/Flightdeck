@@ -1,0 +1,616 @@
+<title>Flightdeck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+  /* Tokens lifted from the app's own Theme.swift so the page reads as the product.
+     Committed dark: Flightdeck is an instrument panel: a light rendering would
+     misrepresent it. Every colour is painted explicitly from a token. */
+  :root {
+    color-scheme: dark;
+
+    --ground:   #0a0a0f;
+    --panel:    #0c0c12;
+    --surface:  #12121a;
+    --track:    #1c1c26;
+    --hairline: rgba(255,255,255,0.08);
+    --hairline2:rgba(255,255,255,0.05);
+
+    --ink1: #f0f2f5;
+    --ink2: #9aa3ad;
+    --ink3: #5c6570;
+
+    --accent:   #00f0ff;  /* live / brand */
+    --sky:      #38bdf8;  /* claude code surfaces */
+    --cost:     #ffb800;  /* strictly cost & budget */
+    --good:     #10b981;  /* strictly nominal / survived */
+    --critical: #ff3b3b;  /* strictly problem / dropped */
+
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+    --edge: clamp(20px, 5vw, 40px);
+    --col: 1080px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink1);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: var(--col);
+    margin: 0 auto;
+    padding: 0 var(--edge);
+  }
+
+  /* ---- shared type roles ---- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink3);
+    margin: 0;
+  }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  h1, h2, h3 { text-wrap: balance; margin: 0; }
+  h1 {
+    font-size: clamp(34px, 5.4vw, 60px);
+    font-weight: 800;
+    letter-spacing: -0.033em;
+    line-height: 1.04;
+  }
+  h2 {
+    font-size: clamp(24px, 3.2vw, 33px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.12;
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  p { margin: 0; }
+  .lede { font-size: clamp(16.5px, 1.9vw, 19px); color: var(--ink2); max-width: 62ch; }
+  .body-copy { color: var(--ink2); max-width: 66ch; }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 3px;
+  }
+
+  /* ---- masthead ---- */
+  .masthead {
+    border-bottom: 1px solid var(--hairline);
+    background: var(--panel);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .masthead .wrap {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-height: 54px;
+    flex-wrap: wrap;
+  }
+  .wordmark {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.13em;
+    color: var(--ink1);
+  }
+  .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2.4s ease-in-out infinite;
+    flex: none;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .masthead-meta {
+    margin-left: auto;
+    display: flex;
+    gap: 18px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    color: var(--ink3);
+    text-transform: uppercase;
+  }
+  .masthead-meta span { white-space: nowrap; }
+
+  /* ---- hero ---- */
+  .hero { padding: clamp(52px, 9vw, 92px) 0 clamp(38px, 6vw, 60px); }
+  .hero-grid { display: grid; gap: 26px; }
+  .hero h1 { max-width: 20ch; }
+  .hero h1 .built { color: var(--good); }
+  .hero-sub { display: grid; gap: 14px; }
+
+  .install {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+  }
+  .btn {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ground);
+    background: var(--accent);
+    border: 0;
+    padding: 12px 20px;
+    border-radius: 4px;
+    text-decoration: none;
+    display: inline-block;
+  }
+  .btn:hover { background: #5ff6ff; }
+  .cmd {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink2);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    padding: 11px 14px;
+    overflow-x: auto;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  .cmd b { color: var(--ink1); font-weight: 500; }
+
+  /* ---- sections ---- */
+  section { padding: clamp(46px, 7vw, 76px) 0; border-top: 1px solid var(--hairline2); }
+  .sec-head { display: grid; gap: 12px; margin-bottom: 32px; }
+
+  /* ---- the instrument panel (centrepiece) ---- */
+  .readout {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .readout-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--hairline);
+    background: linear-gradient(180deg, rgba(56,189,248,0.06), transparent);
+    flex-wrap: wrap;
+  }
+  .readout-bar .sid {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink1);
+    font-weight: 500;
+  }
+  .readout-bar .proj {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink3);
+  }
+  .sample {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink3);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    padding: 3px 7px;
+  }
+
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .tile:nth-child(3n) { border-right: none; }
+  @media (max-width: 720px) {
+    .tiles { grid-template-columns: repeat(2, 1fr); }
+    .tile:nth-child(3n) { border-right: 1px solid var(--hairline2); }
+    .tile:nth-child(2n) { border-right: none; }
+  }
+  @media (max-width: 430px) {
+    .tiles { grid-template-columns: 1fr; }
+    .tile { border-right: none !important; }
+  }
+  .tile {
+    padding: 18px;
+    border-right: 1px solid var(--hairline2);
+    border-bottom: 1px solid var(--hairline2);
+    display: grid;
+    gap: 5px;
+    align-content: start;
+  }
+  .tile .v {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(21px, 2.7vw, 27px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  .tile .v.cost { color: var(--cost); }
+  .tile .v.good { color: var(--good); }
+  .tile .v.plain { color: var(--ink1); }
+  .tile .sub { font-family: var(--mono); font-size: 10.5px; color: var(--ink3); }
+  .marked { color: var(--ink2); font-weight: 500; }
+
+  /* survival bar drawn to a real scale: 55 files total */
+  .survival { padding: 18px; border-bottom: 1px solid var(--hairline2); display: grid; gap: 9px; }
+  .survival-track {
+    display: flex;
+    height: 14px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--track);
+  }
+  .survival-track i { display: block; height: 100%; }
+  .seg-head { background: var(--good); width: 96.36%; }        /* 53 of 55 in HEAD */
+  .seg-dropped { background: var(--critical); width: 3.64%; }  /*  2 of 55 not in HEAD */
+  .legend {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink2);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+
+  .footnote {
+    padding: 14px 18px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.7;
+    color: var(--ink3);
+  }
+  .footnote code { color: var(--ink2); }
+
+  /* ---- honesty rail ---- */
+  .rail { display: grid; gap: 1px; background: var(--hairline2); border: 1px solid var(--hairline); border-radius: 8px; overflow: hidden; }
+  .rail-row {
+    background: var(--panel);
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    gap: 18px;
+    align-items: baseline;
+  }
+  .rail-mark {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink1);
+  }
+  .rail-mark.stale {
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    color: var(--cost);
+    border: 1px solid rgba(255,184,0,0.4);
+    background: rgba(255,184,0,0.1);
+    border-radius: 3px;
+    padding: 3px 6px;
+    display: inline-block;
+    text-transform: uppercase;
+  }
+  .rail-mark.removed { font-size: 11px; letter-spacing: 0.08em; color: var(--ink3); text-transform: uppercase; }
+  .rail-row p { font-size: 14.5px; color: var(--ink2); }
+  .rail-row p b { color: var(--ink1); font-weight: 600; }
+
+  /* ---- decks ---- */
+  .decks { display: grid; gap: 18px; grid-template-columns: repeat(2, 1fr); }
+  .deck.lead { grid-column: 1 / -1; }
+  .deck.lead ul { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+  @media (max-width: 640px) {
+    .decks { grid-template-columns: 1fr; }
+    .deck.lead { grid-column: auto; }
+  }
+  .deck {
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 20px;
+    background: var(--surface);
+    display: grid;
+    gap: 10px;
+    align-content: start;
+  }
+  .deck .key {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--ink3);
+    text-transform: uppercase;
+  }
+  .deck ul { margin: 0; padding-left: 17px; display: grid; gap: 6px; }
+  .deck li { font-size: 14px; color: var(--ink2); }
+  .deck li b { color: var(--ink1); font-weight: 500; }
+
+  /* ---- privacy ---- */
+  .privacy { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .paths {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 2;
+    color: var(--ink2);
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 16px 18px;
+    overflow-x: auto;
+  }
+  .paths .w { color: var(--cost); }
+  .paths .r { color: var(--ink3); }
+
+  /* ---- footer ---- */
+  footer { border-top: 1px solid var(--hairline); padding: 30px 0 46px; }
+  footer .wrap { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
+  footer p { font-family: var(--mono); font-size: 11px; color: var(--ink3); letter-spacing: 0.05em; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dot { animation: none; }
+    * { transition: none !important; }
+  }
+</style>
+
+<header class="masthead">
+  <div class="wrap">
+    <div class="wordmark"><i class="dot"></i>FLIGHTDECK</div>
+    <div class="masthead-meta">
+      <span>macOS 14+</span>
+      <span>Apple silicon &amp; Intel</span>
+      <span>MIT</span>
+      <span>239 tests</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="hero wrap">
+    <div class="hero-grid">
+      <p class="eyebrow">Activity monitor &middot; AI spend cockpit &middot; macOS</p>
+      <h1>You already know what Claude Code cost. Flightdeck shows what it <span class="built">became</span>.</h1>
+      <div class="hero-sub">
+        <p class="lede">
+          A usage meter stops at the invoice. Flightdeck reads your Claude&nbsp;Code transcripts
+          <em>and</em> the git history of the repo they touched, so it can tell you how much of
+          what the agent wrote is still in <code class="num">HEAD</code> &mdash; and what each surviving
+          file actually cost.
+        </p>
+        <p class="lede">
+          It is also a full system monitor: CPU and memory straight from the Mach kernel, every
+          listening port, what is draining the battery, and where the disk went. One app for the
+          machine and the bill.
+        </p>
+      </div>
+      <div class="install">
+        <a class="btn" href="https://github.com/Jackpkn/Flightdeck/releases">Download for macOS</a>
+        <div class="cmd">git clone <b>github.com/Jackpkn/Flightdeck</b> &amp;&amp; ./scripts/run-app.sh</div>
+      </div>
+    </div>
+  </div>
+
+  <section class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Deck 02 &middot; Claude Code &rarr; Insights</p>
+      <h2>Cost per outcome, measured against your actual repository.</h2>
+      <p class="body-copy">
+        Flightdeck matches every file a session wrote against <code class="num">git</code>: still in
+        <code class="num">HEAD</code>, written but never committed, or gone. Then it divides the
+        session's real spend by what survived. No cloud dashboard can compute this, because the
+        answer lives in your working tree.
+      </p>
+    </div>
+
+    <div class="readout">
+      <div class="readout-bar">
+        <span class="sid">41d7a11b</span>
+        <span class="proj">~/Projects/Flightdeck</span>
+        <span class="sample">One real session &middot; author's machine</span>
+      </div>
+
+      <div class="tiles">
+        <div class="tile">
+          <p class="eyebrow">Session spend</p>
+          <p class="v cost num">$72.96</p>
+          <p class="sub">exact &middot; from cost-state</p>
+        </div>
+        <div class="tile">
+          <p class="eyebrow">Code survival</p>
+          <p class="v good num">96%</p>
+          <p class="sub">53 of 55 files live on</p>
+        </div>
+        <div class="tile">
+          <p class="eyebrow">Per surviving file</p>
+          <p class="v plain num">$2.3518</p>
+          <p class="sub">53 files kept</p>
+        </div>
+        <div class="tile">
+          <p class="eyebrow">Per commit</p>
+          <p class="v plain num">$4.0208</p>
+          <p class="sub">commits touching these paths</p>
+        </div>
+        <div class="tile">
+          <p class="eyebrow">Reported before the fix</p>
+          <p class="v num" style="color:var(--critical)">$145.93</p>
+          <p class="sub">exactly 2&times; &mdash; snapshots summed as deltas</p>
+        </div>
+        <div class="tile">
+          <p class="eyebrow">Weekly plan limit</p>
+          <p class="v plain num">3%</p>
+          <p class="sub marked">reading 5 days old</p>
+        </div>
+      </div>
+
+      <div class="survival">
+        <p class="eyebrow">Where the 55 files went</p>
+        <div class="survival-track" role="img" aria-label="Of 55 files written, 53 are in HEAD and 2 are not">
+          <i class="seg-head"></i><i class="seg-dropped"></i>
+        </div>
+        <div class="legend">
+          <span><i style="background:var(--good)"></i>53 still in HEAD</span>
+          <span><i style="background:var(--critical)"></i>2 no longer there</span>
+        </div>
+      </div>
+
+      <p class="footnote">
+        Figures from one session on the author's Mac, shown to demonstrate the readout &mdash; not a
+        promise about yours. The <code>$145.93</code> is what an earlier build of this app
+        displayed for the same session: Claude&nbsp;Code writes cumulative cost snapshots, and
+        summing them as if they were per-turn deltas doubles the total. The plan limit carries a
+        badge because Claude&nbsp;Code only refreshes that cache while a session runs.
+      </p>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">The part that took the longest</p>
+      <h2>Nothing in this app is a plausible-looking guess.</h2>
+      <p class="body-copy">
+        Monitoring tools quietly invent numbers: a burn rate extrapolated from two samples, a
+        context gauge pinned to a window size it assumed. Flightdeck marks anything it cannot
+        attribute exactly, and deletes what it cannot measure honestly at all.
+      </p>
+    </div>
+
+    <div class="rail">
+      <div class="rail-row">
+        <span class="rail-mark num">&le;</span>
+        <p><b>At most this much.</b> A windowed spend whose baseline snapshot predates the window
+          &mdash; the true figure is somewhere below the mark, and the app says so rather than rounding
+          into a claim.</p>
+      </div>
+      <div class="rail-row">
+        <span class="rail-mark num">&ge;</span>
+        <p><b>At least this much.</b> A total that includes a model with no published price. Real
+          cost is higher by an unknown amount, so the number is shown as a floor.</p>
+      </div>
+      <div class="rail-row">
+        <span class="rail-mark stale">5d old</span>
+        <p><b>Measured, but not now.</b> Plan-limit percentages come from Claude Code's own cache,
+          refreshed only while a session runs. A five-day-old reading describes last week &mdash; it gets
+          a badge, and it never triggers an alert.</p>
+      </div>
+      <div class="rail-row">
+        <span class="rail-mark removed">Removed</span>
+        <p><b>Burn rate, and three others.</b> They could not be computed from what is on disk
+          without inventing the inputs, so they are gone instead of decorative.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Five decks &middot; &#8984;1 &ndash; &#8984;5</p>
+      <h2>The machine and the bill, in one window.</h2>
+    </div>
+    <div class="decks">
+      <div class="deck lead">
+        <p class="key">&#8984;1 &middot; Cockpit</p>
+        <h3>Everything at a glance</h3>
+        <ul>
+          <li><b>Live vitals</b> and today's spend on one screen</li>
+          <li><b>Alerts</b> before a plan limit, budget or context ceiling bites</li>
+          <li><b>Command palette</b> on &#8984;K</li>
+        </ul>
+      </div>
+      <div class="deck">
+        <p class="key">&#8984;2 &middot; Claude Code</p>
+        <h3>Sessions, insights, MCP</h3>
+        <ul>
+          <li><b>Waste report</b> &mdash; sessions that cost money and changed no code, billed tool calls that failed</li>
+          <li><b>Churn hotspots</b> &mdash; files the agent keeps rewriting, usually a missing <code class="num">CLAUDE.md</code> rule</li>
+          <li><b>Session forensics</b> &mdash; full turns, tool timeline, per-model tokens, one-click resume</li>
+          <li><b>Plan limits</b> with reset countdowns</li>
+        </ul>
+      </div>
+      <div class="deck">
+        <p class="key">&#8984;3 &middot; System</p>
+        <h3>Kernel-level, not estimated</h3>
+        <ul>
+          <li><b>Mach</b> <code class="num">HOST_CPU_LOAD_INFO</code> across P and E cores</li>
+          <li><b>Real memory</b> &mdash; active, wired, compressed</li>
+          <li><b>Process control</b> with a POSIX kill fallback for unbundled CLI tools</li>
+          <li><b>Open ports</b> and what is listening on them</li>
+        </ul>
+      </div>
+      <div class="deck">
+        <p class="key">&#8984;4 &middot; Storage</p>
+        <h3>Where the disk went</h3>
+        <ul>
+          <li><b>Disk radar</b> &mdash; largest files, by type, by subtree</li>
+          <li><b>Duplicate hunter</b> with content hashing</li>
+          <li><b>Deep uninstaller</b> that finds the leftovers too</li>
+          <li><b>Build cruft</b> &mdash; reclaimable dev caches</li>
+        </ul>
+      </div>
+      <div class="deck">
+        <p class="key">&#8984;5 &middot; Spend</p>
+        <h3>Budget guardrails</h3>
+        <ul>
+          <li><b>Daily budget</b> with a live bar and a notification before you cross it</li>
+          <li><b>Per-project and per-model</b> breakdowns</li>
+          <li><b>Exact fractional cost</b> &mdash; no rounding into a wrong total</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Privacy</p>
+      <h2>Everything stays on this Mac.</h2>
+      <p class="body-copy">
+        No account, no telemetry, no network calls of its own. Flightdeck reads local files and
+        runs <code class="num">git</code> in your repositories. It writes exactly one file, and
+        backs it up first.
+      </p>
+    </div>
+    <div class="privacy">
+      <div class="paths">
+        <span class="r">read</span>  ~/.claude/projects/**/*.jsonl<br>
+        <span class="r">read</span>  ~/.claude.json<br>
+        <span class="r">read</span>  git history of repos a session touched<br>
+        <span class="w">write</span> ~/.claude/settings.json <span class="r">&larr; backed up first</span>
+      </div>
+      <div>
+        <p class="body-copy">
+          The optional statusline and hooks are what let Flightdeck see live context and tool
+          activity. Connecting them is a single confirmed write to
+          <code class="num">settings.json</code>, shown to you beforehand, taken with a backup and
+          an optimistic-concurrency check so a hand edit is never clobbered. Decline it and the app
+          still works from transcripts alone.
+        </p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="wordmark"><i class="dot"></i>FLIGHTDECK</div>
+    <p>MIT licensed &middot; Swift &amp; SwiftUI &middot; <a href="https://github.com/Jackpkn/Flightdeck">github.com/Jackpkn/Flightdeck</a></p>
+  </div>
+</footer>
