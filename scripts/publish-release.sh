@@ -76,6 +76,42 @@ else
     --description "Downloads for Flightdeck — the macOS activity monitor and Claude Code cockpit."
 fi
 
+# A release needs a commit to hang its tag on, and `gh repo create` leaves the
+# repository empty. Seed it with a README the first time only.
+BRANCHES="$(gh api "repos/$RELEASE_REPO/branches" --jq 'length' 2>/dev/null || echo 0)"
+if [ -z "$DRY_RUN" ] && [ "$BRANCHES" = "0" ]; then
+  echo "==> Seeding $RELEASE_REPO with a README (empty repos cannot be tagged)"
+  SEED="$(mktemp -d)"
+  {
+    echo "# Flightdeck — downloads"
+    echo
+    echo "Binaries for [Flightdeck](https://github.com/Jackpkn/Flightdeck), a macOS activity"
+    echo "monitor and Claude Code cockpit. The source lives in a private repository; this one"
+    echo "exists because GitHub release assets inherit their repository's visibility, and a"
+    echo "download link has to work without a token."
+    echo
+    echo "**[Download the latest release]($([ -n "$RELEASE_REPO" ] && echo "https://github.com/$RELEASE_REPO/releases/latest"))**"
+    echo
+    echo "## Install"
+    echo
+    echo "1. Open the DMG and drag Flightdeck to Applications."
+    echo "2. On first launch, right-click the app and choose **Open**."
+    echo
+    echo "Step 2 is needed until the app is notarised with an Apple Developer certificate."
+    echo "macOS will say it cannot verify the developer; right-click → Open gives you a way"
+    echo "through, where double-clicking does not."
+    echo
+    echo "Requires macOS 14 or later. Universal: Apple silicon and Intel."
+  } > "$SEED/README.md"
+  git -C "$SEED" init -q
+  git -C "$SEED" add README.md
+  git -C "$SEED" commit -q -m "docs: explain what this repository is and how to install"
+  git -C "$SEED" branch -M main
+  git -C "$SEED" remote add origin "https://github.com/$RELEASE_REPO.git"
+  git -C "$SEED" push -q origin main
+  rm -rf "$SEED"
+fi
+
 # ── the release ─────────────────────────────────────────────────────────────
 NOTES="$(cat <<EOF
 Flightdeck $TAG — universal ($ARCHS), $SIZE.
