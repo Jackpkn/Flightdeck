@@ -3,7 +3,7 @@
 
 [build]
   base = "site"
-  publish = "site/.next"
+  publish = ".next"
   command = "npm run build"
 
 [[plugins]]
