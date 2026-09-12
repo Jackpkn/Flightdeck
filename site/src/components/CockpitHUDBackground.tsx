@@ -18,42 +18,41 @@ export default function CockpitHUDBackground() {
   }, []);
 
   return (
-    <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden select-none flex items-center justify-center">
+    <div className="absolute inset-0 pointer-events-none overflow-hidden select-none flex items-center justify-center pt-16 md:pt-24">
       {/* 1. Deep Atmospheric Stratosphere Wash */}
       <div
-        className="absolute w-[140vw] min-w-[1400px] h-[95vh] rounded-full opacity-60"
+        className="absolute w-[1200px] h-[700px] rounded-full opacity-50"
         style={{
           background:
             "radial-gradient(ellipse at 50% 45%, #0b2259 0%, #030b1e 55%, transparent 75%)",
-          filter: "blur(110px)",
+          filter: "blur(90px)",
         }}
       />
 
       {/* 2. Core Coral Neon Reactor Underglow */}
       <div
-        className="absolute w-[80vw] min-w-[900px] h-[55vh] rounded-full opacity-40"
+        className="absolute w-[650px] h-[380px] rounded-full opacity-35"
         style={{
           background:
             "radial-gradient(ellipse at center, #ff6363 0%, #a81c2e 40%, transparent 70%)",
-          filter: "blur(95px)",
+          filter: "blur(80px)",
           transform: `translate(${mousePos.x * 0.5}px, ${mousePos.y * 0.5}px)`,
           transition: "transform 0.2s ease-out",
         }}
       />
 
-      {/* 3. Parallax HUD Avionics Geometry (100% Full Width Edge-to-Edge) */}
+      {/* 3. Parallax HUD Avionics Geometry (Contained HUD Viewport) */}
       <div
-        className="absolute inset-0 w-full h-full flex items-center justify-center transition-transform duration-300 ease-out"
+        className="relative w-full max-w-[1500px] h-[800px] flex items-center justify-center transition-transform duration-300 ease-out"
         style={{
           transform: `translate(${mousePos.x}px, ${mousePos.y}px)`,
         }}
       >
         <svg
           viewBox="0 0 1400 750"
-          preserveAspectRatio="xMidYMid slice"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
-          className="w-full h-full opacity-85"
+          className="w-full h-full opacity-75"
         >
           <defs>
             {/* Coral Laser Core Gradient */}
@@ -234,7 +233,7 @@ export default function CockpitHUDBackground() {
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(ellipse at 50% 50%, transparent 60%, rgba(4,5,6,0.3) 85%, rgba(4,5,6,0.7) 100%)",
+            "radial-gradient(ellipse at 50% 50%, transparent 35%, #040506 75%)",
         }}
       />
     </div>

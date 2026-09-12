@@ -18,41 +18,40 @@ export default function StorageHUDBackground() {
   }, []);
 
   return (
-    <div className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden select-none flex items-center justify-center">
-      {/* 1. Deep Emerald Stratosphere Wash (100% Full Width Edge-to-Edge) */}
+    <div className="absolute inset-0 pointer-events-none overflow-hidden select-none flex items-center justify-center pt-16 md:pt-24">
+      {/* 1. Deep Emerald Stratosphere Wash */}
       <div
-        className="absolute w-[140vw] min-w-[1400px] h-[95vh] rounded-full opacity-55"
+        className="absolute w-[1250px] h-[750px] rounded-full opacity-45"
         style={{
           background:
-            "radial-gradient(ellipse at 50% 45%, #064e3b 0%, #022c22 50%, transparent 75%)",
-          filter: "blur(110px)",
+            "radial-gradient(ellipse at 50% 35%, #064e3b 0%, #022c22 50%, transparent 75%)",
+          filter: "blur(95px)",
         }}
       />
 
       <div
-        className="absolute w-[80vw] min-w-[900px] h-[55vh] rounded-full opacity-40"
+        className="absolute w-[700px] h-[400px] rounded-full opacity-35"
         style={{
           background:
             "radial-gradient(ellipse at center, #10b981 0%, #59d499 40%, transparent 70%)",
-          filter: "blur(95px)",
+          filter: "blur(85px)",
           transform: `translate(${mousePos.x * 0.4}px, ${mousePos.y * 0.4}px)`,
           transition: "transform 0.2s ease-out",
         }}
       />
 
-      {/* 2. Parallax APFS Sector Radar Geometry (100% Full Width Edge-to-Edge) */}
+      {/* 2. Parallax APFS Sector Radar Geometry */}
       <div
-        className="absolute inset-0 w-full h-full flex items-center justify-center transition-transform duration-300 ease-out"
+        className="relative w-full max-w-[1500px] h-[750px] flex items-center justify-center transition-transform duration-300 ease-out"
         style={{
           transform: `translate(${mousePos.x}px, ${mousePos.y}px)`,
         }}
       >
         <svg
           viewBox="0 0 1400 650"
-          preserveAspectRatio="xMidYMid slice"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
-          className="w-full h-full opacity-80"
+          className="w-full h-full opacity-75"
         >
           <defs>
             {/* Emerald Radar Laser Gradient */}
@@ -143,7 +142,7 @@ export default function StorageHUDBackground() {
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
-            "radial-gradient(ellipse at 50% 50%, transparent 60%, rgba(4,5,6,0.3) 85%, rgba(4,5,6,0.7) 100%)",
+            "radial-gradient(ellipse at 50% 50%, transparent 40%, #040506 80%)",
         }}
       />
 
