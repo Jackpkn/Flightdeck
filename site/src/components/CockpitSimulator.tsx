@@ -3,26 +3,21 @@
 import React, { useState, useEffect } from "react";
 import {
   Activity,
-  Terminal,
   Cpu,
   HardDrive,
   DollarSign,
   AlertCircle,
   CheckCircle2,
-  Trash2,
+
   Play,
   Pause,
   Sparkles,
   RotateCcw,
   Zap,
-  Layers,
-  ArrowUpRight,
-  Database,
-  Radio,
+
   FileCode,
   Flame,
   Clock,
-  Filter,
 } from "lucide-react";
 
 type DeckTab = "claude" | "telemetry" | "process" | "storage" | "waste";
@@ -183,38 +178,8 @@ export default function CockpitSimulator() {
       onMouseLeave={handleMouseLeave}
       className="relative max-w-[1240px] mx-auto px-4 sm:px-6 py-20 md:py-28 overflow-hidden"
     >
-      {/* ── Background Cyberpunk Radar Grid & Atmospheric Rings (Living & Visible) ── */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden select-none">
-        {/* Active Expanding Radar Wave Pulse */}
-        <div className="absolute top-1/2 left-1/2 w-[980px] h-[980px] rounded-full border border-[#ff6363]/30 animate-radar-pulse-ring" />
-
-        {/* Crisp Concentric Telemetry Circles */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[850px] h-[850px] rounded-full border border-dashed border-[#363739]/60" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full border border-[#363739]/50" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[380px] h-[380px] rounded-full border border-[#ff6363]/25" />
-
-        {/* Rotating Radar Crosshair Sweep Line */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[720px] h-[720px] rounded-full animate-[spin_24s_linear_infinite]">
-          <div className="w-full h-full border border-dotted border-white/15 rounded-full" />
-          <div className="absolute top-1/2 left-1/2 w-1/2 h-[1px] bg-gradient-to-r from-[#ff6363]/60 via-[#63a1ff]/40 to-transparent origin-left" />
-        </div>
-
-        {/* Ambient atmospheric glow pools with smooth breathing aurora */}
-        <div
-          className="absolute top-1/4 left-1/4 w-[540px] h-[360px] rounded-full opacity-40 animate-aurora-left"
-          style={{
-            background: "radial-gradient(circle, #143ca3 0%, transparent 70%)",
-            filter: "blur(60px)",
-          }}
-        />
-        <div
-          className="absolute bottom-1/4 right-1/4 w-[480px] h-[320px] rounded-full opacity-45 animate-aurora-right"
-          style={{
-            background: "radial-gradient(circle, #ff6363 0%, transparent 70%)",
-            filter: "blur(70px)",
-          }}
-        />
-      </div>
+      {/* Subtle Atmospheric Ambient Glow (clean, elegant, zero clutter) */}
+      <div className="absolute top-12 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-[radial-gradient(ellipse_at_center,rgba(56,189,248,0.08),rgba(255,99,99,0.04),transparent_70%)] pointer-events-none blur-3xl -z-10" />
 
       {/* Eyebrow & Headline */}
       <div className="relative z-10 text-center mb-12">
@@ -259,13 +224,12 @@ export default function CockpitSimulator() {
               {spectrumBars.map((val, i) => (
                 <span
                   key={i}
-                  className={`w-[3px] rounded-full transition-all duration-100 ${
-                    val > 70
+                  className={`w-[3px] rounded-full transition-all duration-100 ${val > 70
                       ? "bg-[#ff6363]"
                       : val > 45
-                      ? "bg-[#56c2ff]"
-                      : "bg-[#363739]"
-                  }`}
+                        ? "bg-[#56c2ff]"
+                        : "bg-[#363739]"
+                    }`}
                   style={{ height: `${val}%` }}
                 />
               ))}
@@ -276,11 +240,10 @@ export default function CockpitSimulator() {
           {/* Interactive Auto-Tour / Showcase Mode Button */}
           <button
             onClick={() => setIsAutoTour(!isAutoTour)}
-            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[12px] font-mono transition-all duration-200 border ${
-              isAutoTour
+            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-[12px] font-mono transition-all duration-200 border ${isAutoTour
                 ? "bg-[#452324] border-[#ff6363] text-white shadow-[0_0_14px_rgba(255,99,99,0.4)]"
                 : "bg-[#111214] border-[#363739] text-[#e6e6e6] hover:bg-white/5 hover:border-white/20"
-            }`}
+              }`}
           >
             {isAutoTour ? (
               <>
@@ -377,11 +340,10 @@ export default function CockpitSimulator() {
             <div className="flex items-center gap-1.5 overflow-x-auto py-1">
               <button
                 onClick={() => handleTabClick("claude")}
-                className={`relative overflow-hidden flex items-center gap-2 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${
-                  activeTab === "claude"
+                className={`relative overflow-hidden flex items-center gap-2 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${activeTab === "claude"
                     ? "bg-[#1b1c1e] text-[#ffffff] shadow-[rgba(255,255,255,0.06)_0px_1px_0px_0px_inset] border border-white/10"
                     : "text-[#9c9c9d] hover:text-[#ffffff] hover:bg-white/5"
-                }`}
+                  }`}
               >
                 {activeTab === "claude" && isAutoTour && (
                   <span
@@ -396,11 +358,10 @@ export default function CockpitSimulator() {
 
               <button
                 onClick={() => handleTabClick("telemetry")}
-                className={`relative overflow-hidden flex items-center gap-2 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${
-                  activeTab === "telemetry"
+                className={`relative overflow-hidden flex items-center gap-2 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${activeTab === "telemetry"
                     ? "bg-[#1b1c1e] text-[#ffffff] shadow-[rgba(255,255,255,0.06)_0px_1px_0px_0px_inset] border border-white/10"
                     : "text-[#9c9c9d] hover:text-[#ffffff] hover:bg-white/5"
-                }`}
+                  }`}
               >
                 {activeTab === "telemetry" && isAutoTour && (
                   <span
@@ -415,11 +376,10 @@ export default function CockpitSimulator() {
 
               <button
                 onClick={() => handleTabClick("process")}
-                className={`relative overflow-hidden flex items-center gap-2 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${
-                  activeTab === "process"
+                className={`relative overflow-hidden flex items-center gap-2 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${activeTab === "process"
                     ? "bg-[#1b1c1e] text-[#ffffff] shadow-[rgba(255,255,255,0.06)_0px_1px_0px_0px_inset] border border-white/10"
                     : "text-[#9c9c9d] hover:text-[#ffffff] hover:bg-white/5"
-                }`}
+                  }`}
               >
                 {activeTab === "process" && isAutoTour && (
                   <span
@@ -434,11 +394,10 @@ export default function CockpitSimulator() {
 
               <button
                 onClick={() => handleTabClick("storage")}
-                className={`relative overflow-hidden flex items-center gap-2 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${
-                  activeTab === "storage"
+                className={`relative overflow-hidden flex items-center gap-2 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${activeTab === "storage"
                     ? "bg-[#1b1c1e] text-[#ffffff] shadow-[rgba(255,255,255,0.06)_0px_1px_0px_0px_inset] border border-white/10"
                     : "text-[#9c9c9d] hover:text-[#ffffff] hover:bg-white/5"
-                }`}
+                  }`}
               >
                 {activeTab === "storage" && isAutoTour && (
                   <span
@@ -453,11 +412,10 @@ export default function CockpitSimulator() {
 
               <button
                 onClick={() => handleTabClick("waste")}
-                className={`relative overflow-hidden flex items-center gap-2 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${
-                  activeTab === "waste"
+                className={`relative overflow-hidden flex items-center gap-2 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${activeTab === "waste"
                     ? "bg-[#1b1c1e] text-[#ffffff] shadow-[rgba(255,255,255,0.06)_0px_1px_0px_0px_inset] border border-white/10"
                     : "text-[#9c9c9d] hover:text-[#ffffff] hover:bg-white/5"
-                }`}
+                  }`}
               >
                 {activeTab === "waste" && isAutoTour && (
                   <span
@@ -494,554 +452,549 @@ export default function CockpitSimulator() {
             </div>
           </div>
 
-        {/* ── Toast Notification Banner ── */}
-        {killToast && (
-          <div className="px-4 py-2.5 bg-[#452324] border-b border-[#ff6363]/40 flex items-center justify-between text-[12px] font-mono text-[#ffffff] animate-in fade-in duration-200">
-            <span className="flex items-center gap-2">
-              <Zap className="w-3.5 h-3.5 text-[#ff6363]" />
-              {killToast}
-            </span>
-            <button
-              onClick={() => setKillToast(null)}
-              className="text-[#9c9c9d] hover:text-white"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+          {/* ── Toast Notification Banner ── */}
+          {killToast && (
+            <div className="px-4 py-2.5 bg-[#452324] border-b border-[#ff6363]/40 flex items-center justify-between text-[12px] font-mono text-[#ffffff] animate-in fade-in duration-200">
+              <span className="flex items-center gap-2">
+                <Zap className="w-3.5 h-3.5 text-[#ff6363]" />
+                {killToast}
+              </span>
+              <button
+                onClick={() => setKillToast(null)}
+                className="text-[#9c9c9d] hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
-        {/* ── Tab Panels ── */}
-        <div className="p-6 bg-[#07080a] min-h-[480px]">
-          {/* TAB 1: CLAUDE CODE FORENSICS */}
-          {activeTab === "claude" && (
-            <div className="space-y-6">
-              {/* Session Meta Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#363739]/60">
-                <div className="flex items-center gap-3">
-                  <span className="px-2 py-0.5 rounded-[4px] bg-[#111214] border border-[#363739] text-[12px] font-mono text-[#ffffff]">
-                    Session 41d7a11b
-                  </span>
-                  <span className="text-[13px] text-[#9c9c9d]">
-                    Claude 3.7 Sonnet &middot; 48 turns &middot; 1h 42m duration
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-[12px] font-mono">
-                  <span className="text-[#6a6b6c]">Checked against git HEAD:</span>
-                  <span className="text-[#59d499] flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> 100% Deterministic
-                  </span>
-                </div>
-              </div>
-
-              {/* Instrument Gauges & Stats Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Dial 1: Code Survival */}
-                <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow flex flex-col justify-between">
-                  <div className="flex items-center justify-between text-[12px] font-medium text-[#9c9c9d]">
-                    <span>Code Survival</span>
-                    <span className="text-[#59d499] text-[11px] font-mono">HEAD match</span>
-                  </div>
-                  <div className="my-3 flex items-baseline gap-3">
-                    <span className="text-[32px] font-medium text-[#ffffff] tracking-tight">
-                      96.4%
+          {/* ── Tab Panels ── */}
+          <div className="p-6 bg-[#07080a] min-h-[480px]">
+            {/* TAB 1: CLAUDE CODE FORENSICS */}
+            {activeTab === "claude" && (
+              <div className="space-y-6">
+                {/* Session Meta Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#363739]/60">
+                  <div className="flex items-center gap-3">
+                    <span className="px-2 py-0.5 rounded-[4px] bg-[#111214] border border-[#363739] text-[12px] font-mono text-[#ffffff]">
+                      Session 41d7a11b
                     </span>
-                    <span className="text-[12px] font-mono text-[#9c9c9d]">
-                      53 of 55 files
+                    <span className="text-[13px] text-[#9c9c9d]">
+                      Claude 3.7 Sonnet &middot; 48 turns &middot; 1h 42m duration
                     </span>
                   </div>
-                  {/* Visual ratio bar */}
-                  <div className="w-full h-1.5 rounded-full bg-[#1b1c1e] overflow-hidden flex">
-                    <div className="h-full bg-[#59d499]" style={{ width: "96.4%" }} />
-                    <div className="h-full bg-[#ff6363]" style={{ width: "3.6%" }} />
-                  </div>
-                </div>
-
-                {/* Dial 2: Weekly Plan Limit */}
-                <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow flex flex-col justify-between">
-                  <div className="flex items-center justify-between text-[12px] font-medium text-[#9c9c9d]">
-                    <span>Weekly Plan Limit</span>
-                    <span className="px-1.5 py-0.5 rounded-[4px] bg-[#1b1c1e] text-[10px] font-mono text-[#9c9c9d] border border-white/5">
-                      5d old cache
-                    </span>
-                  </div>
-                  <div className="my-3 flex items-baseline gap-3">
-                    <span className="text-[32px] font-medium text-[#ffffff] tracking-tight">
-                      3%
-                    </span>
-                    <span className="text-[12px] font-mono text-[#6a6b6c]">
-                      Reset in 2d 14h
-                    </span>
-                  </div>
-                  <div className="w-full h-1.5 rounded-full bg-[#1b1c1e] overflow-hidden">
-                    <div className="h-full bg-[#56c2ff]" style={{ width: "3%" }} />
-                  </div>
-                </div>
-
-                {/* Stat 3: Session Spend */}
-                <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow flex flex-col justify-between">
-                  <div className="text-[12px] font-medium text-[#9c9c9d]">
-                    Total Session Cost
-                  </div>
-                  <div className="my-3">
-                    <span className="text-[32px] font-medium text-[#ffffff] tracking-tight">
-                      $72.96
-                    </span>
-                  </div>
-                  <div className="text-[11px] font-mono text-[#6a6b6c]">
-                    Exact from cost-state (no deltas)
-                  </div>
-                </div>
-
-                {/* Stat 4: Cost Per Surviving File */}
-                <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow flex flex-col justify-between">
-                  <div className="text-[12px] font-medium text-[#9c9c9d]">
-                    Cost Per Surviving File
-                  </div>
-                  <div className="my-3">
-                    <span className="text-[32px] font-medium text-[#ff6363] tracking-tight">
-                      $2.3518
-                    </span>
-                  </div>
-                  <div className="text-[11px] font-mono text-[#6a6b6c]">
-                    $72.96 &divide; 53 surviving files
-                  </div>
-                </div>
-              </div>
-
-              {/* Survival Breakdown & File Matrix */}
-              <div className="p-5 rounded-[12px] bg-[#040506] border border-[#363739]/60 key-shadow">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                  <span className="text-[12px] font-mono text-[#9c9c9d]">
-                    Repository File Fate Matrix (55 files written in session) &middot; Click any file to inspect
-                  </span>
-                  <div className="flex items-center gap-4 text-[11px] font-mono">
-                    <span className="flex items-center gap-1.5 text-[#e6e6e6]">
-                      <span className="w-2.5 h-2.5 rounded-[2px] bg-[#59d499]" />
-                      53 Still in HEAD
-                    </span>
-                    <span className="flex items-center gap-1.5 text-[#ff6363]">
-                      <span className="w-2.5 h-2.5 rounded-[2px] bg-[#ff6363]" />
-                      2 Reverted / Deleted
+                  <div className="flex items-center gap-2 text-[12px] font-mono">
+                    <span className="text-[#6a6b6c]">Checked against git HEAD:</span>
+                    <span className="text-[#59d499] flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> 100% Deterministic
                     </span>
                   </div>
                 </div>
 
-                {/* Tactile File Block Grid */}
-                <div className="grid grid-cols-11 sm:grid-cols-18 md:grid-cols-28 gap-1.5 py-2">
-                  {Array.from({ length: 55 }).map((_, i) => {
-                    const isReverted = i === 14 || i === 38;
-                    const isSelected = selectedFile.id === (i % 7) + 1;
-                    return (
-                      <button
-                        key={i}
-                        onClick={() => {
-                          const file = TRACKED_FILES[i % TRACKED_FILES.length];
-                          setSelectedFile(file);
-                        }}
-                        title={`File #${i + 1}: ${isReverted ? "Reverted" : "Surviving in HEAD"}`}
-                        className={`h-4.5 rounded-[3px] transition-all cursor-pointer ${
-                          isSelected ? "ring-2 ring-white scale-125 z-10" : ""
-                        } ${
-                          isReverted ? "bg-[#ff6363]" : "bg-[#59d499]/80 hover:bg-[#59d499]"
-                        }`}
-                      />
-                    );
-                  })}
-                </div>
-
-                {/* Selected File Detailed Card */}
-                {selectedFile && (
-                  <div className="mt-4 p-3 rounded-[8px] bg-[#111214] border border-[#363739]/80 flex flex-wrap items-center justify-between gap-3 text-[12px] font-mono">
-                    <div className="flex items-center gap-2">
-                      <FileCode className="w-4 h-4 text-[#ff6363]" />
-                      <span className="text-white font-medium">{selectedFile.path}</span>
-                      <span
-                        className={`text-[10px] px-1.5 py-0.5 rounded ${
-                          selectedFile.status === "kept"
-                            ? "bg-[#59d499]/15 text-[#59d499]"
-                            : "bg-[#ff6363]/15 text-[#ff6363]"
-                        }`}
-                      >
-                        {selectedFile.status === "kept" ? "SURVIVING IN HEAD" : "REVERTED / REMOVED"}
+                {/* Instrument Gauges & Stats Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Dial 1: Code Survival */}
+                  <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-[12px] font-medium text-[#9c9c9d]">
+                      <span>Code Survival</span>
+                      <span className="text-[#59d499] text-[11px] font-mono">HEAD match</span>
+                    </div>
+                    <div className="my-3 flex items-baseline gap-3">
+                      <span className="text-[32px] font-medium text-[#ffffff] tracking-tight">
+                        96.4%
+                      </span>
+                      <span className="text-[12px] font-mono text-[#9c9c9d]">
+                        53 of 55 files
                       </span>
                     </div>
-                    <div className="flex items-center gap-4 text-[#9c9c9d]">
-                      <span>Cost: <b className="text-white">{selectedFile.cost}</b></span>
-                      <span>Lines: <b className="text-white">{selectedFile.lines}</b></span>
-                      <span>Commits: <b className="text-white">{selectedFile.commits}</b></span>
+                    {/* Visual ratio bar */}
+                    <div className="w-full h-1.5 rounded-full bg-[#1b1c1e] overflow-hidden flex">
+                      <div className="h-full bg-[#59d499]" style={{ width: "96.4%" }} />
+                      <div className="h-full bg-[#ff6363]" style={{ width: "3.6%" }} />
                     </div>
                   </div>
-                )}
 
-                {/* Truth Warning Box */}
-                <div className="mt-4 p-3.5 rounded-[8px] bg-[#111214] border border-[#363739]/60 flex items-start gap-3 text-[12px] text-[#9c9c9d] leading-relaxed">
-                  <AlertCircle className="w-4 h-4 text-[#ff6363] shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-medium text-white">Why naive cloud calculators are 200% off: </span>
-                    Claude Code writes <em>cumulative</em> cost records, not deltas. Blindly summing turn records results in <span className="text-[#ff6363] font-mono">$145.93</span> instead of the real <span className="text-white font-mono">$72.96</span>. Flightdeck decodes the raw SQLite ledger to report truth.
+                  {/* Dial 2: Weekly Plan Limit */}
+                  <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow flex flex-col justify-between">
+                    <div className="flex items-center justify-between text-[12px] font-medium text-[#9c9c9d]">
+                      <span>Weekly Plan Limit</span>
+                      <span className="px-1.5 py-0.5 rounded-[4px] bg-[#1b1c1e] text-[10px] font-mono text-[#9c9c9d] border border-white/5">
+                        5d old cache
+                      </span>
+                    </div>
+                    <div className="my-3 flex items-baseline gap-3">
+                      <span className="text-[32px] font-medium text-[#ffffff] tracking-tight">
+                        3%
+                      </span>
+                      <span className="text-[12px] font-mono text-[#6a6b6c]">
+                        Reset in 2d 14h
+                      </span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-[#1b1c1e] overflow-hidden">
+                      <div className="h-full bg-[#56c2ff]" style={{ width: "3%" }} />
+                    </div>
                   </div>
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* TAB 2: MACH KERNEL WAVEFORMS */}
-          {activeTab === "telemetry" && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between pb-3 border-b border-[#363739]/60">
-                <div>
-                  <span className="text-[13px] font-medium text-white">
-                    Mach Hardware Telemetry
-                  </span>
-                  <span className="text-[12px] text-[#6a6b6c] ml-2">
-                    Reading HOST_CPU_LOAD_INFO & HOST_VM_INFO64 via Mach Port
-                  </span>
-                </div>
-                <span className="px-2 py-0.5 rounded-[4px] bg-[#111214] text-[11px] font-mono text-[#56c2ff] border border-[#56c2ff]/30">
-                  1000Hz Kernel Poll
-                </span>
-              </div>
-
-              {/* Waveform Graph Canvas */}
-              <div
-                className="p-4 rounded-[12px] bg-[#040506] border border-[#363739] key-shadow relative cursor-crosshair"
-                onMouseLeave={() => setHoverPoint(null)}
-              >
-                <div className="flex justify-between items-center text-[11px] font-mono text-[#6a6b6c] mb-2">
-                  <span>LIVE CPU WAVEFORM (P-CORES & E-CORES)</span>
-                  <span className="text-[#56c2ff]">
-                    {hoverPoint ? `SCRUB T-${20 - hoverPoint.idx}s: ${hoverPoint.val}% LOAD` : `CUR: ${wavePoints[wavePoints.length - 1]}%`}
-                  </span>
-                </div>
-
-                {/* SVG Polyline Graph with Scrubbing */}
-                <div className="h-44 w-full flex items-end relative">
-                  <svg className="w-full h-full overflow-visible">
-                    <defs>
-                      <linearGradient id="waveGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#63a1ff" stopOpacity="0.4" />
-                        <stop offset="100%" stopColor="#63a1ff" stopOpacity="0.0" />
-                      </linearGradient>
-                    </defs>
-                    {/* Grid lines */}
-                    <line x1="0" y1="25%" x2="100%" y2="25%" stroke="#1b1c1e" strokeDasharray="3 3" />
-                    <line x1="0" y1="50%" x2="100%" y2="50%" stroke="#1b1c1e" strokeDasharray="3 3" />
-                    <line x1="0" y1="75%" x2="100%" y2="75%" stroke="#1b1c1e" strokeDasharray="3 3" />
-
-                    {/* Area fill */}
-                    <polygon
-                      fill="url(#waveGrad)"
-                      points={`0,176 ${wavePoints
-                        .map((p, idx) => `${(idx / (wavePoints.length - 1)) * 100}%,${176 - (p / 100) * 160}`)
-                        .join(" ")} 100%,176`}
-                    />
-                    {/* Stroke line */}
-                    <polyline
-                      fill="none"
-                      stroke="#56c2ff"
-                      strokeWidth="2"
-                      points={wavePoints
-                        .map((p, idx) => `${(idx / (wavePoints.length - 1)) * 100}%,${176 - (p / 100) * 160}`)
-                        .join(" ")}
-                    />
-
-                    {/* Hover indicator crosshair */}
-                    {hoverPoint && (
-                      <circle
-                        cx={`${(hoverPoint.idx / (wavePoints.length - 1)) * 100}%`}
-                        cy={`${176 - (hoverPoint.val / 100) * 160}`}
-                        r="5"
-                        fill="#ff6363"
-                        stroke="#ffffff"
-                        strokeWidth="2"
-                      />
-                    )}
-                  </svg>
-
-                  {/* Invisible scrub columns */}
-                  <div className="absolute inset-0 flex">
-                    {wavePoints.map((val, idx) => (
-                      <div
-                        key={idx}
-                        className="flex-1 h-full hover:bg-white/5 transition-colors"
-                        onMouseEnter={() => setHoverPoint({ idx, val })}
-                      />
-                    ))}
+                  {/* Stat 3: Session Spend */}
+                  <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow flex flex-col justify-between">
+                    <div className="text-[12px] font-medium text-[#9c9c9d]">
+                      Total Session Cost
+                    </div>
+                    <div className="my-3">
+                      <span className="text-[32px] font-medium text-[#ffffff] tracking-tight">
+                        $72.96
+                      </span>
+                    </div>
+                    <div className="text-[11px] font-mono text-[#6a6b6c]">
+                      Exact from cost-state (no deltas)
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Memory & IO Breakdown */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-3.5 rounded-[8px] bg-[#111214] border border-[#363739]/60">
-                  <span className="text-[11px] font-mono text-[#9c9c9d] uppercase">Physical RAM (Mach VM)</span>
-                  <div className="text-[20px] font-medium text-white mt-1">11.4 GB / 16.0 GB</div>
-                  <div className="mt-2 text-[11px] font-mono text-[#6a6b6c] flex justify-between">
-                    <span>Active: 6.4 GB</span>
-                    <span>Wired: 3.2 GB</span>
-                    <span>Comp: 1.8 GB</span>
+                  {/* Stat 4: Cost Per Surviving File */}
+                  <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow flex flex-col justify-between">
+                    <div className="text-[12px] font-medium text-[#9c9c9d]">
+                      Cost Per Surviving File
+                    </div>
+                    <div className="my-3">
+                      <span className="text-[32px] font-medium text-[#ff6363] tracking-tight">
+                        $2.3518
+                      </span>
+                    </div>
+                    <div className="text-[11px] font-mono text-[#6a6b6c]">
+                      $72.96 &divide; 53 surviving files
+                    </div>
                   </div>
                 </div>
 
-                <div className="p-3.5 rounded-[8px] bg-[#111214] border border-[#363739]/60">
-                  <span className="text-[11px] font-mono text-[#9c9c9d] uppercase">BSD Network (en0 WiFi)</span>
-                  <div className="text-[20px] font-medium text-[#59d499] mt-1">&darr; 42.8 MB/s &middot; &uarr; 3.2 MB/s</div>
-                  <div className="mt-2 text-[11px] font-mono text-[#6a6b6c]">
-                    Zero-overhead getifaddrs kernel queries
+                {/* Survival Breakdown & File Matrix */}
+                <div className="p-5 rounded-[12px] bg-[#040506] border border-[#363739]/60 key-shadow">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                    <span className="text-[12px] font-mono text-[#9c9c9d]">
+                      Repository File Fate Matrix (55 files written in session) &middot; Click any file to inspect
+                    </span>
+                    <div className="flex items-center gap-4 text-[11px] font-mono">
+                      <span className="flex items-center gap-1.5 text-[#e6e6e6]">
+                        <span className="w-2.5 h-2.5 rounded-[2px] bg-[#59d499]" />
+                        53 Still in HEAD
+                      </span>
+                      <span className="flex items-center gap-1.5 text-[#ff6363]">
+                        <span className="w-2.5 h-2.5 rounded-[2px] bg-[#ff6363]" />
+                        2 Reverted / Deleted
+                      </span>
+                    </div>
                   </div>
-                </div>
 
-                <div className="p-3.5 rounded-[8px] bg-[#111214] border border-[#363739]/60">
-                  <span className="text-[11px] font-mono text-[#9c9c9d] uppercase">IOKit Block Storage</span>
-                  <div className="text-[20px] font-medium text-white mt-1">R: 18 MB/s &middot; W: 240 MB/s</div>
-                  <div className="mt-2 text-[11px] font-mono text-[#6a6b6c]">
-                    Apple SSD APFS hardware telemetry
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: DUAL-LAYER PROCESS KILL */}
-          {activeTab === "process" && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#363739]/60">
-                <div>
-                  <span className="text-[13px] font-medium text-white">
-                    Zero-Lag Process Control &amp; Dual-Layer Kill
-                  </span>
-                  <p className="text-[11px] text-[#9c9c9d]">
-                    First attempts NSRunningApplication.forceTerminate(), falling back immediately to POSIX kill(pid, SIGKILL) for terminal sub-processes.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center rounded-[6px] bg-[#111214] border border-[#363739]/60 p-0.5 text-[11px] font-mono">
-                    <button
-                      onClick={() => setProcessFilter("all")}
-                      className={`px-2 py-0.5 rounded-[4px] ${processFilter === "all" ? "bg-[#1b1c1e] text-white" : "text-[#9c9c9d]"}`}
-                    >
-                      All
-                    </button>
-                    <button
-                      onClick={() => setProcessFilter("heavy")}
-                      className={`px-2 py-0.5 rounded-[4px] ${processFilter === "heavy" ? "bg-[#1b1c1e] text-white" : "text-[#9c9c9d]"}`}
-                    >
-                      &gt;20% CPU
-                    </button>
-                    <button
-                      onClick={() => setProcessFilter("dev")}
-                      className={`px-2 py-0.5 rounded-[4px] ${processFilter === "dev" ? "bg-[#1b1c1e] text-white" : "text-[#9c9c9d]"}`}
-                    >
-                      Dev Tools
-                    </button>
-                  </div>
-                  <button
-                    onClick={handleResetProcesses}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#1b1c1e] hover:bg-white/10 text-[11px] font-mono text-[#9c9c9d] border border-white/10 transition-colors"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span>Reset</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Interactive Process Table */}
-              <div className="rounded-[8px] border border-[#363739]/80 overflow-hidden bg-[#040506]">
-                <table className="w-full text-left text-[12px]">
-                  <thead className="bg-[#111214] text-[#6a6b6c] font-mono text-[11px] border-b border-[#363739]/80">
-                    <tr>
-                      <th className="py-2.5 px-3">PID</th>
-                      <th className="py-2.5 px-3">PROCESS NAME</th>
-                      <th className="py-2.5 px-3">CPU</th>
-                      <th className="py-2.5 px-3">MEMORY</th>
-                      <th className="py-2.5 px-3">ENERGY</th>
-                      <th className="py-2.5 px-3 text-right">ACTION</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#363739]/40 font-mono">
-                    {filteredProcesses.map((proc) => (
-                      <tr
-                        key={proc.pid}
-                        className={`transition-colors ${
-                          proc.killed ? "opacity-25 line-through bg-black" : "hover:bg-[#111214]"
-                        }`}
-                      >
-                        <td className="py-2.5 px-3 text-[#6a6b6c]">{proc.pid}</td>
-                        <td className="py-2.5 px-3 text-white font-sans font-medium">
-                          {proc.name}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span
-                            className={
-                              proc.cpu > 50
-                                ? "text-[#ff6363]"
-                                : proc.cpu > 10
-                                ? "text-[#63a1ff]"
-                                : "text-[#9c9c9d]"
-                            }
-                          >
-                            {proc.cpu}%
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-[#9c9c9d]">{proc.mem}</td>
-                        <td className="py-2.5 px-3">
-                          <span
-                            className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-[4px] ${
-                              proc.energy === "critical"
-                                ? "bg-[#452324] text-[#ff6363]"
-                                : proc.energy === "high"
-                                ? "bg-[#1b1c1e] text-[#63a1ff]"
-                                : "text-[#9c9c9d]"
+                  {/* Tactile File Block Grid */}
+                  <div className="grid grid-cols-11 sm:grid-cols-18 md:grid-cols-28 gap-1.5 py-2">
+                    {Array.from({ length: 55 }).map((_, i) => {
+                      const isReverted = i === 14 || i === 38;
+                      const isSelected = selectedFile.id === (i % 7) + 1;
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => {
+                            const file = TRACKED_FILES[i % TRACKED_FILES.length];
+                            setSelectedFile(file);
+                          }}
+                          title={`File #${i + 1}: ${isReverted ? "Reverted" : "Surviving in HEAD"}`}
+                          className={`h-4.5 rounded-[3px] transition-all cursor-pointer ${isSelected ? "ring-2 ring-white scale-125 z-10" : ""
+                            } ${isReverted ? "bg-[#ff6363]" : "bg-[#59d499]/80 hover:bg-[#59d499]"
                             }`}
-                          >
-                            🍃 {proc.energy}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right">
-                          {proc.killed ? (
-                            <span className="text-[10px] text-[#6a6b6c]">TERMINATED</span>
-                          ) : (
-                            <button
-                              onClick={() => handleKill(proc.pid, proc.name)}
-                              className="px-2.5 py-1 rounded-[4px] bg-[#1b1c1e] hover:bg-[#ff6363] text-[#9c9c9d] hover:text-white text-[11px] font-medium border border-white/10 hover:border-transparent transition-all"
-                            >
-                              ✕ KILL
-                            </button>
-                          )}
-                        </td>
+                        />
+                      );
+                    })}
+                  </div>
+
+                  {/* Selected File Detailed Card */}
+                  {selectedFile && (
+                    <div className="mt-4 p-3 rounded-[8px] bg-[#111214] border border-[#363739]/80 flex flex-wrap items-center justify-between gap-3 text-[12px] font-mono">
+                      <div className="flex items-center gap-2">
+                        <FileCode className="w-4 h-4 text-[#ff6363]" />
+                        <span className="text-white font-medium">{selectedFile.path}</span>
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded ${selectedFile.status === "kept"
+                              ? "bg-[#59d499]/15 text-[#59d499]"
+                              : "bg-[#ff6363]/15 text-[#ff6363]"
+                            }`}
+                        >
+                          {selectedFile.status === "kept" ? "SURVIVING IN HEAD" : "REVERTED / REMOVED"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 text-[#9c9c9d]">
+                        <span>Cost: <b className="text-white">{selectedFile.cost}</b></span>
+                        <span>Lines: <b className="text-white">{selectedFile.lines}</b></span>
+                        <span>Commits: <b className="text-white">{selectedFile.commits}</b></span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Truth Warning Box */}
+                  <div className="mt-4 p-3.5 rounded-[8px] bg-[#111214] border border-[#363739]/60 flex items-start gap-3 text-[12px] text-[#9c9c9d] leading-relaxed">
+                    <AlertCircle className="w-4 h-4 text-[#ff6363] shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-medium text-white">Why naive cloud calculators are 200% off: </span>
+                      Claude Code writes <em>cumulative</em> cost records, not deltas. Blindly summing turn records results in <span className="text-[#ff6363] font-mono">$145.93</span> instead of the real <span className="text-white font-mono">$72.96</span>. Flightdeck decodes the raw SQLite ledger to report truth.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: MACH KERNEL WAVEFORMS */}
+            {activeTab === "telemetry" && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between pb-3 border-b border-[#363739]/60">
+                  <div>
+                    <span className="text-[13px] font-medium text-white">
+                      Mach Hardware Telemetry
+                    </span>
+                    <span className="text-[12px] text-[#6a6b6c] ml-2">
+                      Reading HOST_CPU_LOAD_INFO & HOST_VM_INFO64 via Mach Port
+                    </span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-[4px] bg-[#111214] text-[11px] font-mono text-[#56c2ff] border border-[#56c2ff]/30">
+                    1000Hz Kernel Poll
+                  </span>
+                </div>
+
+                {/* Waveform Graph Canvas */}
+                <div
+                  className="p-4 rounded-[12px] bg-[#040506] border border-[#363739] key-shadow relative cursor-crosshair"
+                  onMouseLeave={() => setHoverPoint(null)}
+                >
+                  <div className="flex justify-between items-center text-[11px] font-mono text-[#6a6b6c] mb-2">
+                    <span>LIVE CPU WAVEFORM (P-CORES & E-CORES)</span>
+                    <span className="text-[#56c2ff]">
+                      {hoverPoint ? `SCRUB T-${20 - hoverPoint.idx}s: ${hoverPoint.val}% LOAD` : `CUR: ${wavePoints[wavePoints.length - 1]}%`}
+                    </span>
+                  </div>
+
+                  {/* SVG Polyline Graph with Scrubbing */}
+                  <div className="h-44 w-full flex items-end relative">
+                    <svg className="w-full h-full overflow-visible">
+                      <defs>
+                        <linearGradient id="waveGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#63a1ff" stopOpacity="0.4" />
+                          <stop offset="100%" stopColor="#63a1ff" stopOpacity="0.0" />
+                        </linearGradient>
+                      </defs>
+                      {/* Grid lines */}
+                      <line x1="0" y1="25%" x2="100%" y2="25%" stroke="#1b1c1e" strokeDasharray="3 3" />
+                      <line x1="0" y1="50%" x2="100%" y2="50%" stroke="#1b1c1e" strokeDasharray="3 3" />
+                      <line x1="0" y1="75%" x2="100%" y2="75%" stroke="#1b1c1e" strokeDasharray="3 3" />
+
+                      {/* Area fill */}
+                      <polygon
+                        fill="url(#waveGrad)"
+                        points={`0,176 ${wavePoints
+                          .map((p, idx) => `${(idx / (wavePoints.length - 1)) * 100}%,${176 - (p / 100) * 160}`)
+                          .join(" ")} 100%,176`}
+                      />
+                      {/* Stroke line */}
+                      <polyline
+                        fill="none"
+                        stroke="#56c2ff"
+                        strokeWidth="2"
+                        points={wavePoints
+                          .map((p, idx) => `${(idx / (wavePoints.length - 1)) * 100}%,${176 - (p / 100) * 160}`)
+                          .join(" ")}
+                      />
+
+                      {/* Hover indicator crosshair */}
+                      {hoverPoint && (
+                        <circle
+                          cx={`${(hoverPoint.idx / (wavePoints.length - 1)) * 100}%`}
+                          cy={`${176 - (hoverPoint.val / 100) * 160}`}
+                          r="5"
+                          fill="#ff6363"
+                          stroke="#ffffff"
+                          strokeWidth="2"
+                        />
+                      )}
+                    </svg>
+
+                    {/* Invisible scrub columns */}
+                    <div className="absolute inset-0 flex">
+                      {wavePoints.map((val, idx) => (
+                        <div
+                          key={idx}
+                          className="flex-1 h-full hover:bg-white/5 transition-colors"
+                          onMouseEnter={() => setHoverPoint({ idx, val })}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Memory & IO Breakdown */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-3.5 rounded-[8px] bg-[#111214] border border-[#363739]/60">
+                    <span className="text-[11px] font-mono text-[#9c9c9d] uppercase">Physical RAM (Mach VM)</span>
+                    <div className="text-[20px] font-medium text-white mt-1">11.4 GB / 16.0 GB</div>
+                    <div className="mt-2 text-[11px] font-mono text-[#6a6b6c] flex justify-between">
+                      <span>Active: 6.4 GB</span>
+                      <span>Wired: 3.2 GB</span>
+                      <span>Comp: 1.8 GB</span>
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-[8px] bg-[#111214] border border-[#363739]/60">
+                    <span className="text-[11px] font-mono text-[#9c9c9d] uppercase">BSD Network (en0 WiFi)</span>
+                    <div className="text-[20px] font-medium text-[#59d499] mt-1">&darr; 42.8 MB/s &middot; &uarr; 3.2 MB/s</div>
+                    <div className="mt-2 text-[11px] font-mono text-[#6a6b6c]">
+                      Zero-overhead getifaddrs kernel queries
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-[8px] bg-[#111214] border border-[#363739]/60">
+                    <span className="text-[11px] font-mono text-[#9c9c9d] uppercase">IOKit Block Storage</span>
+                    <div className="text-[20px] font-medium text-white mt-1">R: 18 MB/s &middot; W: 240 MB/s</div>
+                    <div className="mt-2 text-[11px] font-mono text-[#6a6b6c]">
+                      Apple SSD APFS hardware telemetry
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: DUAL-LAYER PROCESS KILL */}
+            {activeTab === "process" && (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#363739]/60">
+                  <div>
+                    <span className="text-[13px] font-medium text-white">
+                      Zero-Lag Process Control &amp; Dual-Layer Kill
+                    </span>
+                    <p className="text-[11px] text-[#9c9c9d]">
+                      First attempts NSRunningApplication.forceTerminate(), falling back immediately to POSIX kill(pid, SIGKILL) for terminal sub-processes.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center rounded-[6px] bg-[#111214] border border-[#363739]/60 p-0.5 text-[11px] font-mono">
+                      <button
+                        onClick={() => setProcessFilter("all")}
+                        className={`px-2 py-0.5 rounded-[4px] ${processFilter === "all" ? "bg-[#1b1c1e] text-white" : "text-[#9c9c9d]"}`}
+                      >
+                        All
+                      </button>
+                      <button
+                        onClick={() => setProcessFilter("heavy")}
+                        className={`px-2 py-0.5 rounded-[4px] ${processFilter === "heavy" ? "bg-[#1b1c1e] text-white" : "text-[#9c9c9d]"}`}
+                      >
+                        &gt;20% CPU
+                      </button>
+                      <button
+                        onClick={() => setProcessFilter("dev")}
+                        className={`px-2 py-0.5 rounded-[4px] ${processFilter === "dev" ? "bg-[#1b1c1e] text-white" : "text-[#9c9c9d]"}`}
+                      >
+                        Dev Tools
+                      </button>
+                    </div>
+                    <button
+                      onClick={handleResetProcesses}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#1b1c1e] hover:bg-white/10 text-[11px] font-mono text-[#9c9c9d] border border-white/10 transition-colors"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Reset</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Interactive Process Table */}
+                <div className="rounded-[8px] border border-[#363739]/80 overflow-hidden bg-[#040506]">
+                  <table className="w-full text-left text-[12px]">
+                    <thead className="bg-[#111214] text-[#6a6b6c] font-mono text-[11px] border-b border-[#363739]/80">
+                      <tr>
+                        <th className="py-2.5 px-3">PID</th>
+                        <th className="py-2.5 px-3">PROCESS NAME</th>
+                        <th className="py-2.5 px-3">CPU</th>
+                        <th className="py-2.5 px-3">MEMORY</th>
+                        <th className="py-2.5 px-3">ENERGY</th>
+                        <th className="py-2.5 px-3 text-right">ACTION</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: DISK RADAR & CRUFT */}
-          {activeTab === "storage" && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between pb-3 border-b border-[#363739]/60">
-                <div>
-                  <span className="text-[13px] font-medium text-white">
-                    Disk Radar &amp; Developer Cruft Hunter
-                  </span>
-                  <p className="text-[11px] text-[#9c9c9d]">
-                    Instantly finds reclaimable `.build` directories, Xcode DerivedData, and orphaned node_modules caches across all your Git repos.
-                  </p>
-                </div>
-                <span className="px-2.5 py-1 rounded-[6px] bg-[#111214] border border-white/10 text-[12px] font-mono text-[#59d499]">
-                  23.4 GB Reclaimable
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[12px] font-medium text-white">Xcode DerivedData</span>
-                    <span className="text-[11px] font-mono text-[#ff6363]">12.8 GB</span>
-                  </div>
-                  <p className="text-[11px] text-[#6a6b6c] mt-2 mb-3">
-                    Stale module indexes from closed Xcode workspaces.
-                  </p>
-                  <button className="w-full py-1.5 rounded-[6px] bg-[#1b1c1e] hover:bg-white/10 text-[11px] font-mono text-[#e6e6e6] transition-colors border border-white/5">
-                    Clean 12.8 GB
-                  </button>
-                </div>
-
-                <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[12px] font-medium text-white">Swift .build Dirs</span>
-                    <span className="text-[11px] font-mono text-[#ff6363]">6.4 GB</span>
-                  </div>
-                  <p className="text-[11px] text-[#6a6b6c] mt-2 mb-3">
-                    Incremental SPM build artifacts across 14 checked-out repos.
-                  </p>
-                  <button className="w-full py-1.5 rounded-[6px] bg-[#1b1c1e] hover:bg-white/10 text-[11px] font-mono text-[#e6e6e6] transition-colors border border-white/5">
-                    Clean 6.4 GB
-                  </button>
-                </div>
-
-                <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[12px] font-medium text-white">Dangling npm/cargo</span>
-                    <span className="text-[11px] font-mono text-[#ff6363]">4.2 GB</span>
-                  </div>
-                  <p className="text-[11px] text-[#6a6b6c] mt-2 mb-3">
-                    Unlinked package cache tarballs older than 30 days.
-                  </p>
-                  <button className="w-full py-1.5 rounded-[6px] bg-[#1b1c1e] hover:bg-white/10 text-[11px] font-mono text-[#e6e6e6] transition-colors border border-white/5">
-                    Clean 4.2 GB
-                  </button>
+                    </thead>
+                    <tbody className="divide-y divide-[#363739]/40 font-mono">
+                      {filteredProcesses.map((proc) => (
+                        <tr
+                          key={proc.pid}
+                          className={`transition-colors ${proc.killed ? "opacity-25 line-through bg-black" : "hover:bg-[#111214]"
+                            }`}
+                        >
+                          <td className="py-2.5 px-3 text-[#6a6b6c]">{proc.pid}</td>
+                          <td className="py-2.5 px-3 text-white font-sans font-medium">
+                            {proc.name}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={
+                                proc.cpu > 50
+                                  ? "text-[#ff6363]"
+                                  : proc.cpu > 10
+                                    ? "text-[#63a1ff]"
+                                    : "text-[#9c9c9d]"
+                              }
+                            >
+                              {proc.cpu}%
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-[#9c9c9d]">{proc.mem}</td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-[4px] ${proc.energy === "critical"
+                                  ? "bg-[#452324] text-[#ff6363]"
+                                  : proc.energy === "high"
+                                    ? "bg-[#1b1c1e] text-[#63a1ff]"
+                                    : "text-[#9c9c9d]"
+                                }`}
+                            >
+                              🍃 {proc.energy}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            {proc.killed ? (
+                              <span className="text-[10px] text-[#6a6b6c]">TERMINATED</span>
+                            ) : (
+                              <button
+                                onClick={() => handleKill(proc.pid, proc.name)}
+                                className="px-2.5 py-1 rounded-[4px] bg-[#1b1c1e] hover:bg-[#ff6363] text-[#9c9c9d] hover:text-white text-[11px] font-medium border border-white/10 hover:border-transparent transition-all"
+                              >
+                                ✕ KILL
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* TAB 5: WASTE & CHURN REPORT */}
-          {activeTab === "waste" && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between pb-3 border-b border-[#363739]/60">
-                <div>
-                  <span className="text-[13px] font-medium text-white">
-                    Agent Waste &amp; Code Churn Diagnostics
-                  </span>
-                  <p className="text-[11px] text-[#9c9c9d]">
-                    Detects sessions that consumed credits without committing code, and hotspots where Claude rewrote files repeatedly.
-                  </p>
-                </div>
-                <span className="px-2.5 py-1 rounded-[6px] bg-[#452324] border border-[#ff6363]/40 text-[12px] font-mono text-[#ff6363]">
-                  $18.40 Reclaimable Waste
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Churn Hotspot card */}
-                <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[13px] font-medium text-white flex items-center gap-2">
-                      <Flame className="w-4 h-4 text-[#ff6363]" />
-                      Top Churn Hotspot
+            {/* TAB 4: DISK RADAR & CRUFT */}
+            {activeTab === "storage" && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between pb-3 border-b border-[#363739]/60">
+                  <div>
+                    <span className="text-[13px] font-medium text-white">
+                      Disk Radar &amp; Developer Cruft Hunter
                     </span>
-                    <span className="text-[11px] font-mono text-[#ff6363]">Rewritten 6x</span>
+                    <p className="text-[11px] text-[#9c9c9d]">
+                      Instantly finds reclaimable `.build` directories, Xcode DerivedData, and orphaned node_modules caches across all your Git repos.
+                    </p>
                   </div>
-                  <code className="text-[12px] font-mono text-[#e6e6e6] block bg-black/40 p-2 rounded border border-white/5 mb-2">
-                    Sources/Flightdeck/SessionInsights.swift
-                  </code>
-                  <p className="text-[12px] text-[#9c9c9d] leading-relaxed">
-                    Claude modified this file across 6 separate turns due to missing architecture guidelines. Adding an explicit <code className="text-white">CLAUDE.md</code> rule stopped repetitive rewrites.
-                  </p>
+                  <span className="px-2.5 py-1 rounded-[6px] bg-[#111214] border border-white/10 text-[12px] font-mono text-[#59d499]">
+                    23.4 GB Reclaimable
+                  </span>
                 </div>
 
-                {/* Waste breakdown card */}
-                <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[13px] font-medium text-white flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-[#63a1ff]" />
-                      Zero-Outcome Sessions
-                    </span>
-                    <span className="text-[11px] font-mono text-[#9c9c9d]">3 sessions flagged</span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[12px] font-medium text-white">Xcode DerivedData</span>
+                      <span className="text-[11px] font-mono text-[#ff6363]">12.8 GB</span>
+                    </div>
+                    <p className="text-[11px] text-[#6a6b6c] mt-2 mb-3">
+                      Stale module indexes from closed Xcode workspaces.
+                    </p>
+                    <button className="w-full py-1.5 rounded-[6px] bg-[#1b1c1e] hover:bg-white/10 text-[11px] font-mono text-[#e6e6e6] transition-colors border border-white/5">
+                      Clean 12.8 GB
+                    </button>
                   </div>
-                  <div className="space-y-2 text-[12px] font-mono">
-                    <div className="flex justify-between p-1.5 rounded bg-black/30 text-[#9c9c9d]">
-                      <span>Session 90f2b3 (Context Ceiling)</span>
-                      <span className="text-[#ff6363]">$8.20 wasted</span>
+
+                  <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[12px] font-medium text-white">Swift .build Dirs</span>
+                      <span className="text-[11px] font-mono text-[#ff6363]">6.4 GB</span>
                     </div>
-                    <div className="flex justify-between p-1.5 rounded bg-black/30 text-[#9c9c9d]">
-                      <span>Session 12e4aa (Failed Tool Call)</span>
-                      <span className="text-[#ff6363]">$6.10 wasted</span>
+                    <p className="text-[11px] text-[#6a6b6c] mt-2 mb-3">
+                      Incremental SPM build artifacts across 14 checked-out repos.
+                    </p>
+                    <button className="w-full py-1.5 rounded-[6px] bg-[#1b1c1e] hover:bg-white/10 text-[11px] font-mono text-[#e6e6e6] transition-colors border border-white/5">
+                      Clean 6.4 GB
+                    </button>
+                  </div>
+
+                  <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[12px] font-medium text-white">Dangling npm/cargo</span>
+                      <span className="text-[11px] font-mono text-[#ff6363]">4.2 GB</span>
                     </div>
-                    <div className="flex justify-between p-1.5 rounded bg-black/30 text-[#9c9c9d]">
-                      <span>Session 77c1d8 (Aborted Search)</span>
-                      <span className="text-[#ff6363]">$4.10 wasted</span>
+                    <p className="text-[11px] text-[#6a6b6c] mt-2 mb-3">
+                      Unlinked package cache tarballs older than 30 days.
+                    </p>
+                    <button className="w-full py-1.5 rounded-[6px] bg-[#1b1c1e] hover:bg-white/10 text-[11px] font-mono text-[#e6e6e6] transition-colors border border-white/5">
+                      Clean 4.2 GB
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 5: WASTE & CHURN REPORT */}
+            {activeTab === "waste" && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between pb-3 border-b border-[#363739]/60">
+                  <div>
+                    <span className="text-[13px] font-medium text-white">
+                      Agent Waste &amp; Code Churn Diagnostics
+                    </span>
+                    <p className="text-[11px] text-[#9c9c9d]">
+                      Detects sessions that consumed credits without committing code, and hotspots where Claude rewrote files repeatedly.
+                    </p>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-[6px] bg-[#452324] border border-[#ff6363]/40 text-[12px] font-mono text-[#ff6363]">
+                    $18.40 Reclaimable Waste
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Churn Hotspot card */}
+                  <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[13px] font-medium text-white flex items-center gap-2">
+                        <Flame className="w-4 h-4 text-[#ff6363]" />
+                        Top Churn Hotspot
+                      </span>
+                      <span className="text-[11px] font-mono text-[#ff6363]">Rewritten 6x</span>
+                    </div>
+                    <code className="text-[12px] font-mono text-[#e6e6e6] block bg-black/40 p-2 rounded border border-white/5 mb-2">
+                      Sources/Flightdeck/SessionInsights.swift
+                    </code>
+                    <p className="text-[12px] text-[#9c9c9d] leading-relaxed">
+                      Claude modified this file across 6 separate turns due to missing architecture guidelines. Adding an explicit <code className="text-white">CLAUDE.md</code> rule stopped repetitive rewrites.
+                    </p>
+                  </div>
+
+                  {/* Waste breakdown card */}
+                  <div className="p-4 rounded-[12px] bg-[#111214] border border-[#363739]/80 key-shadow">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[13px] font-medium text-white flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-[#63a1ff]" />
+                        Zero-Outcome Sessions
+                      </span>
+                      <span className="text-[11px] font-mono text-[#9c9c9d]">3 sessions flagged</span>
+                    </div>
+                    <div className="space-y-2 text-[12px] font-mono">
+                      <div className="flex justify-between p-1.5 rounded bg-black/30 text-[#9c9c9d]">
+                        <span>Session 90f2b3 (Context Ceiling)</span>
+                        <span className="text-[#ff6363]">$8.20 wasted</span>
+                      </div>
+                      <div className="flex justify-between p-1.5 rounded bg-black/30 text-[#9c9c9d]">
+                        <span>Session 12e4aa (Failed Tool Call)</span>
+                        <span className="text-[#ff6363]">$6.10 wasted</span>
+                      </div>
+                      <div className="flex justify-between p-1.5 rounded bg-black/30 text-[#9c9c9d]">
+                        <span>Session 77c1d8 (Aborted Search)</span>
+                        <span className="text-[#ff6363]">$4.10 wasted</span>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
-    </div>
 
       {/* ── Cybernetic Perspective Runway Flightdeck Floor Grid ── */}
       <div className="relative w-full h-32 -mt-8 pointer-events-none overflow-hidden flex justify-center [perspective:600px] select-none">
