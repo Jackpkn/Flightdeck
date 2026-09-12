@@ -227,7 +227,7 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
             <span>↵ Select</span>
             <span>esc Close</span>
           </div>
-          <span className="text-[#ff6363]">Raycast Command Palette</span>
+          <span className="text-[#ff6363]">Flightdeck Command Palette</span>
         </div>
       </div>
     </div>

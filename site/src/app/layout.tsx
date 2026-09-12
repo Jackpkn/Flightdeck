@@ -26,7 +26,7 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "Flightdeck — The Cyberpunk Activity Monitor & Developer Cockpit for macOS",
   description: "A dark power-tool cockpit that measures what your Claude Code spend actually produced — cost per surviving file, measured against git. Everything stays on your Mac.",
-  keywords: ["macOS", "activity monitor", "Claude Code", "developer cockpit", "Mach kernel", "telemetry", "system monitor", "Raycast style"],
+  keywords: ["macOS", "activity monitor", "Claude Code", "developer cockpit", "Mach kernel", "telemetry", "system monitor", "cockpit UI"],
   authors: [{ name: "Flightdeck Team" }],
   openGraph: {
     title: "Flightdeck — Developer Cockpit for macOS",
