@@ -46,7 +46,7 @@ export default function HomeFeatureCards() {
   ];
 
   return (
-    <section className="max-w-[1240px] mx-auto px-4 sm:px-6 py-16 md:py-24 border-t border-[#363739]/40">
+    <section className="max-w-[1240px] mx-auto px-4 sm:px-6 py-20 md:py-28 border-t border-[#363739]/40">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
         <div>
           <p className="text-[11px] font-mono tracking-[0.08em] text-[#9c9c9d] uppercase mb-2">

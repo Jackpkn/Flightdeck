@@ -11,7 +11,7 @@ export default function InstallSection() {
   const xattrCmd = "xattr -d com.apple.quarantine /Applications/Flightdeck.app";
 
   return (
-    <section id="install" className="max-w-[1200px] mx-auto px-4 sm:px-6 py-16 md:py-24 border-t border-[#363739]/40">
+    <section id="install" className="max-w-[1200px] mx-auto px-4 sm:px-6 py-20 md:py-28 border-t border-[#363739]/40">
       <div className="text-center mb-12">
         <p className="text-[11px] font-mono tracking-[0.08em] text-[#9c9c9d] uppercase mb-2">
           Distribution &amp; Security
