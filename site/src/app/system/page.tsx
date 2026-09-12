@@ -2,9 +2,11 @@ import React from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import SmoothScroll from "@/components/SmoothScroll";
-import { Activity, ArrowLeft, Cpu, Terminal, Zap, Shield, Radio } from "lucide-react";
-import Link from "next/link";
 import GlowBorderCard from "@/components/GlowBorderCard";
+import MachWaveformSimulator from "@/components/MachWaveformSimulator";
+import SystemHUDBackground from "@/components/SystemHUDBackground";
+import { Activity, ArrowLeft, Cpu, Terminal, Zap, Shield, Radio, ChevronDown } from "lucide-react";
+import Link from "next/link";
 
 export const metadata = {
   title: "Mach Kernel Telemetry & Process Control — Flightdeck",
@@ -17,10 +19,13 @@ export default function SystemPage() {
       <SmoothScroll />
       <Navbar />
 
-      <main className="flex-1 pt-28 pb-20">
-        <div className="max-w-[1240px] mx-auto px-4 sm:px-6">
-          {/* Breadcrumb Header */}
-          <div className="mb-12">
+      <main className="flex-1">
+        {/* ── Full-Screen Monumental Hero Section ── */}
+        <section className="relative w-full min-h-screen flex flex-col justify-center items-center px-4 sm:px-6 pt-24 pb-16 overflow-hidden">
+          <SystemHUDBackground />
+
+          <div className="relative z-10 w-full max-w-[960px] mx-auto text-center flex flex-col items-center">
+            {/* Breadcrumb Back Link */}
             <Link
               href="/"
               className="inline-flex items-center gap-2 text-[12px] font-mono text-[#9c9c9d] hover:text-white transition-colors mb-6"
@@ -29,17 +34,73 @@ export default function SystemPage() {
               <span>Back to Overview</span>
             </Link>
 
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-[6px] bg-[#111214] border border-[#363739]/60 text-[11px] font-mono text-[#56c2ff] uppercase mb-4">
-              <Activity className="w-3.5 h-3.5" />
-              <span>Deck 03 &middot; Hardware Telemetry</span>
+            {/* Eyebrow Badge */}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1 mb-6 rounded-full bg-[#111214]/90 border border-[#00f0ff]/40 backdrop-blur-md shadow-[0_2px_15px_rgba(0,240,255,0.2)]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#00f0ff] animate-pulse" />
+              <span className="text-[11px] font-mono tracking-[0.08em] text-[#e6e6e6] uppercase">
+                DECK 03 &middot; DARWIN MACH KERNEL &middot; DIRECT HARDWARE WIRE
+              </span>
             </div>
 
-            <h1 className="text-[36px] sm:text-[48px] font-normal text-white tracking-tight leading-[1.15] max-w-[800px] mb-4">
-              Mach HOST_CPU_LOAD_INFO &amp; Real Memory. Never Estimated.
+            {/* Hero Headline */}
+            <h1
+              className="text-[40px] sm:text-[56px] md:text-[66px] font-normal text-[#ffffff] tracking-tight leading-[1.1] mb-5 select-none drop-shadow-[0_4px_30px_rgba(0,0,0,0.9)]"
+              style={{ fontFamily: "var(--font-inter)" }}
+            >
+              Mach HOST_CPU_LOAD_INFO.
+              <br />
+              Real physical memory.
+              <br />
+              <span className="text-white">Zero shell lag. </span>
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-[#00f0ff] to-[#38bdf8] animate-text-shimmer font-medium">
+                Never guessed.
+              </span>
             </h1>
-            <p className="text-[16px] sm:text-[18px] text-[#9c9c9d] max-w-[680px] leading-relaxed">
-              Standard Mac monitors spawn shell sub-processes like <code className="text-white font-mono px-1.5 py-0.5 rounded bg-[#111214] border border-white/10">top</code> or <code className="text-white font-mono px-1.5 py-0.5 rounded bg-[#111214] border border-white/10">ps</code>, consuming CPU just to report CPU. Flightdeck talks directly to the Darwin Mach kernel in native C.
+
+            {/* Sub-copy */}
+            <p className="max-w-[620px] text-[15px] sm:text-[17px] text-[#b4b4b5] leading-[1.6] mb-7 mx-auto drop-shadow-[0_2px_16px_rgba(0,0,0,0.9)]">
+              Standard Mac monitors run shell tools that spike CPU just to measure CPU. Flightdeck binds directly to Darwin Mach kernel C APIs with 0ms UI lag and 1-click POSIX process termination.
             </p>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-6">
+              <a
+                href="#oscilloscope"
+                className="inline-flex items-center gap-2 bg-[#e6e6e6] hover:bg-[#ffffff] text-[#111214] text-[14px] font-medium px-6 py-2.5 rounded-[9px] transition-all duration-150 btn-lift shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+              >
+                <span>Launch Kernel Oscilloscope</span>
+              </a>
+
+              <a
+                href="#oscilloscope"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-[9px] bg-[#111214]/80 hover:bg-[#1b1c1e] text-[#9c9c9d] hover:text-[#ffffff] text-[13px] font-mono border border-[#363739]/80 transition-all backdrop-blur-sm"
+              >
+                <span>Try Process Kill ↓</span>
+              </a>
+            </div>
+
+            {/* Minimalist Monospace Metadata */}
+            <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] font-mono text-[#6a6b6c]">
+              <span>1000Hz KERNEL DIRECT</span>
+              <span className="text-[#363739]">&middot;</span>
+              <span>P-CORE VS E-CORE CLUSTERS</span>
+              <span className="text-[#363739]">&middot;</span>
+              <span>0ms IPC OVERHEAD</span>
+            </div>
+
+            {/* Scroll Down Hint */}
+            <div className="mt-10 animate-bounce text-[#6a6b6c] flex items-center gap-1.5 text-[11px] font-mono">
+              <ChevronDown className="w-3.5 h-3.5 text-[#00f0ff]" />
+              <span>SCROLL FOR HARDWARE OSCILLOSCOPE</span>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Subpage Content Instruments Below the Fold ── */}
+        <div id="oscilloscope" className="py-20 md:py-28 max-w-[1240px] mx-auto px-4 sm:px-6 border-t border-[#363739]/40">
+          {/* Interactive 1000Hz Mach Kernel Oscilloscope & POSIX Sandbox */}
+          <div className="mb-14">
+            <MachWaveformSimulator />
           </div>
 
           {/* 4 Core Pillars Grid */}
