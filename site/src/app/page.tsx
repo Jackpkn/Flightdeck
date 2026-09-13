@@ -4,6 +4,7 @@ import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import CockpitSimulator from "@/components/CockpitSimulator";
 import HomeFeatureCards from "@/components/HomeFeatureCards";
+import ComparisonMatrix from "@/components/ComparisonMatrix";
 import InstallSection from "@/components/InstallSection";
 import Footer from "@/components/Footer";
 
@@ -16,6 +17,7 @@ export default function Home() {
         <Hero />
         <CockpitSimulator />
         <HomeFeatureCards />
+        <ComparisonMatrix />
         <InstallSection />
       </main>
       <Footer />
