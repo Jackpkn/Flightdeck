@@ -4,6 +4,7 @@ import Footer from "@/components/Footer";
 import SmoothScroll from "@/components/SmoothScroll";
 import OutcomeDeepDive from "@/components/OutcomeDeepDive";
 import SpendCalculator from "@/components/SpendCalculator";
+import TranscriptDropzone from "@/components/TranscriptDropzone";
 import ForensicsHUDBackground from "@/components/ForensicsHUDBackground";
 import { Brain, ArrowLeft, GitCommit, CheckCircle2, AlertTriangle, ShieldCheck, ChevronDown } from "lucide-react";
 import Link from "next/link";
@@ -98,6 +99,11 @@ export default function ForensicsPage() {
 
         {/* ── Subpage Content Instruments Below the Fold ── */}
         <div className="py-20 md:py-28 max-w-[1240px] mx-auto px-4 sm:px-6 border-t border-[#363739]/40">
+          {/* Live In-Browser Transcript Analyzer Dropzone */}
+          <div id="dropzone" className="mb-14">
+            <TranscriptDropzone />
+          </div>
+
           {/* Interactive Outcome Engine & Pipeline */}
           <div id="pipeline">
             <OutcomeDeepDive />
