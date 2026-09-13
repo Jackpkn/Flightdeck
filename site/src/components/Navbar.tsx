@@ -3,12 +3,24 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Terminal, Menu, X } from "lucide-react";
+import { Terminal, Menu, X, Volume2, VolumeX } from "lucide-react";
+import { isAudioMuted, toggleAudioMute, playClickSound } from "@/utils/audio";
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [muted, setMuted] = useState(true);
   const pathname = usePathname();
+
+  useEffect(() => {
+    setMuted(isAudioMuted());
+    const onAudioToggle = (e: Event) => {
+      const customEvent = e as CustomEvent<{ muted: boolean }>;
+      if (customEvent.detail) setMuted(customEvent.detail.muted);
+    };
+    window.addEventListener("flightdeck-audio-toggle", onAudioToggle);
+    return () => window.removeEventListener("flightdeck-audio-toggle", onAudioToggle);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -63,6 +75,7 @@ export default function Navbar() {
               <Link
                 key={link.href}
                 href={link.href}
+                onClick={playClickSound}
                 className={`relative py-1 transition-colors flex items-center gap-1.5 ${
                   isActive
                     ? "text-white"
@@ -79,7 +92,24 @@ export default function Navbar() {
         </div>
 
         {/* Right Actions */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
+          {/* Audio Telemetry Toggle */}
+          <button
+            onClick={() => {
+              toggleAudioMute();
+            }}
+            className="p-1.5 rounded-[6px] text-[#9c9c9d] hover:text-white hover:bg-white/5 transition-colors flex items-center gap-1 text-[11px] font-mono"
+            title={muted ? "Enable telemetry sound effects" : "Mute telemetry sound effects"}
+            aria-label={muted ? "Enable audio" : "Mute audio"}
+          >
+            {muted ? (
+              <VolumeX className="w-3.5 h-3.5 text-[#6a6b6c]" />
+            ) : (
+              <Volume2 className="w-3.5 h-3.5 text-[#ff6363] animate-pulse" />
+            )}
+            <span className="hidden lg:inline text-[10px] text-[#6a6b6c]">{muted ? "MUTED" : "AUDIO"}</span>
+          </button>
+
           <a
             href="https://github.com/Jackpkn/Flightdeck"
             target="_blank"
