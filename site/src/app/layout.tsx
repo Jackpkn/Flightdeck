@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -24,6 +25,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://flightdeck-app.netlify.app"),
   title: "Flightdeck — The Cyberpunk Activity Monitor & Developer Cockpit for macOS",
   description: "A dark power-tool cockpit that measures what your Claude Code spend actually produced — cost per surviving file, measured against git. Everything stays on your Mac.",
   keywords: ["macOS", "activity monitor", "Claude Code", "developer cockpit", "Mach kernel", "telemetry", "system monitor", "cockpit UI"],
@@ -34,6 +36,20 @@ export const metadata: Metadata = {
     url: "https://flightdeck.run",
     siteName: "Flightdeck",
     type: "website",
+    images: [
+      {
+        url: "/api/og",
+        width: 1200,
+        height: 630,
+        alt: "Flightdeck — The Cyberpunk Activity Monitor & Developer Cockpit for macOS",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Flightdeck — Developer Cockpit for macOS",
+    description: "You already know what Claude Code cost. Flightdeck shows what it became.",
+    images: ["/api/og"],
   },
 };
 
@@ -49,6 +65,7 @@ export default function RootLayout({
     >
       <body className="min-h-screen bg-[#040506] text-[#ffffff] font-sans flex flex-col">
         {children}
+        <KeyboardShortcutsModal />
       </body>
     </html>
   );
