@@ -218,7 +218,7 @@ final class DiskScanner {
         watcher.start(root: root, replayingHistory: replayingHistory) { [weak self] batch in
             // FSEvents calls back on its own queue; queue the batch up on the
             // main actor where the debounce and the published state live.
-            Task { @MainActor in self?.enqueue(batch) }
+            Task { @MainActor [weak self] in self?.enqueue(batch) }
         }
         isLive = watcher.isRunning
         beginReconciling()
