@@ -101,7 +101,7 @@ final class MCPServerScanner {
                 return a.name.lowercased() < b.name.lowercased()
             }
 
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 self?.servers = sorted
             }
         }

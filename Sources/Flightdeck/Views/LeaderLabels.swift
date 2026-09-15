@@ -45,22 +45,24 @@ struct LeaderLabels: View {
         var left: [Callout] = []
 
         for node in candidates {
-            let mid = (node.start + node.end) / 2 * sweep
-            let angle = (-90 + 360 * mid) * .pi / 180
+            let mid = Double((node.start + node.end) / 2.0 * sweep)
+            let angle = (-90.0 + 360.0 * mid) * .pi / 180.0
+            let cosA = CGFloat(Darwin.cos(angle))
+            let sinA = CGFloat(Darwin.sin(angle))
             let onRing = CGPoint(
-                x: center.x + ringRadius * cos(angle),
-                y: center.y + ringRadius * sin(angle)
+                x: center.x + ringRadius * cosA,
+                y: center.y + ringRadius * sinA
             )
             let elbow = CGPoint(
-                x: center.x + (ringRadius + 13) * cos(angle),
-                y: center.y + (ringRadius + 13) * sin(angle)
+                x: center.x + (ringRadius + 13) * cosA,
+                y: center.y + (ringRadius + 13) * sinA
             )
             let callout = Callout(
                 node: node,
                 anchor: onRing,
                 elbow: elbow,
                 textY: elbow.y,
-                isRight: cos(angle) >= 0
+                isRight: cosA >= 0
             )
             if callout.isRight { right.append(callout) } else { left.append(callout) }
         }

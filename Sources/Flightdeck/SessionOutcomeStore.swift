@@ -6,7 +6,7 @@ import Observation
 /// Probing shells out to `git`, so results are computed off the main thread, cached
 /// per session, and only recomputed when the session's tracked file set changes.
 @Observable
-final class SessionOutcomeStore {
+final class SessionOutcomeStore: @unchecked Sendable {
     private(set) var outcomes: [String: GitOutcome] = [:]
     /// Sessions whose working directory is not a git repository — a real answer worth
     /// showing, distinct from "not measured yet".
@@ -33,14 +33,15 @@ final class SessionOutcomeStore {
         }
 
         queue.async { [weak self] in
-            var measured: [(String, GitOutcome?, Int)] = []
+            var results: [(String, GitOutcome?, Int)] = []
             for request in requests {
                 let outcome = GitOutcomeProbe.probe(
                     cwd: request.cwd, files: request.files,
                     since: request.since, until: request.until
                 )
-                measured.append((request.id, outcome, request.fingerprint))
+                results.append((request.id, outcome, request.fingerprint))
             }
+            let measured = results
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 for (id, outcome, fingerprint) in measured {
