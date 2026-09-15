@@ -397,6 +397,7 @@ private struct TabPicker: View {
 
 // MARK: - Top bar
 
+@MainActor
 private struct TopBar: View {
     @Environment(DashboardStore.self) private var store
     @Environment(DiskScanner.self) private var diskScanner
