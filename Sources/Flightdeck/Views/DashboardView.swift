@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 
+@MainActor
 struct DashboardView: View {
     /// Five top-level tabs, each grouping related sections.
     ///
