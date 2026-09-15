@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Sparkles, RefreshCw, ArrowRight, ShieldCheck } from "lucide-react";
+import { UploadCloud, FileText, CheckCircle2, AlertTriangle, Sparkles, RefreshCw, ArrowRight, ShieldCheck, Download } from "lucide-react";
 import { playClickSound, playRadarBlip, playSuccessChime } from "@/utils/audio";
 
 interface AnalysisResult {
@@ -159,6 +159,26 @@ export default function TranscriptDropzone() {
     }, 250);
   };
 
+  const exportJsonReport = () => {
+    if (!analysis) return;
+    playClickSound();
+    const report = {
+      reportGeneratedAt: new Date().toISOString(),
+      sourceFile: fileName,
+      ...analysis,
+      costPerSurvivingLineUsd: Number((analysis.totalCost / Math.max(1, analysis.survivingLines)).toFixed(4)),
+      auditedBy: "Flightdeck Local Forensics Engine",
+      integrity: "100% Client-Side Cryptographic Local Audit",
+    };
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `flightdeck_audit_${fileName.replace(/\.[^/.]+$/, "")}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="w-full bg-[#07080a] border border-[#232428] rounded-[14px] p-6 sm:p-8 shadow-[0_12px_48px_rgba(0,0,0,0.7)] relative overflow-hidden">
       {/* Laser Gradient Accent Line */}
@@ -264,7 +284,7 @@ export default function TranscriptDropzone() {
               </div>
             </div>
 
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4 sm:gap-6">
               <div className="text-right">
                 <div className="text-[10px] font-mono text-[#6a6b6c] uppercase">TOTAL INVOICE</div>
                 <div className="text-[20px] font-mono text-white font-medium">${analysis.totalCost.toFixed(2)}</div>
@@ -275,6 +295,14 @@ export default function TranscriptDropzone() {
                   {analysis.survivalRate}%
                 </div>
               </div>
+              <button
+                onClick={exportJsonReport}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] bg-[#141518] hover:bg-[#1f2024] text-[12px] font-mono text-[#e6e6e6] hover:text-white border border-[#363739]/60 hover:border-[#8b5cf6]/50 transition-colors"
+                title="Export structured forensic report as JSON"
+              >
+                <Download className="w-3.5 h-3.5 text-[#a78bfa]" />
+                <span>Export JSON</span>
+              </button>
             </div>
           </div>
 

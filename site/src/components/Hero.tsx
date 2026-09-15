@@ -1,9 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Check, Copy, Terminal, ChevronRight, Sparkles } from "lucide-react";
-import HoloRadar from "./HoloRadar";
-import FloatingKeycaps from "./FloatingKeycaps";
+import { Check, Copy, Terminal } from "lucide-react";
 import CommandPalette from "./CommandPalette";
 import CockpitHUDBackground from "./CockpitHUDBackground";
 

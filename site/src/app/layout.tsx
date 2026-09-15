@@ -53,6 +53,24 @@ export const metadata: Metadata = {
   },
 };
 
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Flightdeck",
+  operatingSystem: "macOS 14.0 Sonoma or later (Apple Silicon & Intel)",
+  applicationCategory: "DeveloperApplication",
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+  description: "The Cyberpunk Activity Monitor & Developer Cockpit for macOS that measures what your Claude Code spend actually produced.",
+  url: "https://flightdeck-app.netlify.app",
+  downloadUrl: "https://flightdeck-app.netlify.app/download",
+  softwareVersion: "0.1.0",
+  license: "https://opensource.org/licenses/MIT",
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -63,6 +81,12 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${geistMono.variable} bg-[#040506] text-[#ffffff] antialiased selection:bg-[#ff6363] selection:text-white`}
     >
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      </head>
       <body className="min-h-screen bg-[#040506] text-[#ffffff] font-sans flex flex-col">
         {children}
         <KeyboardShortcutsModal />
@@ -70,3 +94,4 @@ export default function RootLayout({
     </html>
   );
 }
+
