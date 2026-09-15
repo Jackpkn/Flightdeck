@@ -387,7 +387,7 @@ private struct TabPicker: View {
                 // ⌘1…⌘5. Routed through the main menu by SwiftUI, which is why the
                 // app has to run as a real bundle — see scripts/make-app.sh.
                 .keyboardShortcut(t.shortcut, modifiers: .command)
-                .help("\(t.rawValue)  ⌘\(t.shortcut.character)")
+                .help("\(t.rawValue)  ⌘\(String(t.shortcut.character))")
             }
         }
         .padding(3)
