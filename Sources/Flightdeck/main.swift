@@ -1,14 +1,15 @@
 import Foundation
 
-/// Entry point: dispatches between headless CLI mode (statusline/hook/install-hooks)
-/// and the normal SwiftUI GUI. Claude Code invokes the CLI subcommands; the user
-/// launches the GUI by double-clicking the app or running `./scripts/run-app.sh`.
+/// Entry point: dispatches between headless CLI mode and the normal SwiftUI GUI.
+/// Running `flightdeck <subcommand>` in terminal runs headless CLI commands.
+/// Running `flightdeck` with no arguments or double-clicking the app launches the GUI.
 let args = CommandLine.arguments
 
 if args.count >= 2 {
-    let subcommand = args[1].lowercased()
-    if ["statusline", "hook", "install-hooks"].contains(subcommand) {
-        CLI.run(subcommand: subcommand)
+    let firstArg = args[1]
+    // macOS LaunchServices passes -psn_... when launching via Finder/Dock
+    if !firstArg.hasPrefix("-psn") {
+        CLI.run(arguments: Array(args.dropFirst()))
         // CLI.run calls exit() — never reaches here
     }
 }
