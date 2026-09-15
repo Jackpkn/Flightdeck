@@ -3,6 +3,7 @@ import SwiftUI
 /// "What's eating this folder" — total usage plus the biggest individual files
 /// anywhere beneath it, each actionable.
 struct DiskRadarPanel: View {
+    @Environment(DashboardStore.self) private var store
     @Environment(DiskScanner.self) private var scanner
     @Environment(FileBrowser.self) private var browser
     @Environment(ActionCenter.self) private var actions
@@ -24,7 +25,7 @@ struct DiskRadarPanel: View {
                 scanButton
             }
 
-            Text(browser.currentURL.path)
+            Text(store.redactor.homeRelative(browser.currentURL.path))
                 .font(Theme.mono(9.5))
                 .foregroundStyle(Theme.ink3.opacity(0.8))
                 .lineLimit(1)

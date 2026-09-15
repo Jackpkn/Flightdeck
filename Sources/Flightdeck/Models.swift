@@ -221,6 +221,24 @@ struct SessionAgg: Identifiable {
         return project
     }
 
+    /// A copy with every identifying string replaced, for presentation mode.
+    /// Deliberately touches no number: spend, tokens, survival and dates are
+    /// what a viewer is being shown, and faking them would defeat the purpose.
+    func redacted(by redactor: Redactor) -> SessionAgg {
+        guard redactor.isEnabled else { return self }
+        var copy = self
+        copy.project = redactor.project(project)
+        copy.branch = redactor.branch(branch)
+        copy.lastFile = redactor.path(lastFile)
+        copy.aiTitle = redactor.title(aiTitle, project: project)
+        copy.lastPrompt = ""
+        // `filesModified` stays real. It is a Set, so masking distinct paths to
+        // one label collapses it and understates `filesModifiedCount` — and the
+        // git probe needs the true paths anyway. The one place these are shown
+        // (a tooltip) redacts them itself.
+        return copy
+    }
+
     var netLines: Int {
         linesAdded - linesRemoved
     }

@@ -128,13 +128,13 @@ struct ActivityFeedPanel: View {
                                     count: group.entries.count
                                 )
                                 ForEach(group.entries) { entry in
-                                    LogRow(entry: entry, showProject: false)
+                                    LogRow(entry: entry, showProject: false, redactor: store.redactor)
                                     Divider().background(Theme.hairline2)
                                 }
                             }
                         } else {
                             ForEach(filtered.prefix(80)) { entry in
-                                LogRow(entry: entry, showProject: true)
+                                LogRow(entry: entry, showProject: true, redactor: store.redactor)
                                 Divider().background(Theme.hairline2)
                             }
                         }
@@ -262,6 +262,7 @@ private struct SessionGroupHeader: View {
 private struct LogRow: View {
     let entry: ActivityEntry
     let showProject: Bool
+    let redactor: Redactor
 
     @State private var isDiffExpanded = false
     @State private var copied = false
@@ -321,7 +322,7 @@ private struct LogRow: View {
                 }
 
                 if showProject {
-                    Text(entry.project)
+                    Text(redactor.project(entry.project))
                         .font(Theme.mono(11, weight: .semibold)).foregroundStyle(Theme.ink1)
                         .frame(width: 90, alignment: .leading).lineLimit(1)
                 }

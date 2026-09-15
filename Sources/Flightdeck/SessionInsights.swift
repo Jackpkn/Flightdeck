@@ -50,6 +50,21 @@ struct WasteFinding: Identifiable {
     let attributableCost: Double?
     /// Session cost, shown for context even when none of it is attributable.
     let sessionCost: Double
+
+    /// Display-only copy for presentation mode. Both costs pass through: the
+    /// whole point of a waste finding is the number attached to it.
+    func redacted(by redactor: Redactor) -> WasteFinding {
+        guard redactor.isEnabled else { return self }
+        return WasteFinding(
+            kind: kind,
+            sessionId: sessionId,
+            project: redactor.project(project),
+            title: redactor.title(title, project: project),
+            detail: detail,
+            attributableCost: attributableCost,
+            sessionCost: sessionCost
+        )
+    }
 }
 
 /// Scans sessions for spend that may not have bought anything.
@@ -176,6 +191,16 @@ struct ChurnHotspot: Identifiable {
     var id: String { path }
 
     var fileName: String { URL(fileURLWithPath: path).lastPathComponent }
+
+    /// Display-only copy. `sessionCount` is the finding, so it is untouched.
+    func redacted(by redactor: Redactor) -> ChurnHotspot {
+        guard redactor.isEnabled else { return self }
+        return ChurnHotspot(
+            path: redactor.path(path),
+            sessionCount: sessionCount,
+            projects: projects.map(redactor.project)
+        )
+    }
 }
 
 /// Finds files that repeatedly get reworked.

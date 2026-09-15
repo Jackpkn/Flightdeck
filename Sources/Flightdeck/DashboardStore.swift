@@ -14,7 +14,30 @@ import GRDB
 /// 3. **ShellFeed** — local terminal history for the activity feed.
 @Observable
 final class DashboardStore {
-    private(set) var sessions: [String: SessionAgg] = [:]
+    /// The unredacted truth. Ingestion and every internal calculation use this.
+    private(set) var rawSessions: [String: SessionAgg] = [:]
+
+    /// What the UI sees. In presentation mode the strings that identify *what
+    /// you are working on* are replaced; every measured number passes straight
+    /// through, so a shared screen still shows real spend.
+    var sessions: [String: SessionAgg] {
+        guard redactor.isEnabled else { return rawSessions }
+        return rawSessions.mapValues { $0.redacted(by: redactor) }
+    }
+
+    var redactor = Redactor()
+
+    /// Safe to screenshare: masks project names, session titles, branches and
+    /// file paths. Costs, tokens and survival rates are never masked.
+    var isPresentationMode: Bool {
+        get { redactor.isEnabled }
+        set {
+            redactor.isEnabled = newValue
+            if newValue {
+                redactor.register(projects: rawSessions.values.map(\.project))
+            }
+        }
+    }
     private(set) var activity: [ActivityEntry] = []
     private(set) var costEvents: [CostEvent] = []
     var inspectedSession: SessionAgg? = nil
@@ -193,7 +216,7 @@ final class DashboardStore {
     private func mergeLiveSessions(_ records: [SessionLiveRecord]) {
         for record in records {
             if record.sessionId.hasPrefix("test-") { continue }
-            var agg = sessions[record.sessionId] ?? SessionAgg(id: record.sessionId, project: record.project)
+            var agg = rawSessions[record.sessionId] ?? SessionAgg(id: record.sessionId, project: record.project)
             if !record.project.isEmpty { agg.project = record.project }
             if !record.branch.isEmpty { agg.branch = record.branch }
             if !record.model.isEmpty { agg.model = record.model }
@@ -215,7 +238,7 @@ final class DashboardStore {
             if record.totalCostUsd > 0 {
                 agg.liveTotalCost = record.totalCostUsd
             }
-            sessions[record.sessionId] = agg
+            rawSessions[record.sessionId] = agg
             if inspectedSession?.id == record.sessionId {
                 inspectedSession = agg
             }
@@ -250,7 +273,7 @@ final class DashboardStore {
 
             let entry = ActivityEntry(
                 timestamp: r.timestamp,
-                project: sessions[r.sessionId]?.project ?? "ai",
+                project: rawSessions[r.sessionId]?.project ?? "ai",
                 sessionId: r.sessionId,
                 kind: kind,
                 text: text
@@ -397,7 +420,7 @@ final class DashboardStore {
     @MainActor
     private func mergeClaudeJsonProjects(_ snapshots: [ClaudeProjectSnapshot]) {
         for snap in snapshots {
-            var agg = sessions[snap.sessionId]
+            var agg = rawSessions[snap.sessionId]
                 ?? SessionAgg(id: snap.sessionId, project: Self.friendlyName(fromCwd: snap.cwd))
             agg.cwd = snap.cwd
 
@@ -442,7 +465,7 @@ final class DashboardStore {
                 agg.model = dominant
             }
 
-            sessions[snap.sessionId] = agg
+            rawSessions[snap.sessionId] = agg
             if inspectedSession?.id == snap.sessionId {
                 inspectedSession = agg
             }
@@ -523,9 +546,9 @@ final class DashboardStore {
                 apply(entry, projectHint: batch.projectHint, sessionIdHint: batch.sessionIdHint)
             }
             // Fall back to the transcript's own mtime when no line carried a timestamp.
-            if var agg = sessions[batch.sessionIdHint], agg.lastSeen == nil, let modified = batch.fileModified {
+            if var agg = rawSessions[batch.sessionIdHint], agg.lastSeen == nil, let modified = batch.fileModified {
                 agg.lastSeen = modified
-                sessions[batch.sessionIdHint] = agg
+                rawSessions[batch.sessionIdHint] = agg
             }
         }
         trimActivity()
@@ -558,7 +581,7 @@ final class DashboardStore {
         guard !sessionId.isEmpty, !sessionId.hasPrefix("test-") else { return }
         let ts = parseDate(entry.timestamp)
 
-        var agg = sessions[sessionId] ?? SessionAgg(id: sessionId, project: projectHint)
+        var agg = rawSessions[sessionId] ?? SessionAgg(id: sessionId, project: projectHint)
         if let cwd = entry.cwd {
             agg.cwd = cwd
             agg.project = Self.friendlyName(fromCwd: cwd)
@@ -730,7 +753,7 @@ final class DashboardStore {
             if let repo = entry.prRepository { agg.prRepository = repo }
         }
 
-        sessions[sessionId] = agg
+        rawSessions[sessionId] = agg
         if inspectedSession?.id == sessionId {
             inspectedSession = agg
         }
@@ -790,6 +813,14 @@ final class DashboardStore {
 
     var activeSessions: [SessionAgg] {
         sessions.values
+            .sorted { ($0.lastSeen ?? .distantPast) > ($1.lastSeen ?? .distantPast) }
+    }
+
+    /// Same list, never redacted. Anything that *computes* from a session —
+    /// probing git, matching paths on disk — has to see real paths, or it
+    /// silently measures nothing. Redact at the point of display instead.
+    var rawActiveSessions: [SessionAgg] {
+        rawSessions.values
             .sorted { ($0.lastSeen ?? .distantPast) > ($1.lastSeen ?? .distantPast) }
     }
 

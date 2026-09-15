@@ -1,0 +1,67 @@
+name: Release Build & Distribution
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Universal macOS DMG & Tarball
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build Universal Package
+        run: |
+          chmod +x scripts/*.sh
+          ./scripts/release.sh
+
+      - name: Extract Tag & Release Notes
+        id: release_info
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          SHA_TARBALL=$(cat dist/Flightdeck-$VERSION-universal.tar.gz.sha256 2>/dev/null || echo "N/A")
+          echo "sha_tarball=$SHA_TARBALL" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Flightdeck ${{ steps.release_info.outputs.tag }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist/Flightdeck-${{ steps.release_info.outputs.version }}.dmg
+            dist/Flightdeck-${{ steps.release_info.outputs.version }}-universal.tar.gz
+            dist/Flightdeck-${{ steps.release_info.outputs.version }}-universal.tar.gz.sha256
+          body: |
+            ### ⚡️ Flightdeck ${{ steps.release_info.outputs.tag }}
+
+            Universal macOS build for Apple Silicon (`arm64`) and Intel Core (`x86_64`).
+
+            #### 📦 Verification Checksums
+            * **Universal Tarball SHA-256**: `${{ steps.release_info.outputs.sha_tarball }}`
+
+            #### 🚀 Quick Install (Homebrew)
+            ```bash
+            brew tap Jackpkn/flightdeck
+            brew install flightdeck
+            ```
+
+            #### 📁 Manual DMG Installation
+            1. Download `Flightdeck-${{ steps.release_info.outputs.version }}.dmg`
+            2. Drag `Flightdeck.app` to `/Applications`
+            3. Run in Terminal: `xattr -dr com.apple.quarantine /Applications/Flightdeck.app`

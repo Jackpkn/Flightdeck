@@ -17,6 +17,7 @@ BUILD="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
 DIST="dist"
 APP="$DIST/Flightdeck.app"
 DMG="$DIST/Flightdeck-$VERSION.dmg"
+TARBALL="$DIST/Flightdeck-$VERSION-universal.tar.gz"
 
 echo "==> Flightdeck $VERSION (build $BUILD)"
 rm -rf "$DIST"
@@ -58,7 +59,24 @@ hdiutil create -quiet -volname "Flightdeck $VERSION" -srcfolder "$STAGING" \
         -ov -format UDZO "$DMG"
 rm -rf "$STAGING"
 
-# 5. Notarise and staple, so the DMG opens without a warning.
+# 5. Tarball, for Homebrew.
+#
+# This is the install path that works without a certificate. macOS applies
+# com.apple.quarantine at *download* time, and only browsers do it — Homebrew
+# fetches with curl, so a tarball it installs is never quarantined and Gatekeeper
+# never engages. A cask cannot be used for the same job: Homebrew 6 removed
+# --no-quarantine, so casks always quarantine.
+echo "==> Building tarball (the un-quarantined Homebrew path)"
+TAR_STAGING="$DIST/Flightdeck-$VERSION"
+rm -rf "$TAR_STAGING"
+mkdir -p "$TAR_STAGING"
+cp -R "$APP" "$TAR_STAGING/"
+tar czf "$TARBALL" -C "$DIST" "Flightdeck-$VERSION"
+rm -rf "$TAR_STAGING"
+shasum -a 256 "$TARBALL" | awk '{print $1}' > "$TARBALL.sha256"
+echo "    sha256 $(cat "$TARBALL.sha256")"
+
+# 6. Notarise and staple, so the DMG opens without a warning.
 if [ -n "${DEVELOPER_ID:-}" ] && [ -n "${NOTARY_PROFILE:-}" ]; then
   echo "==> Submitting for notarisation (this takes a few minutes)"
   xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
@@ -71,5 +89,5 @@ else
 fi
 
 echo ""
-echo "==> Done: $DMG"
-du -h "$DMG"
+echo "==> Done"
+du -h "$DMG" "$TARBALL"

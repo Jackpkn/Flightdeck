@@ -1,0 +1,10 @@
+# Netlify Configuration for Flightdeck
+# The Next.js website lives in the /site subdirectory
+
+[build]
+  base = "site"
+  publish = ".next"
+  command = "npm run build"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

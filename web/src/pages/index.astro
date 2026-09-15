@@ -129,13 +129,17 @@ const rail = [
           It is also a full system monitor: CPU and memory straight from the Mach kernel, every
           listening port, what is draining the battery, and where the disk went.
         </p>
+        <pre class="cmd hero-cmd"><code>brew tap Jackpkn/flightdeck
+brew trust jackpkn/flightdeck
+brew install flightdeck</code></pre>
         <div class="cta">
-          <a class="btn" href={dmg} download>Download the DMG &middot; 12&nbsp;MB</a>
-          <a class="btn ghost" href={RELEASES}>All releases</a>
+          <a class="btn" href="#install">How it installs</a>
+          <a class="btn ghost" href={dmg} download>Download the DMG</a>
         </div>
         <p class="gatekeeper">
-          Not yet notarised — macOS will ask you to confirm on first launch.
-          <a href="#install">How to open it</a>.
+          Installed by Homebrew, macOS raises no security warning at all —
+          <a href="#install">here is why</a>. The DMG is a browser download, so it does get
+          blocked; that is fixable in one command.
         </p>
       </div>
       <HoloGlobe />
@@ -294,20 +298,43 @@ const rail = [
       <div class="wrap">
         <div class="sec-head">
           <p class="eyebrow">Install</p>
-          <h2>Two steps, and one warning to expect.</h2>
+          <h2>One command, and no security warning.</h2>
+          <p class="body-copy">
+            macOS only blocks files carrying a <code>com.apple.quarantine</code> flag, and that
+            flag is set by whatever fetched the file. Browsers set it; <code>curl</code> does
+            not. Homebrew fetches with <code>curl</code> — so an app it installs never carries
+            the flag, and Gatekeeper never runs. No certificate is involved anywhere.
+          </p>
         </div>
-        <ol class="steps">
-          <li>
-            <p><b>Open the DMG and drag Flightdeck to Applications.</b></p>
-          </li>
-          <li>
-            <p><b>First launch: right-click the app and choose Open.</b> macOS will say it cannot
-              verify the developer. That is because Flightdeck is not yet notarised with an Apple
-              Developer certificate — not because anything is wrong with the download. Double-clicking
-              shows a dialog with no way forward; right-click &rarr; Open gives you the button.
-            </p>
-          </li>
-        </ol>
+
+        <pre class="cmd"><code>brew tap Jackpkn/flightdeck
+brew trust jackpkn/flightdeck
+brew install flightdeck</code></pre>
+
+        <p class="body-copy after-cmd">
+          Then run <code>flightdeck</code>. To put it in Spotlight and the Dock as well:
+        </p>
+        <pre class="cmd"><code>ln -sfn "$(brew --prefix flightdeck)/Flightdeck.app" /Applications/Flightdeck.app</code></pre>
+
+        <div class="aside">
+          <p class="eyebrow">If you would rather have the DMG</p>
+          <p class="body-copy">
+            A browser download <em>is</em> quarantined, so macOS blocks it. Drag Flightdeck to
+            Applications, then run this once:
+          </p>
+          <pre class="cmd"><code>xattr -dr com.apple.quarantine /Applications/Flightdeck.app</code></pre>
+          <p class="body-copy">
+            That clears the download-origin flag. It says nothing about the code: the bundle is
+            signed and verifies cleanly, it is simply not <em>notarised by Apple</em>. Only run
+            it on software you meant to download.
+          </p>
+          <p class="small">
+            Without Terminal: System&nbsp;Settings &rarr; Privacy&nbsp;&amp;&nbsp;Security &rarr;
+            <b>Open Anyway</b>. Control-clicking and choosing Open stopped working in
+            macOS&nbsp;15.
+          </p>
+        </div>
+
         <div class="cta">
           <a class="btn" href={dmg} download>Download the DMG &middot; 12&nbsp;MB</a>
           <span class="build num">v{version} &middot; universal &middot; arm64 + x86_64</span>
@@ -818,7 +845,52 @@ const rail = [
     font-weight: 600;
   }
 
+  .hero-cmd {
+    margin-top: 4px;
+  }
+
+  .after-cmd {
+    margin-block: 16px 10px;
+  }
+
   .steps::marker {
     font-family: var(--mono);
+  }
+
+  .aside.warn {
+    border-left-color: var(--sky);
+  }
+
+  .aside {
+    border: 1px solid var(--hairline);
+    border-left: 2px solid var(--cost);
+    background: var(--panel);
+    padding: 18px 20px;
+    display: grid;
+    gap: 11px;
+    max-width: 72ch;
+    margin-bottom: 30px;
+  }
+
+  .cmd {
+    margin: 0;
+    overflow-x: auto;
+    background: var(--ground);
+    border: 1px solid var(--hairline2);
+    padding: 12px 14px;
+  }
+
+  .cmd code {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink1);
+    white-space: pre;
+  }
+
+  .small {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    line-height: 1.7;
+    color: var(--ink3);
   }
 </style>

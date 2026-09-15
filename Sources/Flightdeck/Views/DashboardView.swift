@@ -494,6 +494,28 @@ private struct TopBar: View {
             .keyboardShortcut("k", modifiers: [.command])
             .help("Open Command Palette (⌘K)")
 
+            Button {
+                store.isPresentationMode.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: store.isPresentationMode ? "eye.slash.fill" : "eye")
+                        .font(.system(size: 10))
+                        .foregroundStyle(store.isPresentationMode ? Theme.warning : Theme.ink3)
+                    Text(store.isPresentationMode ? "Presenting" : "Present")
+                        .font(Theme.mono(11.5))
+                        .foregroundStyle(store.isPresentationMode ? Theme.warning : Theme.ink2)
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .glassPanel(cornerRadius: 7)
+            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .help(
+                store.isPresentationMode
+                    ? "Showing neutral labels — safe to screenshare. Costs and tokens are real. (⇧⌘P)"
+                    : "Hide project names, session titles, branches and paths so the window is safe to screenshare (⇧⌘P)"
+            )
+
             if errorFlash {
                 Text("⚠ tool call failed").font(Theme.mono(11.5)).foregroundStyle(Theme.critical)
                     .transition(.opacity)

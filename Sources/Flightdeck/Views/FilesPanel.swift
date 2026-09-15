@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct FilesPanel: View {
+    @Environment(DashboardStore.self) private var store
     @Environment(FileBrowser.self) private var browser
     @Environment(DiskScanner.self) private var scanner
     @Binding var editing: FileEditTarget?
@@ -356,7 +357,7 @@ struct FilesPanel: View {
                             Text("/").font(Theme.mono(10)).foregroundStyle(Theme.ink3.opacity(0.5))
                         }
                         Button { browser.navigate(to: crumb.url) } label: {
-                            Text(crumb.name)
+                            Text(store.redactor.userName(crumb.name))
                                 .font(Theme.mono(10.5))
                                 .foregroundStyle(index == browser.breadcrumbs.count - 1 ? Theme.ink1 : Theme.ink3)
                         }
@@ -493,6 +494,7 @@ struct FilesPanel: View {
 }
 
 private struct FileRow: View {
+    @Environment(DashboardStore.self) private var store
     let entry: FileEntry
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -523,7 +525,7 @@ private struct FileRow: View {
                 .frame(width: 14)
 
             Button { browser.activate(entry) } label: {
-                Text(entry.name)
+                Text(store.redactor.entryName(entry.name))
                     .font(Theme.ui(12.5))
                     .foregroundStyle(isHovered ? Theme.ink1 : Theme.ink2)
                     .lineLimit(1)

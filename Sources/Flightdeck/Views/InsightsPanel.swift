@@ -10,9 +10,16 @@ struct InsightsPanel: View {
     @Environment(DashboardStore.self) private var store
     @Environment(SessionOutcomeStore.self) private var outcomes
 
-    private var sessions: [SessionAgg] { store.activeSessions }
+    /// Raw on purpose: every figure on this panel is measured against the real
+    /// repository, so redacted paths would make the whole view read as empty.
+    private var sessions: [SessionAgg] { store.rawActiveSessions }
     private var waste: WasteReport { WasteReport(sessions: sessions) }
     private var hotspots: [ChurnHotspot] { ChurnAnalyzer.hotspots(in: sessions) }
+
+    /// Masking happens here, on the way to the screen, and nowhere earlier.
+    private func shown(_ session: SessionAgg) -> SessionAgg {
+        session.redacted(by: store.redactor)
+    }
 
     var body: some View {
         ScrollView {
@@ -99,7 +106,7 @@ struct InsightsPanel: View {
             } else {
                 VStack(spacing: 8) {
                     ForEach(waste.findings) { finding in
-                        WasteFindingRow(finding: finding)
+                        WasteFindingRow(finding: finding.redacted(by: store.redactor))
                     }
                 }
             }
@@ -124,7 +131,7 @@ struct InsightsPanel: View {
             } else {
                 VStack(spacing: 7) {
                     ForEach(measured, id: \.0.id) { session, outcome in
-                        SurvivalRow(session: session, outcome: outcome)
+                        SurvivalRow(session: shown(session), outcome: outcome)
                     }
                 }
             }
@@ -147,18 +154,18 @@ struct InsightsPanel: View {
                                 .foregroundStyle(spot.sessionCount >= 4 ? Theme.warning : Theme.accentSecondary)
                                 .frame(width: 26, alignment: .trailing)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(spot.fileName)
+                                                Text(store.redactor.fileName(spot.fileName))
                                     .font(Theme.mono(11))
                                     .foregroundStyle(Theme.ink1)
                                     .lineLimit(1)
-                                Text(spot.projects.joined(separator: ", "))
+                                Text(spot.projects.map(store.redactor.project).joined(separator: ", "))
                                     .font(Theme.mono(9))
                                     .foregroundStyle(Theme.ink3)
                                     .lineLimit(1)
                             }
                             Spacer()
                         }
-                        .help(spot.path)
+                        .help(store.redactor.path(spot.path))
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 7))
                     }

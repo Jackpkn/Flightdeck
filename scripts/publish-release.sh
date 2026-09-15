@@ -54,7 +54,7 @@ if ! codesign -dv "dist/Flightdeck.app" 2>&1 | grep -q "Authority=Developer ID";
   echo
   echo "!! This build is ad-hoc signed, not notarised."
   echo "   Anyone who downloads it sees \"Apple could not verify Flightdeck is"
-  echo "   free of malware\" and must right-click -> Open on first launch."
+  echo "   free of malware\" and must clear the quarantine flag before it opens."
   echo
   if [ -z "${ALLOW_UNSIGNED:-}" ]; then
     echo "   Set ALLOW_UNSIGNED=1 to publish anyway, or set DEVELOPER_ID and"
@@ -76,17 +76,62 @@ else
     --description "Downloads for Flightdeck — the macOS activity monitor and Claude Code cockpit."
 fi
 
+# A release needs a commit to hang its tag on, and `gh repo create` leaves the
+# repository empty. Seed it with a README the first time only.
+BRANCHES="$(gh api "repos/$RELEASE_REPO/branches" --jq 'length' 2>/dev/null || echo 0)"
+if [ -z "$DRY_RUN" ] && [ "$BRANCHES" = "0" ]; then
+  echo "==> Seeding $RELEASE_REPO with a README (empty repos cannot be tagged)"
+  SEED="$(mktemp -d)"
+  {
+    echo "# Flightdeck — downloads"
+    echo
+    echo "Binaries for [Flightdeck](https://github.com/Jackpkn/Flightdeck), a macOS activity"
+    echo "monitor and Claude Code cockpit. The source lives in a private repository; this one"
+    echo "exists because GitHub release assets inherit their repository's visibility, and a"
+    echo "download link has to work without a token."
+    echo
+    echo "**[Download the latest release]($([ -n "$RELEASE_REPO" ] && echo "https://github.com/$RELEASE_REPO/releases/latest"))**"
+    echo
+    echo "## Install"
+    echo
+    echo "1. Open the DMG and drag Flightdeck to Applications."
+    echo "2. Run this once, in Terminal, then open the app normally:"
+    echo
+    echo "       xattr -dr com.apple.quarantine /Applications/Flightdeck.app"
+    echo
+    echo "Step 2 is needed until the app is notarised with an Apple Developer certificate."
+    echo "The com.apple.quarantine flag your browser attaches records where a file came from"
+    echo "and says nothing about the code inside it. Control-clicking and choosing Open does"
+    echo "**not** work on macOS 15 Sequoia or later — Apple removed that bypass. Without"
+    echo "Terminal, use System Settings → Privacy & Security → Open Anyway."
+    echo
+    echo "Requires macOS 14 or later. Universal: Apple silicon and Intel."
+  } > "$SEED/README.md"
+  git -C "$SEED" init -q
+  git -C "$SEED" add README.md
+  git -C "$SEED" commit -q -m "docs: explain what this repository is and how to install"
+  git -C "$SEED" branch -M main
+  git -C "$SEED" remote add origin "https://github.com/$RELEASE_REPO.git"
+  git -C "$SEED" push -q origin main
+  rm -rf "$SEED"
+fi
+
 # ── the release ─────────────────────────────────────────────────────────────
 NOTES="$(cat <<EOF
 Flightdeck $TAG — universal ($ARCHS), $SIZE.
 
 **Install**
 1. Open the DMG and drag Flightdeck to Applications.
-2. On first launch, right-click the app and choose **Open**.
+2. Run this once, in Terminal, then open the app normally:
 
-Step 2 is needed because this build is not yet notarised with an Apple Developer
-certificate. macOS will say it cannot verify the developer; right-click → Open
-gives you a way through, where double-clicking does not.
+       xattr -dr com.apple.quarantine /Applications/Flightdeck.app
+
+This build is not notarised with an Apple Developer certificate, so macOS blocks
+it. The com.apple.quarantine flag your browser attaches records where a file came
+from and says nothing about the code; the bundle itself is signed and verifies
+cleanly. Control-clicking and choosing Open does NOT work on macOS 15 Sequoia or
+later — Apple removed that bypass. Without Terminal, use System Settings ->
+Privacy & Security -> Open Anyway.
 
 **What it does**
 Reads your Claude Code transcripts and the git history of the repos they touched,
