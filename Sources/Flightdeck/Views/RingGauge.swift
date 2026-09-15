@@ -18,20 +18,7 @@ struct RingGauge: View {
     var body: some View {
         ZStack {
             if showTicks {
-                Canvas { context, size in
-                    let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                    let radius = size.width / 2
-                    for i in 0..<24 {
-                        let angle = Double(i) / 24 * 2 * .pi - .pi / 2
-                        let isMajor = i % 6 == 0
-                        let outer = radius
-                        let inner = radius - (isMajor ? 6 : 3)
-                        var path = Path()
-                        path.move(to: CGPoint(x: center.x + inner * cos(angle), y: center.y + inner * sin(angle)))
-                        path.addLine(to: CGPoint(x: center.x + outer * cos(angle), y: center.y + outer * sin(angle)))
-                        context.stroke(path, with: .color(Theme.ink3.opacity(isMajor ? 0.6 : 0.35)), lineWidth: isMajor ? 1.4 : 1)
-                    }
-                }
+                ticksView
             }
             Circle()
                 .stroke(Theme.track, lineWidth: lineWidth)
@@ -49,5 +36,26 @@ struct RingGauge: View {
             }
         }
         .frame(width: diameter, height: diameter)
+    }
+
+    private var ticksView: some View {
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2.0, y: size.height / 2.0)
+            let radius: CGFloat = size.width / 2.0
+            for i in 0..<24 {
+                let angle = Double(i) / 24.0 * 2.0 * .pi - .pi / 2.0
+                let isMajor = (i % 6 == 0)
+                let outer: CGFloat = radius
+                let innerOffset: CGFloat = isMajor ? 6.0 : 3.0
+                let inner: CGFloat = radius - innerOffset
+                let opacity: Double = isMajor ? 0.6 : 0.35
+                let strokeWidth: CGFloat = isMajor ? 1.4 : 1.0
+
+                var path = Path()
+                path.move(to: CGPoint(x: center.x + inner * CGFloat(cos(angle)), y: center.y + inner * CGFloat(sin(angle))))
+                path.addLine(to: CGPoint(x: center.x + outer * CGFloat(cos(angle)), y: center.y + outer * CGFloat(sin(angle))))
+                context.stroke(path, with: .color(Theme.ink3.opacity(opacity)), lineWidth: strokeWidth)
+            }
+        }
     }
 }
