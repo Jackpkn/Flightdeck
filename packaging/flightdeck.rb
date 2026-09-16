@@ -13,9 +13,9 @@
 #   brew install flightdeck
 class Flightdeck < Formula
   desc "macOS activity monitor that measures what your Claude Code spend produced"
-  homepage "https://github.com/Jackpkn/Flightdeck-releases"
-  url "https://github.com/Jackpkn/Flightdeck-releases/releases/download/v0.1.0/Flightdeck-0.1.0-universal.tar.gz"
-  sha256 "fbf17125cd74a1b005c10b2533866a585a12ecbbd7303b80bfddc401bca6449a"
+  homepage "https://github.com/Jackpkn/Flightdeck"
+  url "https://github.com/Jackpkn/Flightdeck/releases/download/v0.1.0/Flightdeck-0.1.0-universal.tar.gz"
+  sha256 "6dd9eb7f1bed343b0a48c860faac18973d7ef71f020f4ab80bfd4b716dbf0cb3"
   version "0.1.0"
   license "MIT"
 
