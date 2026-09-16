@@ -7,8 +7,8 @@ import Stat from "../components/Stat.astro";
 // Injected by astro.config.mjs from the repo's VERSION file, so the download
 // link and the badge can never drift from what was actually released.
 const version = __FLIGHTDECK_VERSION__;
-const RELEASES = "https://github.com/Jackpkn/Flightdeck-releases/releases";
-const dmg = `${RELEASES}/latest/download/Flightdeck-${version}.dmg`;
+const RELEASES = "https://github.com/Jackpkn/Flightdeck/releases";
+const dmg = `${RELEASES}/download/v${version}/Flightdeck-${version}.dmg`;
 
 // Every figure below was measured on one machine. Nothing here is illustrative.
 const decks = [

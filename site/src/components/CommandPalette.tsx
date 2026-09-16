@@ -95,7 +95,7 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
       icon: Download,
       action: () => {
         window.open(
-          "https://github.com/Jackpkn/Flightdeck-releases/releases/latest",
+          "https://github.com/Jackpkn/Flightdeck/releases/latest",
           "_blank"
         );
         onClose();

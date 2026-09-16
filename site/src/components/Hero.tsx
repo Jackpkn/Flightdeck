@@ -55,7 +55,7 @@ export default function Hero() {
           {/* Primary Action Button & Palette Trigger */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-5">
             <a
-              href="https://github.com/Jackpkn/Flightdeck-releases/releases/latest"
+              href="https://github.com/Jackpkn/Flightdeck/releases/latest"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2.5 bg-[#e6e6e6] hover:bg-[#ffffff] text-[#454647] hover:text-[#111214] text-[14px] font-medium px-6 py-2.5 rounded-[9px] transition-all duration-150 btn-lift shadow-[0_8px_24px_rgba(0,0,0,0.5)]"

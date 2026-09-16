@@ -5,7 +5,7 @@ import { Download, ShieldCheck, Check, Copy, Cpu, Terminal, Sparkles } from "luc
 import { playClickSound, playSuccessChime } from "@/utils/audio";
 
 interface ArchitectureConfig {
-  arch: "arm64" | "x86_64";
+  arch: "universal" | "homebrew";
   label: string;
   sublabel: string;
   filename: string;
@@ -14,29 +14,29 @@ interface ArchitectureConfig {
   downloadUrl: string;
 }
 
-const ARCH_CONFIGS: Record<"arm64" | "x86_64", ArchitectureConfig> = {
-  arm64: {
-    arch: "arm64",
-    label: "Apple Silicon",
-    sublabel: "M1 / M2 / M3 / M4 Native",
-    filename: "Flightdeck-0.8.4-arm64.dmg",
-    size: "14.2 MB",
-    sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    downloadUrl: "https://github.com/Jackpkn/Flightdeck-releases/releases/latest",
+const ARCH_CONFIGS: Record<"universal" | "homebrew", ArchitectureConfig> = {
+  universal: {
+    arch: "universal",
+    label: "Universal DMG",
+    sublabel: "Apple Silicon & Intel Core (Fat Binary)",
+    filename: "Flightdeck-0.1.0.dmg",
+    size: "12.0 MB",
+    sha256: "6dd9eb7f1bed343b0a48c860faac18973d7ef71f020f4ab80bfd4b716dbf0cb3",
+    downloadUrl: "https://github.com/Jackpkn/Flightdeck/releases/download/v0.1.0/Flightdeck-0.1.0.dmg",
   },
-  x86_64: {
-    arch: "x86_64",
-    label: "Intel Core",
-    sublabel: "x86_64 64-bit",
-    filename: "Flightdeck-0.8.4-x86_64.dmg",
-    size: "15.8 MB",
-    sha256: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
-    downloadUrl: "https://github.com/Jackpkn/Flightdeck-releases/releases/latest",
+  homebrew: {
+    arch: "homebrew",
+    label: "Homebrew Tarball",
+    sublabel: "Universal Bottle · Zero Gatekeeper Friction",
+    filename: "Flightdeck-0.1.0-universal.tar.gz",
+    size: "11.0 MB",
+    sha256: "6dd9eb7f1bed343b0a48c860faac18973d7ef71f020f4ab80bfd4b716dbf0cb3",
+    downloadUrl: "https://github.com/Jackpkn/Flightdeck/releases/download/v0.1.0/Flightdeck-0.1.0-universal.tar.gz",
   },
 };
 
 export default function ReleaseVerificationCard() {
-  const [selectedArch, setSelectedArch] = useState<"arm64" | "x86_64">("arm64");
+  const [selectedArch, setSelectedArch] = useState<"universal" | "homebrew">("universal");
   const [copiedSha, setCopiedSha] = useState(false);
   const [copiedVerifyCmd, setCopiedVerifyCmd] = useState(false);
 
@@ -74,13 +74,13 @@ export default function ReleaseVerificationCard() {
           </div>
           <span className="px-2 py-0.5 rounded-[4px] bg-[#10b981]/10 border border-[#10b981]/30 text-[11px] font-mono text-[#59d499] flex items-center gap-1">
             <ShieldCheck className="w-3 h-3" />
-            <span>v0.8.4</span>
+            <span>v0.1.0</span>
           </span>
         </div>
 
         {/* Architecture Switcher */}
         <div className="grid grid-cols-2 gap-2 p-1 rounded-[10px] bg-[#040506] border border-[#26272b] mb-4">
-          {(["arm64", "x86_64"] as const).map((archKey) => {
+          {(["universal", "homebrew"] as const).map((archKey) => {
             const config = ARCH_CONFIGS[archKey];
             const isSelected = selectedArch === archKey;
             return (

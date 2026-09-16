@@ -15,7 +15,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-RELEASE_REPO="${RELEASE_REPO:-Jackpkn/Flightdeck-releases}"
+RELEASE_REPO="${RELEASE_REPO:-Jackpkn/Flightdeck}"
 VERSION="$(cat VERSION)"
 TAG="v$VERSION"
 DMG="dist/Flightdeck-$VERSION.dmg"

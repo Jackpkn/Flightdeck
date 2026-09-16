@@ -46,7 +46,7 @@ fi
 # 4. Fallback: Direct DMG Download
 echo "  ==> Homebrew not found. Fetching latest universal DMG..."
 VERSION="0.1.0"
-DMG_URL="https://github.com/Jackpkn/Flightdeck-releases/releases/download/v\${VERSION}/Flightdeck-\${VERSION}.dmg"
+DMG_URL="https://github.com/Jackpkn/Flightdeck/releases/download/v\${VERSION}/Flightdeck-\${VERSION}.dmg"
 TMP_DIR="$(mktemp -d)"
 TMP_DMG="$TMP_DIR/Flightdeck.dmg"
 

@@ -7,11 +7,11 @@ export async function GET(request: Request) {
 
   // If user requests the un-quarantined Homebrew tarball
   if (format === "tar" || format === "tarball") {
-    const tarUrl = `https://github.com/Jackpkn/Flightdeck-releases/releases/download/v${version}/Flightdeck-${version}-universal.tar.gz`;
+    const tarUrl = `https://github.com/Jackpkn/Flightdeck/releases/download/v${version}/Flightdeck-${version}-universal.tar.gz`;
     return NextResponse.redirect(tarUrl, 307);
   }
 
   // Default: Universal DMG installer
-  const dmgUrl = `https://github.com/Jackpkn/Flightdeck-releases/releases/download/v${version}/Flightdeck-${version}.dmg`;
+  const dmgUrl = `https://github.com/Jackpkn/Flightdeck/releases/download/v${version}/Flightdeck-${version}.dmg`;
   return NextResponse.redirect(dmgUrl, 307);
 }

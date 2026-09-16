@@ -32,7 +32,7 @@ export default function Footer() {
             <span>GitHub</span>
           </a>
           <a
-            href="https://github.com/Jackpkn/Flightdeck-releases/releases"
+            href="https://github.com/Jackpkn/Flightdeck/releases"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-white flex items-center gap-1.5 transition-colors"
@@ -46,13 +46,13 @@ export default function Footer() {
       {/* Monospace Technical Strip */}
       <div className="max-w-[1200px] mx-auto mt-8 pt-6 border-t border-[#1b1c1e] flex flex-wrap items-center justify-center md:justify-between gap-3 text-[12px] font-mono text-[#6a6b6c]">
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <span>v0.8.4</span>
+          <span>v0.1.0</span>
           <span className="text-[#2f3031]">|</span>
           <span>macOS 14.0+</span>
           <span className="text-[#2f3031]">|</span>
           <span>Apple Silicon &amp; Intel x86_64</span>
           <span className="text-[#2f3031]">|</span>
-          <span className="text-[#59d499]">239 Tests Passing</span>
+          <span className="text-[#59d499]">267 Tests Passing</span>
           <span className="text-[#2f3031]">|</span>
           <span>MIT License</span>
         </div>

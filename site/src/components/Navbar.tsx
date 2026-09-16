@@ -122,7 +122,7 @@ export default function Navbar() {
 
           {/* Primary Action Button — Mist (#e6e6e6) fill, Iron (#454647) text */}
           <a
-            href="https://github.com/Jackpkn/Flightdeck-releases/releases/latest"
+            href="https://github.com/Jackpkn/Flightdeck/releases/latest"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 bg-[#e6e6e6] hover:bg-[#ffffff] text-[#454647] hover:text-[#111214] text-[13px] font-medium px-3.5 py-1.5 rounded-[8px] transition-all duration-150 btn-lift"
