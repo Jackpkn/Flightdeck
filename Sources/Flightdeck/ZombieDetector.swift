@@ -204,13 +204,43 @@ public final class ZombieDetector {
     }
 
     public func isKillable(pid: pid_t) -> Bool {
+        Self.isKillable(pid: pid)
+    }
+
+    public static func isKillable(pid: pid_t) -> Bool {
         guard pid > 1 else { return false }
         guard pid != ProcessInfo.processInfo.processIdentifier else { return false }
         return true
     }
 
     private func terminatePid(_ pid: pid_t) {
+        Self.terminatePid(pid)
+    }
+
+    public static func terminatePid(_ pid: pid_t) {
         kill(pid, SIGTERM)
-        kill(pid, SIGKILL)
+        usleep(100_000)
+        if kill(pid, 0) == 0 {
+            kill(pid, SIGKILL)
+        }
+    }
+
+    @discardableResult
+    public static func killOrphanSync(pid: pid_t) -> Bool {
+        guard isKillable(pid: pid) else { return false }
+        terminatePid(pid)
+        return true
+    }
+
+    @discardableResult
+    public static func killAllSync(orphans: [OrphanProcess]) -> Int {
+        var killedCount = 0
+        for target in orphans {
+            if isKillable(pid: target.pid) {
+                terminatePid(target.pid)
+                killedCount += 1
+            }
+        }
+        return killedCount
     }
 }

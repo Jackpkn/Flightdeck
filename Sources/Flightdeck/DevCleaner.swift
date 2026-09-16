@@ -264,4 +264,25 @@ public final class DevCleaner {
         }
         return freed
     }
+
+    /// Synchronously scans all default developer cache targets and measures their disk usage.
+    public static func scanSynchronously() -> [CruftCategory] {
+        var targets = defaultTargets
+        for i in 0..<targets.count {
+            if !targets[i].isRAM {
+                targets[i].sizeBytes = calculateDirectorySize(at: targets[i].path)
+            }
+        }
+        return targets
+    }
+
+    /// Synchronously empties non-RAM cache directories and returns total bytes reclaimed.
+    @discardableResult
+    public static func purgeSynchronously(categories: [CruftCategory]) -> Int64 {
+        var totalFreed: Int64 = 0
+        for cat in categories where !cat.isRAM {
+            totalFreed += safelyEmptyDirectory(at: cat.path)
+        }
+        return totalFreed
+    }
 }

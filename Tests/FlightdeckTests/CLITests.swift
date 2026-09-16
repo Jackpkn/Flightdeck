@@ -55,4 +55,65 @@ struct CLITests {
         #expect(!ClaudeIntegrationInstaller.isFlightdeckCommand("echo flightdeck"))
         #expect(!ClaudeIntegrationInstaller.isFlightdeckCommand(nil))
     }
+
+    @Test("PortScanner fetchListeningPorts returns valid TCP ports and classifies dev ports")
+    func testPortScannerFetch() {
+        let ports = PortScanner.fetchListeningPorts()
+        // Ports should execute without crashing and have valid port bounds
+        for p in ports {
+            #expect(p.port > 0 && p.port <= 65535)
+            #expect(!p.processName.isEmpty)
+            #expect(p.isDevPort == (p.port < 49152))
+        }
+    }
+
+    @Test("PortScanner isKillable guards protected system PIDs and self")
+    func testPortScannerSafety() {
+        let selfPid = ProcessInfo.processInfo.processIdentifier
+        #expect(!PortScanner.isKillable(pid: 0))
+        #expect(!PortScanner.isKillable(pid: 1))
+        #expect(!PortScanner.isKillable(pid: selfPid))
+        #expect(PortScanner.isKillable(pid: 99999))
+    }
+
+    @Test("DevCleaner scanSynchronously discovers default developer cache targets")
+    func testDevCleanerScan() {
+        let targets = DevCleaner.scanSynchronously()
+        #expect(!targets.isEmpty)
+        #expect(targets.contains(where: { $0.id == "xcode_derived_data" }))
+        #expect(targets.contains(where: { $0.id == "npm_cache" }))
+        #expect(targets.contains(where: { $0.id == "spm_cache" }))
+
+        // All non-RAM targets must have valid user-directory paths
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        for target in targets where !target.isRAM {
+            #expect(target.path.path.hasPrefix(home))
+            #expect(target.sizeBytes >= 0)
+        }
+    }
+
+    @Test("ZombieDetector discoverOrphans runs safely and adheres to safety guards")
+    func testZombieDetector() {
+        let orphans = ZombieDetector.discoverOrphans()
+        let selfPid = ProcessInfo.processInfo.processIdentifier
+        for orphan in orphans {
+            #expect(orphan.pid > 1)
+            #expect(orphan.pid != selfPid)
+            #expect(!orphan.path.isEmpty)
+            #expect(orphan.memoryBytes >= 0)
+        }
+        #expect(!ZombieDetector.isKillable(pid: 0))
+        #expect(!ZombieDetector.isKillable(pid: 1))
+        #expect(!ZombieDetector.isKillable(pid: selfPid))
+        #expect(ZombieDetector.isKillable(pid: 88888))
+    }
+
+    @Test("MCPServerScanner scanAllSync retrieves running and configured MCP servers")
+    func testMCPServerScannerSync() {
+        let servers = MCPServerScanner.scanAllSync()
+        for server in servers {
+            #expect(!server.id.isEmpty)
+            #expect(!server.name.isEmpty)
+        }
+    }
 }

@@ -262,6 +262,10 @@ public final class PortScanner {
     // MARK: - Process Safety
 
     public func isKillable(pid: Int32) -> Bool {
+        Self.isKillable(pid: pid)
+    }
+
+    public static func isKillable(pid: Int32) -> Bool {
         // Must never kill Flightdeck itself or kernel/launchd
         guard pid > 1 else { return false }
         guard pid != ProcessInfo.processInfo.processIdentifier else { return false }
@@ -269,13 +273,28 @@ public final class PortScanner {
     }
 
     private func terminateProcess(pid: Int32) {
+        Self.terminateProcess(pid: pid)
+    }
+
+    public static func terminateProcess(pid: Int32) {
         // Graceful SIGTERM first
         kill(pid, SIGTERM)
-        // Check if still alive after 250ms; if so, send SIGKILL
-        queue.asyncAfter(deadline: .now() + 0.25) {
-            if kill(pid, 0) == 0 { // process still alive
-                kill(pid, SIGKILL)
-            }
+        // Allow brief grace period, then verify
+        usleep(250_000)
+        if kill(pid, 0) == 0 { // process still alive
+            kill(pid, SIGKILL)
         }
+    }
+
+    public static func killPort(_ portNumber: Int) -> (success: Bool, message: String, process: String?, pid: Int32?) {
+        let ports = fetchListeningPorts()
+        guard let target = ports.first(where: { $0.port == portNumber }) else {
+            return (false, "No active listening process found on port \(portNumber)", nil, nil)
+        }
+        guard isKillable(pid: target.pid) else {
+            return (false, "Refusing to terminate protected system PID \(target.pid) on port \(portNumber)", target.processName, target.pid)
+        }
+        terminateProcess(pid: target.pid)
+        return (true, "Freed port \(portNumber) (terminated process '\(target.processName)', PID \(target.pid))", target.processName, target.pid)
     }
 }
