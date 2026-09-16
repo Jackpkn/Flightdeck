@@ -26,6 +26,24 @@ enum CLI {
         case "ps", "processes":
             handleProcesses(json: isJson)
 
+        case "ports", "port":
+            handlePorts(flags: flags, arguments: arguments)
+
+        case "kill-port":
+            handleKillPort(arguments: arguments)
+
+        case "clean", "cruft":
+            handleClean(flags: flags)
+
+        case "zombies", "zombie":
+            handleZombies(flags: flags)
+
+        case "kill-zombies":
+            handleZombies(flags: flags, autoKill: true)
+
+        case "mcp", "mcpservers", "mcp-servers":
+            handleMCP(flags: flags)
+
         case "sessions":
             handleSessions(json: isJson)
 
@@ -61,25 +79,35 @@ enum CLI {
           flightdeck <command> [options]
 
         COMMANDS:
-          vitals, top            Print live Mach kernel telemetry (CPU, RAM, Disk, Net, GPU)
-          ps, processes          List active user applications by memory & CPU usage
-          sessions               List locally tracked Claude Code sessions and spend telemetry
-          install-hooks          Configure Claude Code statusline & hooks in ~/.claude/settings.json
-          statusline             (Internal) Ingest Claude Code statusline JSON via stdin
-          hook <event>           (Internal) Ingest Claude Code tool hook JSON via stdin
+          vitals, top             Print live Mach kernel telemetry (CPU, RAM, Disk, Net, GPU)
+          ps, processes           List active user applications by memory & CPU usage
+          ports, port             List listening TCP ports with process names & PIDs
+          kill-port <port>        Terminate process hogging a port (e.g. 3000, 8080)
+          clean, cruft            Scan & reclaim disk space from developer caches (Xcode, SPM, NPM)
+          zombies, zombie         Detect runaway orphaned developer background processes
+          kill-zombies            Terminate all orphaned zombie processes to free RAM
+          mcp, mcpservers         List configured & running Model Context Protocol (MCP) servers
+          sessions                List locally tracked Claude Code sessions and spend telemetry
+          install-hooks           Configure Claude Code statusline & hooks in ~/.claude/settings.json
           version, -v, --version  Print Flightdeck version and architecture
           help, -h, --help        Print this help message
 
         OPTIONS:
-          --json                 Output metrics as structured JSON (vitals, ps, sessions)
-          --dry-run              Preview hook changes without writing to disk (install-hooks)
+          --json                  Output metrics as structured JSON
+          --dev-only              Filter to developer ports (< 49152) for 'ports'
+          --dry-run               Preview changes without executing (install-hooks, clean)
+          --force, -f             Purge caches immediately without confirmation for 'clean'
+          --kill, -k              Terminate detected zombie processes for 'zombies'
 
         EXAMPLES:
           flightdeck vitals
-          flightdeck vitals --json
-          flightdeck ps
+          flightdeck ports --dev-only
+          flightdeck kill-port 3000
+          flightdeck clean --dry-run
+          flightdeck clean --force
+          flightdeck zombies --kill
+          flightdeck mcp --json
           flightdeck sessions
-          flightdeck install-hooks --dry-run
         """)
         exit(0)
     }
@@ -446,6 +474,279 @@ enum CLI {
         } catch {
             fputs("Failed to write settings: \(error)\n", stderr)
             exit(1)
+        }
+        exit(0)
+    }
+
+    // MARK: - 9. Listening Ports & Freeing
+
+    private static func handlePorts(flags: Set<String>, arguments: [String]) -> Never {
+        let isJson = flags.contains("--json")
+        let devOnly = flags.contains("--dev-only") || flags.contains("--dev")
+
+        var ports = PortScanner.fetchListeningPorts()
+        if devOnly {
+            ports = ports.filter(\.isDevPort)
+        }
+
+        if isJson {
+            let list = ports.map { p in
+                [
+                    "port": p.port,
+                    "pid": p.pid,
+                    "process": p.processName,
+                    "address": p.address,
+                    "isDevPort": p.isDevPort
+                ] as [String: Any]
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: list, options: [.prettyPrinted]),
+               let str = String(data: data, encoding: .utf8) {
+                print(str)
+            }
+        } else {
+            if ports.isEmpty {
+                print("No listening TCP ports found\(devOnly ? " (dev-only filter active)" : "").")
+            } else {
+                print("⚡️ FLIGHTDECK LISTENING TCP PORTS (\(ports.count) ACTIVE)")
+                let hPort = "PORT".padding(toLength: 7, withPad: " ", startingAt: 0)
+                let hPid = "PID".padding(toLength: 8, withPad: " ", startingAt: 0)
+                let hProcess = "PROCESS".padding(toLength: 22, withPad: " ", startingAt: 0)
+                let hAddr = "ADDRESS".padding(toLength: 18, withPad: " ", startingAt: 0)
+                print("\(hPort)  \(hPid)  \(hProcess)  \(hAddr)  KIND")
+                print(String(repeating: "─", count: 68))
+                for p in ports {
+                    let portStr = "\(p.port)".padding(toLength: 7, withPad: " ", startingAt: 0)
+                    let pidStr = "\(p.pid)".padding(toLength: 8, withPad: " ", startingAt: 0)
+                    let procStr = String(p.processName.prefix(22)).padding(toLength: 22, withPad: " ", startingAt: 0)
+                    let addrStr = String(p.address.prefix(18)).padding(toLength: 18, withPad: " ", startingAt: 0)
+                    let kindStr = p.isDevPort ? "DEV" : "SYSTEM"
+                    print("\(portStr)  \(pidStr)  \(procStr)  \(addrStr)  \(kindStr)")
+                }
+                print("────────────────────────────────────────────────────────────────────")
+                print("Tip: Run 'flightdeck kill-port <port>' to free a blocked port.")
+            }
+        }
+        exit(0)
+    }
+
+    private static func handleKillPort(arguments: [String]) -> Never {
+        let targetArgs = arguments.filter { !$0.hasPrefix("-") }
+        guard targetArgs.count >= 2, let portNum = Int(targetArgs[1]) else {
+            fputs("Error: Missing or invalid port number.\n\n", stderr)
+            fputs("Usage: flightdeck kill-port <port>\n", stderr)
+            fputs("Example: flightdeck kill-port 3000\n", stderr)
+            exit(1)
+        }
+
+        let result = PortScanner.killPort(portNum)
+        if result.success {
+            print("⚡️ \(result.message)")
+            exit(0)
+        } else {
+            fputs("❌ \(result.message)\n", stderr)
+            exit(1)
+        }
+    }
+
+    // MARK: - 10. Developer Cruft & Cache Cleaner
+
+    private static func handleClean(flags: Set<String>) -> Never {
+        let isJson = flags.contains("--json")
+        let isDryRun = flags.contains("--dry-run")
+        let isForce = flags.contains("--force") || flags.contains("-f")
+
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+
+        let categories = DevCleaner.scanSynchronously()
+        let nonRAM = categories.filter { !$0.isRAM }
+        let totalBytes = nonRAM.reduce(0) { $0 + $1.sizeBytes }
+
+        if isForce && !isDryRun {
+            let freedBytes = DevCleaner.purgeSynchronously(categories: categories)
+            if isJson {
+                let dict: [String: Any] = [
+                    "purged": true,
+                    "reclaimedBytes": freedBytes,
+                    "reclaimed": formatter.string(fromByteCount: freedBytes)
+                ]
+                if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted]),
+                   let str = String(data: data, encoding: .utf8) {
+                    print(str)
+                }
+            } else {
+                print("⚡️ FLIGHTDECK DEVELOPER CRUFT PURGED")
+                print("Reclaimed \(formatter.string(fromByteCount: freedBytes)) across \(nonRAM.count) developer cache targets.")
+            }
+            exit(0)
+        }
+
+        if isJson {
+            let list = nonRAM.map { c in
+                [
+                    "id": c.id,
+                    "name": c.name,
+                    "sizeBytes": c.sizeBytes,
+                    "size": formatter.string(fromByteCount: c.sizeBytes),
+                    "path": c.path.path
+                ] as [String: Any]
+            }
+            let dict: [String: Any] = [
+                "dryRun": isDryRun,
+                "totalReclaimableBytes": totalBytes,
+                "totalReclaimable": formatter.string(fromByteCount: totalBytes),
+                "targets": list
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted]),
+               let str = String(data: data, encoding: .utf8) {
+                print(str)
+            }
+        } else {
+            let header = isDryRun ? "⚡️ FLIGHTDECK DEVELOPER CRUFT SCAN (DRY RUN)" : "⚡️ FLIGHTDECK DEVELOPER CRUFT DISCOVERY"
+            print(header)
+            let hName = "TARGET / CACHE".padding(toLength: 26, withPad: " ", startingAt: 0)
+            let hSize = "RECLAIMABLE".padding(toLength: 14, withPad: " ", startingAt: 0)
+            print("\(hName)  \(hSize)  PATH")
+            print(String(repeating: "─", count: 75))
+            for cat in nonRAM {
+                let nameStr = String(cat.name.prefix(26)).padding(toLength: 26, withPad: " ", startingAt: 0)
+                let sizeStr = formatter.string(fromByteCount: cat.sizeBytes).padding(toLength: 14, withPad: " ", startingAt: 0)
+                let tildePath = cat.path.path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+                print("\(nameStr)  \(sizeStr)  \(tildePath)")
+            }
+            print("───────────────────────────────────────────────────────────────────────────")
+            print("Total Reclaimable Space: \(formatter.string(fromByteCount: totalBytes))")
+            if !isForce {
+                print("\nRun 'flightdeck clean --force' to purge these caches and reclaim disk space.")
+            }
+        }
+        exit(0)
+    }
+
+    // MARK: - 11. Runaway Zombie & Orphan Processes
+
+    private static func handleZombies(flags: Set<String>, autoKill: Bool = false) -> Never {
+        let isJson = flags.contains("--json")
+        let shouldKill = autoKill || flags.contains("--kill") || flags.contains("-k")
+
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .memory
+
+        let orphans = ZombieDetector.discoverOrphans()
+        let totalMemory = orphans.reduce(0) { $0 + $1.memoryBytes }
+
+        if shouldKill && !orphans.isEmpty {
+            let killed = ZombieDetector.killAllSync(orphans: orphans)
+            if isJson {
+                let dict: [String: Any] = [
+                    "killed": true,
+                    "terminatedCount": killed,
+                    "reclaimedBytes": totalMemory,
+                    "reclaimed": formatter.string(fromByteCount: totalMemory)
+                ]
+                if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted]),
+                   let str = String(data: data, encoding: .utf8) {
+                    print(str)
+                }
+            } else {
+                print("⚡️ FLIGHTDECK ZOMBIE PURGE COMPLETE")
+                print("Terminated \(killed) runaway orphaned developer processes.")
+                print("Reclaimed ~\(formatter.string(fromByteCount: totalMemory)) of leaked memory.")
+            }
+            exit(0)
+        }
+
+        if isJson {
+            let list = orphans.map { o in
+                [
+                    "pid": o.pid,
+                    "name": o.name,
+                    "path": o.path,
+                    "memoryBytes": o.memoryBytes,
+                    "memory": formatter.string(fromByteCount: o.memoryBytes),
+                    "isZombie": o.isZombie
+                ] as [String: Any]
+            }
+            let dict: [String: Any] = [
+                "count": orphans.count,
+                "totalMemoryBytes": totalMemory,
+                "totalMemory": formatter.string(fromByteCount: totalMemory),
+                "orphans": list
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted]),
+               let str = String(data: data, encoding: .utf8) {
+                print(str)
+            }
+        } else {
+            if orphans.isEmpty {
+                print("⚡️ No runaway orphaned developer processes detected.")
+                print("All developer background tasks have active controlling terminals.")
+            } else {
+                print("⚡️ RUNAWAY ORPHANED DEVELOPER PROCESSES (\(orphans.count) FOUND)")
+                let hPid = "PID".padding(toLength: 8, withPad: " ", startingAt: 0)
+                let hName = "PROCESS".padding(toLength: 20, withPad: " ", startingAt: 0)
+                let hMem = "MEMORY".padding(toLength: 12, withPad: " ", startingAt: 0)
+                print("\(hPid)  \(hName)  \(hMem)  PATH")
+                print(String(repeating: "─", count: 75))
+                for o in orphans {
+                    let pidStr = "\(o.pid)".padding(toLength: 8, withPad: " ", startingAt: 0)
+                    let nameStr = String(o.name.prefix(20)).padding(toLength: 20, withPad: " ", startingAt: 0)
+                    let memStr = formatter.string(fromByteCount: o.memoryBytes).padding(toLength: 12, withPad: " ", startingAt: 0)
+                    print("\(pidStr)  \(nameStr)  \(memStr)  \(o.path)")
+                }
+                print("───────────────────────────────────────────────────────────────────────────")
+                print("Total Leaked Memory: \(formatter.string(fromByteCount: totalMemory))")
+                print("\nTip: Run 'flightdeck zombies --kill' or 'flightdeck kill-zombies' to terminate all.")
+            }
+        }
+        exit(0)
+    }
+
+    // MARK: - 12. Model Context Protocol (MCP) Servers
+
+    private static func handleMCP(flags: Set<String>) -> Never {
+        let isJson = flags.contains("--json")
+
+        let servers = MCPServerScanner.scanAllSync()
+
+        if isJson {
+            let list = servers.map { s in
+                [
+                    "id": s.id,
+                    "name": s.name,
+                    "status": s.status.rawValue,
+                    "source": s.source.rawValue,
+                    "pid": s.pid as Any,
+                    "cpuPercent": s.cpuPercent,
+                    "memoryBytes": s.memoryBytes,
+                    "tools": s.toolsExposed,
+                    "command": s.command
+                ] as [String: Any]
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: list, options: [.prettyPrinted]),
+               let str = String(data: data, encoding: .utf8) {
+                print(str)
+            }
+        } else {
+            if servers.isEmpty {
+                print("No Model Context Protocol (MCP) servers found across Claude or project configurations.")
+            } else {
+                print("⚡️ FLIGHTDECK MODEL CONTEXT PROTOCOL (MCP) SERVERS (\(servers.count) FOUND)")
+                let hName = "SERVER NAME".padding(toLength: 22, withPad: " ", startingAt: 0)
+                let hStatus = "STATUS".padding(toLength: 12, withPad: " ", startingAt: 0)
+                let hHost = "HOST CLIENT".padding(toLength: 18, withPad: " ", startingAt: 0)
+                let hPid = "PID".padding(toLength: 8, withPad: " ", startingAt: 0)
+                print("\(hName)  \(hStatus)  \(hHost)  \(hPid)  TOOLS / COMMAND")
+                print(String(repeating: "─", count: 75))
+                for s in servers {
+                    let nameStr = String(s.name.prefix(22)).padding(toLength: 22, withPad: " ", startingAt: 0)
+                    let statusStr = s.status.rawValue.padding(toLength: 12, withPad: " ", startingAt: 0)
+                    let hostStr = String(s.source.rawValue.prefix(18)).padding(toLength: 18, withPad: " ", startingAt: 0)
+                    let pidStr = (s.pid != nil ? "\(s.pid!)" : "-").padding(toLength: 8, withPad: " ", startingAt: 0)
+                    let toolsDesc = s.toolsExposed.isEmpty ? (s.command.isEmpty ? "-" : s.command) : "\(s.toolsExposed.count) tools (\(s.toolsExposed.prefix(3).joined(separator: ", "))\(s.toolsExposed.count > 3 ? "..." : ""))"
+                    print("\(nameStr)  \(statusStr)  \(hostStr)  \(pidStr)  \(toolsDesc)")
+                }
+            }
         }
         exit(0)
     }

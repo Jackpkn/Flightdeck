@@ -115,6 +115,37 @@ final class MCPServerScanner {
         }
     }
 
+    /// Synchronously scans all running MCP processes and configured servers across macOS.
+    static func scanAllSync() -> [MCPServerItem] {
+        let running = scanRunningProcesses()
+        let configured = scanConfigFiles()
+
+        var mergedMap: [String: MCPServerItem] = [:]
+        for s in running {
+            mergedMap[s.id] = s
+        }
+        for c in configured {
+            if var existing = mergedMap[c.id] {
+                if existing.toolsExposed.isEmpty {
+                    existing.toolsExposed = c.toolsExposed
+                }
+                if existing.envVars.isEmpty {
+                    existing.envVars = c.envVars
+                }
+                mergedMap[c.id] = existing
+            } else {
+                mergedMap[c.id] = c
+            }
+        }
+
+        return Array(mergedMap.values).sorted { a, b in
+            if a.isRunning != b.isRunning {
+                return a.isRunning && !b.isRunning
+            }
+            return a.name.lowercased() < b.name.lowercased()
+        }
+    }
+
     // MARK: - Process Table Discovery
 
     static func scanRunningProcesses() -> [MCPServerItem] {
