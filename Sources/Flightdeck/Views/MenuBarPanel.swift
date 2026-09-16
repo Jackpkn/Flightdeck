@@ -4,6 +4,7 @@ import ServiceManagement
 
 /// The menu bar popover — allows Flightdeck to sit running all day in the macOS menu bar
 /// with instant quick-access telemetry, dev port management, cruft purging, and RAM flushing.
+@MainActor
 struct MenuBarPanel: View {
     @Environment(\.openWindow) private var openWindow
 
