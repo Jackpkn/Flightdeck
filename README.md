@@ -7,12 +7,12 @@
 [![macOS](https://img.shields.io/badge/macOS-14.0%2B-000000?style=for-the-badge&logo=apple&logoColor=white)](https://apple.com)
 [![Swift](https://img.shields.io/badge/Swift-6%20%2F%205.10%2B-F05138?style=for-the-badge&logo=swift&logoColor=white)](https://swift.org)
 [![Release](https://img.shields.io/badge/Release-v0.1.0-00f0ff?style=for-the-badge)](https://github.com/Jackpkn/Flightdeck/releases/tag/v0.1.0)
-[![Tests](https://img.shields.io/badge/Tests-267%20Passing%20(40%20suites)-39ff88?style=for-the-badge)](Tests/)
+[![Tests](https://img.shields.io/badge/Tests-279%20Passing%20(43%20suites)-39ff88?style=for-the-badge)](Tests/)
 [![License](https://img.shields.io/badge/License-MIT-00f0ff?style=for-the-badge)](LICENSE)
 
 *Flightdeck is a hyper-dense, high-performance telemetry dashboard and developer cockpit built in Swift & SwiftUI with native Darwin Mach kernel, BSD C-level integrations, and a headless developer CLI.*
 
-[**Website & Live Simulator**](https://flightdeck.netlify.app) &nbsp;&bull;&nbsp; [**Download DMG**](https://github.com/Jackpkn/Flightdeck/releases/tag/v0.1.0) &nbsp;&bull;&nbsp; [**Contributing Guide**](CONTRIBUTING.md)
+[**Website & Live Simulator**](https://flightdeck-app.netlify.app) &nbsp;&bull;&nbsp; [**Download DMG**](https://github.com/Jackpkn/Flightdeck/releases/tag/v0.1.0) &nbsp;&bull;&nbsp; [**Contributing Guide**](CONTRIBUTING.md)
 
 </div>
 
@@ -83,11 +83,23 @@ swift run Flightdeck <command> [options]
 | `flightdeck kill-zombies` | Immediate batch-kill of orphaned developer processes to free RAM | |
 | `flightdeck mcp` | Inspect running & configured Model Context Protocol (MCP) servers | `--json` |
 | `flightdeck sessions` | List locally tracked Claude Code sessions, token count, and spend | `--json` |
+| `flightdeck hotspots` / `churn` | Scan files repeatedly rewritten across sessions with root-cause diagnosis | `--limit <N>`, `--json` |
+| `flightdeck prune` | Prune historical activity and AI event telemetry to reclaim SQLite storage | `--days <N>`, `--vacuum`, `--dry-run` |
+| `flightdeck redact [text]` | Zero-leak secret scrubber for API keys (Anthropic, OpenAI, GitHub, AWS, Bearer) | |
 | `flightdeck install-hooks` | Safely configure Claude Code statusline & event hooks in `~/.claude/settings.json` | `--dry-run` |
 
 ### CLI Examples
 
 ```bash
+# Detect agent file churn oscillation & root-cause diagnosis:
+flightdeck hotspots
+
+# Prune SQLite telemetry older than 14 days and reclaim disk space:
+flightdeck prune --days 14 --vacuum
+
+# Test zero-leak API key & token redaction:
+echo "export ANTHROPIC_API_KEY=sk-ant-api03-..." | flightdeck redact
+
 # Find stuck developer server ports:
 flightdeck ports --dev-only
 
@@ -117,8 +129,13 @@ Usage meters only tell you what you spent. Flightdeck reads the transcripts **an
 
 * **Code survival**: Measures how much code Claude wrote is still in `HEAD`, per session, using native `git diff` probes.
 * **Cost per outcome**: Real cost per surviving file and per commit that touched the files a session generated.
+* **85% Compaction Sentinel**: Alerts you at **85% context pressure** before lossy auto-compaction and context degradation ruin reasoning quality.
 * **Waste report**: Flags sessions that incurred cost without changing code, failing tool calls, context rebuild thrashing, and sessions nearing the context ceiling.
-* **Churn hotspots**: Uncovers files repeatedly rewritten across multiple sessions &mdash; identifying where codebase documentation or `CLAUDE.md` rules are needed.
+* **Hotspot Churn Diagnostics**: Diagnoses *why* files get rewritten across sessions:
+  * 🏷️ **Missing Instructions**: Files oscillating without progress &rarr; recommends adding constraints or tests to `CLAUDE.md`.
+  * 🏷️ **Task Too Large**: Files rewritten near/past the 85% context ceiling &rarr; recommends splitting into smaller subtasks.
+  * 🏷️ **Architectural Coupling**: Files touched across disparate project boundaries &rarr; recommends interface decoupling.
+* **Zero-Leak Secret Redactor**: Proactively scrubs API keys, private keys, and tokens before telemetry storage or screen display.
 * **Plan limits**: Real five-hour and weekly rate-limit consumption with live countdown timers.
 * **Session forensics**: Conversation turns, tool timelines, per-model token breakdown, and 1-click terminal session resume.
 

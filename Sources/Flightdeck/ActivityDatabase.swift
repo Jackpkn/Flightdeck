@@ -195,9 +195,11 @@ final class ActivityDatabase {
 
     /// Upsert a live session record — called by the `flightdeck statusline` CLI.
     func upsertSession(_ record: SessionLiveRecord) {
+        var cleanRecord = record
+        cleanRecord.lastFile = SecretRedactor.shared.redact(record.lastFile)
         do {
             try dbQueue.write { db in
-                try record.save(db, onConflict: .replace)
+                try cleanRecord.save(db, onConflict: .replace)
             }
         } catch {
             print("ActivityDatabase: upsertSession failed — \(error)")
@@ -222,9 +224,17 @@ final class ActivityDatabase {
 
     /// Insert a hook event — called by the `flightdeck hook` CLI.
     func insertEvent(_ record: AIEventRecord) {
+        var cleanRecord = record
+        if let tool = cleanRecord.toolName {
+            cleanRecord.toolName = SecretRedactor.shared.redact(tool)
+        }
+        if let detail = cleanRecord.detail {
+            cleanRecord.detail = SecretRedactor.shared.redact(detail)
+        }
+
         do {
             try dbQueue.write { db in
-                var mutable = record
+                var mutable = cleanRecord
                 try mutable.insert(db)
             }
         } catch {
@@ -245,6 +255,74 @@ final class ActivityDatabase {
             print("ActivityDatabase: recentEvents failed — \(error)")
             return []
         }
+    }
+
+    // MARK: - Retention & Pruning
+
+    public struct PruneResult: Equatable, Sendable {
+        public let deletedActivityCount: Int
+        public let deletedEventsCount: Int
+        public let deletedLiveSessionsCount: Int
+        public let bytesReclaimed: Int64
+
+        public var totalDeletedRows: Int {
+            deletedActivityCount + deletedEventsCount + deletedLiveSessionsCount
+        }
+    }
+
+    /// Prunes activity and event records older than `days`.
+    @discardableResult
+    func prune(olderThanDays days: Int, vacuumAfter: Bool = true) throws -> PruneResult {
+        let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+        let sizeBefore = databaseSizeBytes()
+
+        var deletedActivity = 0
+        var deletedEvents = 0
+        var deletedLive = 0
+
+        try dbQueue.write { db in
+            deletedActivity = try AppActivityRecord
+                .filter(Column("startedAt") < cutoff)
+                .deleteAll(db)
+
+            deletedEvents = try AIEventRecord
+                .filter(Column("timestamp") < cutoff)
+                .deleteAll(db)
+
+            deletedLive = try SessionLiveRecord
+                .filter(Column("updatedAt") < cutoff)
+                .deleteAll(db)
+        }
+
+        if vacuumAfter {
+            try vacuum()
+        }
+
+        let sizeAfter = databaseSizeBytes()
+        let reclaimed = max(0, sizeBefore - sizeAfter)
+
+        return PruneResult(
+            deletedActivityCount: deletedActivity,
+            deletedEventsCount: deletedEvents,
+            deletedLiveSessionsCount: deletedLive,
+            bytesReclaimed: reclaimed
+        )
+    }
+
+    /// Reclaims unused disk space by running SQLite VACUUM.
+    func vacuum() throws {
+        try dbQueue.writeWithoutTransaction { db in
+            try db.execute(sql: "VACUUM")
+        }
+    }
+
+    /// Returns the physical database file size in bytes, or 0 if in-memory.
+    func databaseSizeBytes() -> Int64 {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Flightdeck", isDirectory: true)
+            .appendingPathComponent("flightdeck.sqlite")
+        let attrs = try? FileManager.default.attributesOfItem(atPath: support.path)
+        return (attrs?[.size] as? NSNumber)?.int64Value ?? 0
     }
 }
 

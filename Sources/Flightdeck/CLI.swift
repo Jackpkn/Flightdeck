@@ -47,6 +47,15 @@ enum CLI {
         case "sessions":
             handleSessions(json: isJson)
 
+        case "hotspots", "churn":
+            handleHotspots(flags: flags, arguments: arguments)
+
+        case "prune":
+            handlePrune(flags: flags, arguments: arguments)
+
+        case "redact":
+            handleRedact(arguments: arguments)
+
         case "statusline":
             handleStatusline()
 
@@ -88,6 +97,9 @@ enum CLI {
           kill-zombies            Terminate all orphaned zombie processes to free RAM
           mcp, mcpservers         List configured & running Model Context Protocol (MCP) servers
           sessions                List locally tracked Claude Code sessions and spend telemetry
+          hotspots, churn         Detect files repeatedly rewritten across sessions with diagnosis
+          prune                   Prune historical telemetry and SQLite database to reclaim disk
+          redact [text]           Scrub secrets, API keys, and bearer tokens from text or stdin
           install-hooks           Configure Claude Code statusline & hooks in ~/.claude/settings.json
           version, -v, --version  Print Flightdeck version and architecture
           help, -h, --help        Print this help message
@@ -95,7 +107,10 @@ enum CLI {
         OPTIONS:
           --json                  Output metrics as structured JSON
           --dev-only              Filter to developer ports (< 49152) for 'ports'
-          --dry-run               Preview changes without executing (install-hooks, clean)
+          --dry-run               Preview changes without executing (install-hooks, clean, prune)
+          --days <N>              Retention window in days for 'prune' (default 14)
+          --limit <N>             Maximum items to display for 'hotspots' (default 20)
+          --vacuum                Reclaim disk space with SQLite VACUUM for 'prune'
           --force, -f             Purge caches immediately without confirmation for 'clean'
           --kill, -k              Terminate detected zombie processes for 'zombies'
 
@@ -108,6 +123,9 @@ enum CLI {
           flightdeck zombies --kill
           flightdeck mcp --json
           flightdeck sessions
+          flightdeck hotspots
+          flightdeck prune --days 14 --vacuum
+          echo "sk-ant-api03-..." | flightdeck redact
         """)
         exit(0)
     }
@@ -354,6 +372,133 @@ enum CLI {
                 }
             }
         }
+        exit(0)
+    }
+
+    // MARK: - Hotspot Churn & Agent Diagnostics
+
+    private static func handleHotspots(flags: Set<String>, arguments: [String]) -> Never {
+        let isJson = flags.contains("--json")
+        let limitArg = arguments.firstIndex(of: "--limit").flatMap { idx in
+            idx + 1 < arguments.count ? Int(arguments[idx + 1]) : nil
+        } ?? 20
+
+        // Synchronously load transcripts and active sessions
+        let sessions = DashboardStore.loadSessionsSync()
+        let spots = ChurnAnalyzer.hotspots(in: sessions, limit: limitArg)
+
+        if isJson {
+            let list = spots.map { spot in
+                [
+                    "path": spot.path,
+                    "fileName": spot.fileName,
+                    "sessionCount": spot.sessionCount,
+                    "projects": spot.projects,
+                    "diagnosis": spot.diagnosis.rawValue,
+                    "advice": spot.suggestedAction
+                ] as [String: Any]
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: list, options: [.prettyPrinted]),
+               let str = String(data: data, encoding: .utf8) {
+                print(str)
+            }
+            exit(0)
+        }
+
+        print("""
+        ┌───────────────────────────────────────────────────────────────────────────────┐
+        │  🔥 Flightdeck Churn Hotspots & Agent Diagnostics                             │
+        └───────────────────────────────────────────────────────────────────────────────┘
+        """)
+
+        if spots.isEmpty {
+            print("  No files have been rewritten across multiple Claude Code sessions yet.\n")
+            print("  Tip: As Claude Code edits files across sessions, Flightdeck automatically")
+            print("  detects churn oscillation, missing CLAUDE.md instructions, and task splits.\n")
+            exit(0)
+        }
+
+        let hFile = "FILE".padding(toLength: 28, withPad: " ", startingAt: 0)
+        let hChurn = "CHURN".padding(toLength: 7, withPad: " ", startingAt: 0)
+        let hDiag = "DIAGNOSIS".padding(toLength: 26, withPad: " ", startingAt: 0)
+        print("  \(hFile)  \(hChurn)  \(hDiag)")
+        print("  " + String(repeating: "─", count: 75))
+
+        for spot in spots {
+            let fileDisplay = (spot.fileName.count > 28 ? String(spot.fileName.prefix(25)) + "..." : spot.fileName)
+                .padding(toLength: 28, withPad: " ", startingAt: 0)
+            let churnDisplay = "\(spot.sessionCount)×".padding(toLength: 7, withPad: " ", startingAt: 0)
+            let diagDisplay = spot.diagnosis.rawValue.padding(toLength: 26, withPad: " ", startingAt: 0)
+            print("  \(fileDisplay)  \(churnDisplay)  \(diagDisplay)")
+            print("  └─ Path: \(spot.path)")
+            print("     Advice: \(spot.suggestedAction)")
+            print("")
+        }
+        exit(0)
+    }
+
+    // MARK: - Retention & Pruning
+
+    private static func handlePrune(flags: Set<String>, arguments: [String]) -> Never {
+        let isDryRun = flags.contains("--dry-run")
+        let shouldVacuum = flags.contains("--vacuum")
+        let daysArg = arguments.firstIndex(of: "--days").flatMap { idx in
+            idx + 1 < arguments.count ? Int(arguments[idx + 1]) : nil
+        } ?? 14
+
+        guard let db = ActivityDatabase.shared else {
+            fputs("flightdeck: could not open local SQLite activity database.\n", stderr)
+            exit(1)
+        }
+
+        let sizeBefore = db.databaseSizeBytes()
+        print("""
+        ┌───────────────────────────────────────────────────────────────────────────────┐
+        │  🧹 Flightdeck SQLite Retention & Storage Pruning                             │
+        └───────────────────────────────────────────────────────────────────────────────┘
+        """)
+        print("  Current database size: \(Formatters.bytes(sizeBefore))")
+        print("  Retention cutoff:      Older than \(daysArg) days")
+
+        if isDryRun {
+            print("  Mode:                  Dry Run (no records deleted)")
+            print("  Run 'flightdeck prune --days \(daysArg) --vacuum' to execute.\n")
+            exit(0)
+        }
+
+        do {
+            let result = try db.prune(olderThanDays: daysArg, vacuumAfter: shouldVacuum)
+            let sizeAfter = db.databaseSizeBytes()
+            print("  ✓ Pruned \(result.deletedActivityCount) app activity records")
+            print("  ✓ Pruned \(result.deletedEventsCount) AI hook events")
+            print("  ✓ Pruned \(result.deletedLiveSessionsCount) stale live sessions")
+            print("  New database size:     \(Formatters.bytes(sizeAfter))")
+            if result.bytesReclaimed > 0 {
+                print("  Reclaimed disk space:  \(Formatters.bytes(result.bytesReclaimed))")
+            }
+            print("")
+        } catch {
+            fputs("flightdeck prune failed: \(error.localizedDescription)\n", stderr)
+            exit(1)
+        }
+        exit(0)
+    }
+
+    // MARK: - Secret Redaction CLI
+
+    private static func handleRedact(arguments: [String]) -> Never {
+        let textArgs = arguments.dropFirst().filter { !$0.hasPrefix("-") }
+        let input: String
+        if !textArgs.isEmpty {
+            input = textArgs.joined(separator: " ")
+        } else {
+            // Read from standard input (e.g. piped text)
+            let data = FileHandle.standardInput.readDataToEndOfFile()
+            input = String(data: data, encoding: .utf8) ?? ""
+        }
+
+        let redacted = SecretRedactor.shared.redact(input)
+        print(redacted, terminator: input.hasSuffix("\n") ? "" : "\n")
         exit(0)
     }
 

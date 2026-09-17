@@ -153,24 +153,41 @@ struct InsightsPanel: View {
                                 .font(Theme.mono(11, weight: .bold))
                                 .foregroundStyle(spot.sessionCount >= 4 ? Theme.warning : Theme.accentSecondary)
                                 .frame(width: 26, alignment: .trailing)
-                            VStack(alignment: .leading, spacing: 1) {
-                                                Text(store.redactor.fileName(spot.fileName))
-                                    .font(Theme.mono(11))
-                                    .foregroundStyle(Theme.ink1)
-                                    .lineLimit(1)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(store.redactor.fileName(spot.fileName))
+                                        .font(Theme.mono(11))
+                                        .foregroundStyle(Theme.ink1)
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text(spot.diagnosis.rawValue)
+                                        .font(Theme.mono(8, weight: .bold))
+                                        .foregroundStyle(diagnosisColor(spot.diagnosis))
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1.5)
+                                        .background(diagnosisColor(spot.diagnosis).opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                                }
                                 Text(spot.projects.map(store.redactor.project).joined(separator: ", "))
                                     .font(Theme.mono(9))
                                     .foregroundStyle(Theme.ink3)
                                     .lineLimit(1)
                             }
-                            Spacer()
                         }
-                        .help(store.redactor.path(spot.path))
+                        .help("\(store.redactor.path(spot.path))\n\n\(spot.diagnosis.rawValue): \(spot.suggestedAction)")
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 7))
                     }
                 }
             }
+        }
+    }
+
+    private func diagnosisColor(_ diagnosis: ChurnDiagnosis) -> Color {
+        switch diagnosis {
+        case .missingInstructions: return Theme.warning
+        case .taskTooLarge:        return Theme.critical
+        case .architecturalCoupling: return Theme.accentSecondary
+        case .activeIteration:     return Theme.good
         }
     }
 

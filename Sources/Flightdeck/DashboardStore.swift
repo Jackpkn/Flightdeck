@@ -762,6 +762,48 @@ final class DashboardStore {
         }
     }
 
+    // MARK: - Synchronous CLI session discovery
+
+    /// Synchronously scans and loads sessions from ~/.claude/projects/ transcripts.
+    static func loadSessionsSync(root: URL? = nil) -> [SessionAgg] {
+        let projectsDir = root ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects", isDirectory: true)
+        guard let enumerator = FileManager.default.enumerator(
+            at: projectsDir, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        var sessions: [String: SessionAgg] = [:]
+        let decoder = JSONDecoder()
+
+        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+            guard let data = try? Data(contentsOf: url), !data.isEmpty else { continue }
+            let sessionId = url.deletingPathExtension().lastPathComponent
+            let projectHint = friendlyName(fromSanitizedDir: url.deletingLastPathComponent().lastPathComponent)
+            var agg = sessions[sessionId] ?? SessionAgg(id: sessionId, project: projectHint)
+
+            let lines = String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true)
+            for line in lines {
+                guard let lineData = line.data(using: .utf8),
+                      let entry = try? decoder.decode(ClaudeLogLine.self, from: lineData) else { continue }
+                if let cwd = entry.cwd {
+                    agg.cwd = cwd
+                    agg.project = friendlyName(fromCwd: cwd)
+                }
+                if let branch = entry.gitBranch { agg.branch = branch }
+                if let path = entry.trackingPath {
+                    agg.noteFileModified(trackingPath: path, realParentDir: entry.backup?.realParentDir)
+                }
+                if let added = entry.totalLinesAdded { agg.linesAdded = max(agg.linesAdded, added) }
+                if let removed = entry.totalLinesRemoved { agg.linesRemoved = max(agg.linesRemoved, removed) }
+                if let cost = entry.totalCostUSD {
+                    agg.liveTotalCost = max(agg.liveTotalCost ?? 0, cost)
+                }
+            }
+            sessions[sessionId] = agg
+        }
+
+        return Array(sessions.values)
+    }
+
     // MARK: - Friendly naming
 
     /// `cwd` is an absolute path — show the project folder, or "(home)" when a

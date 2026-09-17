@@ -34,7 +34,7 @@ struct WasteFinding: Identifiable {
             case .cacheChurn:
                 return "Cache writes cost more than reads. Long-lived sessions with stable context re-read instead of rebuilding."
             case .contextPressure:
-                return "Quality drops near the ceiling and auto-compaction is imminent. Split the work or /compact sooner."
+                return "Quality drops rapidly past 85% context pressure before auto-compaction. Split the task into subtasks or commit a clean handoff."
             }
         }
     }
@@ -84,7 +84,7 @@ struct WasteReport {
     /// Enough cache traffic for the ratio to be meaningful.
     static let minimumCacheTokens = 100_000
     /// Context fill at which auto-compaction is close and quality degrades.
-    static let contextPressureFraction = 0.9
+    static let contextPressureFraction = 0.85
 
     let findings: [WasteFinding]
 
@@ -182,42 +182,86 @@ struct WasteReport {
 
 // MARK: - Churn hotspots
 
+/// Classification of why a file keeps getting rewritten across sessions.
+enum ChurnDiagnosis: String, Codable, Sendable {
+    /// File rewritten across sessions with high frequency or failing tool retries.
+    case missingInstructions = "MISSING INSTRUCTIONS"
+    /// File rewritten in sessions that reached >=85% context pressure or compaction.
+    case taskTooLarge = "TASK TOO LARGE"
+    /// File rewritten across multiple distinct projects or disparate boundaries.
+    case architecturalCoupling = "ARCHITECTURAL COUPLING"
+    /// Normal sequential changes across consecutive sessions.
+    case activeIteration = "ACTIVE ITERATION"
+
+    var advice: String {
+        switch self {
+        case .missingInstructions:
+            return "File repeatedly modified across sessions. Add explicit constraints, architecture rules, and test commands to CLAUDE.md."
+        case .taskTooLarge:
+            return "Rewritten under heavy context pressure (≥85%). Break the prompt down into smaller, single-responsibility subtasks."
+        case .architecturalCoupling:
+            return "File is touched across multiple project boundaries. Consider extracting shared utilities or decoupling interfaces."
+        case .activeIteration:
+            return "Normal ongoing feature development."
+        }
+    }
+}
+
 /// A file Claude Code has come back to across multiple sessions.
-struct ChurnHotspot: Identifiable {
+struct ChurnHotspot: Identifiable, Sendable {
     let path: String
     let sessionCount: Int
     let projects: [String]
+    let diagnosis: ChurnDiagnosis
+    let suggestedAction: String
 
     var id: String { path }
 
     var fileName: String { URL(fileURLWithPath: path).lastPathComponent }
 
-    /// Display-only copy. `sessionCount` is the finding, so it is untouched.
+    init(
+        path: String,
+        sessionCount: Int,
+        projects: [String],
+        diagnosis: ChurnDiagnosis = .activeIteration,
+        suggestedAction: String? = nil
+    ) {
+        self.path = path
+        self.sessionCount = sessionCount
+        self.projects = projects
+        self.diagnosis = diagnosis
+        self.suggestedAction = suggestedAction ?? diagnosis.advice
+    }
+
+    /// Display-only copy. `sessionCount` and diagnosis are the finding, so they are untouched.
     func redacted(by redactor: Redactor) -> ChurnHotspot {
         guard redactor.isEnabled else { return self }
         return ChurnHotspot(
             path: redactor.path(path),
             sessionCount: sessionCount,
-            projects: projects.map(redactor.project)
+            projects: projects.map(redactor.project),
+            diagnosis: diagnosis,
+            suggestedAction: suggestedAction
         )
     }
 }
 
-/// Finds files that repeatedly get reworked.
+/// Finds files that repeatedly get reworked and diagnoses root causes.
 ///
 /// Built from Claude Code's own `file-history-delta` checkpoints, so it reflects
-/// files actually written rather than files merely read or mentioned. A file that
-/// keeps coming back is usually a sign the codebase is hard to change there.
+/// files actually written rather than files merely read or mentioned.
 enum ChurnAnalyzer {
     /// One session touching a file is just work; two or more is a pattern.
     static let minimumSessions = 2
 
     static func hotspots(in sessions: [SessionAgg], limit: Int = 20) -> [ChurnHotspot] {
+        var fileSessions: [String: [SessionAgg]] = [:]
         var sessionCounts: [String: Int] = [:]
         var projects: [String: Set<String>] = [:]
 
         for session in sessions {
             for path in session.filesModified {
+                fileSessions[path, default: []].append(session)
                 sessionCounts[path, default: 0] += 1
                 projects[path, default: []].insert(session.project)
             }
@@ -226,7 +270,30 @@ enum ChurnAnalyzer {
         var hotspots: [ChurnHotspot] = []
         for (path, count) in sessionCounts where count >= minimumSessions {
             let spanned: [String] = projects[path].map { Array($0).sorted() } ?? []
-            hotspots.append(ChurnHotspot(path: path, sessionCount: count, projects: spanned))
+            let touchingSessions = fileSessions[path] ?? []
+
+            // Diagnostic heuristics
+            let diagnosis: ChurnDiagnosis
+            if spanned.count > 1 {
+                // Spans multiple distinct projects
+                diagnosis = .architecturalCoupling
+            } else if touchingSessions.contains(where: { $0.contextFraction >= WasteReport.contextPressureFraction }) {
+                // Touched during sessions experiencing >= 85% context pressure / impending compaction
+                diagnosis = .taskTooLarge
+            } else if count >= 3 || touchingSessions.contains(where: { $0.toolErrorCount > 3 }) {
+                // Repeatedly churned across 3+ sessions or with failing tool retries
+                diagnosis = .missingInstructions
+            } else {
+                diagnosis = .activeIteration
+            }
+
+            hotspots.append(ChurnHotspot(
+                path: path,
+                sessionCount: count,
+                projects: spanned,
+                diagnosis: diagnosis,
+                suggestedAction: diagnosis.advice
+            ))
         }
         // Path breaks ties so repeated renders keep the same order.
         hotspots.sort { lhs, rhs in
@@ -235,3 +302,4 @@ enum ChurnAnalyzer {
         return Array(hotspots.prefix(limit))
     }
 }
+
