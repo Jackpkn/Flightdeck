@@ -67,7 +67,7 @@ const jsonLd = {
   description: "The Cyberpunk Activity Monitor & Developer Cockpit for macOS that measures what your Claude Code spend actually produced.",
   url: "https://flightdeck-app.netlify.app",
   downloadUrl: "https://flightdeck-app.netlify.app/download",
-  softwareVersion: "0.1.0",
+  softwareVersion: "0.2.0",
   license: "https://opensource.org/licenses/MIT",
 };
 

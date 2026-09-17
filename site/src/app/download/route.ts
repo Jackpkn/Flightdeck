@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const version = searchParams.get("version") || "0.1.0";
+  const version = searchParams.get("version") || "0.2.0";
   const format = searchParams.get("format");
 
   // If user requests the un-quarantined Homebrew tarball
