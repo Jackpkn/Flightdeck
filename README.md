@@ -217,7 +217,9 @@ Flightdeck/
 │   ├── FileGuard.swift           # SIP isolation & permission safety checks
 │   ├── Theme.swift               # Void black & Cyberpunk neon design tokens
 │   └── Views/                    # SwiftUI HUD panels, waveforms & interactive cockpits
-├── Tests/FlightdeckTests/        # 267 automated tests across 40 test suites
+├── docs/
+│   └── EPISTEMIC_CAUSAL_SUBSTRATE.md # Next-Gen Deterministic Shared Memory Architecture Spec
+├── Tests/FlightdeckTests/        # 299 automated tests across 47 test suites
 ├── packaging/flightdeck.rb       # Official Homebrew formula
 ├── scripts/                      # Build, release, packaging & run automation
 └── site/                         # Next.js marketing portal & interactive simulator
