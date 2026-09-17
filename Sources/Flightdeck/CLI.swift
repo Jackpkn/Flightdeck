@@ -20,8 +20,11 @@ enum CLI {
         case "version", "-v", "--version":
             handleVersion(json: isJson)
 
-        case "vitals", "top":
+        case "vitals":
             handleVitals(json: isJson)
+
+        case "top":
+            handleTop(flags: flags)
 
         case "ps", "processes":
             handleProcesses(json: isJson)
@@ -56,6 +59,9 @@ enum CLI {
         case "redact":
             handleRedact(arguments: arguments)
 
+        case "report", "postmortem", "export":
+            handleReport(flags: flags, arguments: arguments)
+
         case "statusline":
             handleStatusline()
 
@@ -82,13 +88,14 @@ enum CLI {
 
     private static func handleHelp() -> Never {
         print("""
-        ⚡️ Flightdeck 0.1.0 — macOS Activity Monitor & Developer Cockpit
+        ⚡️ Flightdeck 0.2.0 — macOS Activity Monitor & Developer Cockpit
 
         USAGE:
           flightdeck <command> [options]
 
         COMMANDS:
-          vitals, top             Print live Mach kernel telemetry (CPU, RAM, Disk, Net, GPU)
+          top                     Interactive real-time terminal HUD streaming CPU, RAM, ports & spend
+          vitals                  Print immediate Mach kernel telemetry snapshot (CPU, RAM, Disk, Net)
           ps, processes           List active user applications by memory & CPU usage
           ports, port             List listening TCP ports with process names & PIDs
           kill-port <port>        Terminate process hogging a port (e.g. 3000, 8080)
@@ -98,6 +105,7 @@ enum CLI {
           mcp, mcpservers         List configured & running Model Context Protocol (MCP) servers
           sessions                List locally tracked Claude Code sessions and spend telemetry
           hotspots, churn         Detect files repeatedly rewritten across sessions with diagnosis
+          report [session-id]     Export Markdown or JSON post-mortem of a Claude Code session
           prune                   Prune historical telemetry and SQLite database to reclaim disk
           redact [text]           Scrub secrets, API keys, and bearer tokens from text or stdin
           install-hooks           Configure Claude Code statusline & hooks in ~/.claude/settings.json
@@ -106,6 +114,8 @@ enum CLI {
 
         OPTIONS:
           --json                  Output metrics as structured JSON
+          --once                  Single non-interactive snapshot for 'top'
+          --output <file>         Write post-mortem report to specified path for 'report'
           --dev-only              Filter to developer ports (< 49152) for 'ports'
           --dry-run               Preview changes without executing (install-hooks, clean, prune)
           --days <N>              Retention window in days for 'prune' (default 14)
@@ -115,6 +125,8 @@ enum CLI {
           --kill, -k              Terminate detected zombie processes for 'zombies'
 
         EXAMPLES:
+          flightdeck top
+          flightdeck top --once
           flightdeck vitals
           flightdeck ports --dev-only
           flightdeck kill-port 3000
@@ -124,6 +136,7 @@ enum CLI {
           flightdeck mcp --json
           flightdeck sessions
           flightdeck hotspots
+          flightdeck report --output postmortem.md
           flightdeck prune --days 14 --vacuum
           echo "sk-ant-api03-..." | flightdeck redact
         """)
@@ -143,7 +156,7 @@ enum CLI {
 
         if json {
             let info: [String: Any] = [
-                "version": "0.1.0",
+                "version": "0.2.0",
                 "architecture": arch,
                 "minimumOS": "macOS 14.0 (Sonoma)",
                 "runtime": "native Swift / Mach kernel / POSIX"
@@ -153,7 +166,7 @@ enum CLI {
                 print(str)
             }
         } else {
-            print("Flightdeck 0.1.0")
+            print("Flightdeck 0.2.0")
             print("Target: \(arch)")
             print("Requires: macOS 14.0+ (Sonoma, Sequoia)")
         }
@@ -235,6 +248,116 @@ enum CLI {
             print("───────────────────────────────────────────────────")
         }
         exit(0)
+    }
+
+    // MARK: - 3. Interactive Terminal Top Cockpit
+
+    private static func handleTop(flags: Set<String>) -> Never {
+        let isOnce = flags.contains("--once")
+        let isJson = flags.contains("--json")
+
+        if isJson {
+            handleVitals(json: true)
+        }
+
+        let telemetry = SystemTelemetry.shared
+
+        // Signal handler to restore cursor on Ctrl+C
+        signal(SIGINT) { _ in
+            fputs("\u{001B}[?25h\n", stdout)
+            exit(0)
+        }
+
+        // Hide cursor for smooth terminal updates
+        fputs("\u{001B}[?25l", stdout)
+
+        repeat {
+            // Sample telemetry with brief interval
+            _ = telemetry.currentCPUUsage()
+            _ = telemetry.currentNetworkThroughputKB()
+            _ = telemetry.currentDiskThroughputKB()
+            usleep(120_000)
+
+            let cpuPercent = telemetry.currentCPUUsage()
+            let perCore = telemetry.currentPerCoreCPU()
+            let mem = telemetry.currentMemory()
+            let netKB = telemetry.currentNetworkThroughputKB()
+            let diskKB = telemetry.currentDiskThroughputKB()
+            let gpu = telemetry.currentGPUTelemetry()
+
+            // Fetch listening ports (< 49152)
+            let ports = PortScanner.fetchListeningPorts().filter(\.isDevPort)
+
+            // Fetch live sessions
+            let liveSessions = ActivityDatabase.shared?.fetchLiveSessions() ?? []
+
+            // Clear screen & home cursor
+            fputs("\u{001B}[2J\u{001B}[H", stdout)
+
+            let nowStr = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+            print("┌──────────────────────────────────────────────────────────────────────────────┐")
+            print("│ ⚡️ FLIGHTDECK COCKPIT TOP ── \(nowStr) ── (Ctrl+C to exit)                    │")
+            print("└──────────────────────────────────────────────────────────────────────────────┘")
+
+            // CPU Gauge
+            let cpuBar = progressBar(fraction: cpuPercent / 100.0, width: 24)
+            print("  CPU Usage:     \(cpuBar) \(String(format: "%5.1f%%", cpuPercent)) (\(perCore.count) cores)")
+
+            // Memory Gauge
+            let memFraction = mem.totalBytes > 0 ? Double(mem.usedBytes) / Double(mem.totalBytes) : 0
+            let memBar = progressBar(fraction: memFraction, width: 24)
+            let usedGB = String(format: "%.1f", Double(mem.usedBytes) / 1_073_741_824)
+            let totalGB = String(format: "%.1f GB", Double(mem.totalBytes) / 1_073_741_824)
+            print("  Physical RAM:  \(memBar) \(usedGB)/\(totalGB) (\(Int(memFraction * 100))%)")
+
+            // I/O & GPU
+            let netStr = "\(Formatters.bytes(Int64(netKB * 1024)))/s".padding(toLength: 12, withPad: " ", startingAt: 0)
+            let diskStr = "\(Formatters.bytes(Int64(diskKB * 1024)))/s".padding(toLength: 12, withPad: " ", startingAt: 0)
+            print("  Network:       \(netStr)  Disk I/O: \(diskStr)  GPU: \(Int(gpu.utilizationPercent))%")
+            print("  " + String(repeating: "─", count: 76))
+
+            // Active Listening Ports Section
+            print("  LISTENING DEVELOPER PORTS:")
+            if ports.isEmpty {
+                print("  └─ No developer server ports active (< 49152)")
+            } else {
+                for p in ports.prefix(4) {
+                    let portStr = ":\(p.port)".padding(toLength: 8, withPad: " ", startingAt: 0)
+                    let procStr = p.processName.padding(toLength: 18, withPad: " ", startingAt: 0)
+                    print("  └─ \(portStr) \(procStr) (PID \(p.pid))")
+                }
+            }
+            print("  " + String(repeating: "─", count: 76))
+
+            // Active Claude Code Sessions Section
+            print("  CLAUDE CODE LIVE SESSIONS:")
+            if liveSessions.isEmpty {
+                print("  └─ No active sessions in local ledger (Run 'flightdeck install-hooks')")
+            } else {
+                for s in liveSessions.prefix(3) {
+                    let proj = (s.project.isEmpty ? s.sessionId : s.project).padding(toLength: 16, withPad: " ", startingAt: 0)
+                    let model = s.model.padding(toLength: 14, withPad: " ", startingAt: 0)
+                    let tok = "\(Formatters.tokens(s.contextTokens)) tok".padding(toLength: 12, withPad: " ", startingAt: 0)
+                    let cost = Formatters.usd(s.totalCostUsd)
+                    print("  └─ \(proj) \(model) \(tok) \(cost)")
+                }
+            }
+            print("  " + String(repeating: "─", count: 76))
+
+            if isOnce {
+                fputs("\u{001B}[?25h", stdout)
+                exit(0)
+            }
+
+            usleep(880_000)
+        } while true
+    }
+
+    private static func progressBar(fraction: Double, width: Int) -> String {
+        let clamped = max(0, min(1, fraction))
+        let filled = Int(clamped * Double(width))
+        let empty = max(0, width - filled)
+        return "[" + String(repeating: "█", count: filled) + String(repeating: "░", count: empty) + "]"
     }
 
     // MARK: - 4. Process Inspection (ps)
@@ -499,6 +622,84 @@ enum CLI {
 
         let redacted = SecretRedactor.shared.redact(input)
         print(redacted, terminator: input.hasSuffix("\n") ? "" : "\n")
+        exit(0)
+    }
+
+    // MARK: - Session Post-Mortem Report Exporter
+
+    private static func handleReport(flags: Set<String>, arguments: [String]) -> Never {
+        let isJson = flags.contains("--json")
+        let outputPath = arguments.firstIndex(of: "--output").flatMap { idx in
+            idx + 1 < arguments.count ? arguments[idx + 1] : nil
+        }
+
+        let targetSessionId = arguments.dropFirst().first { !$0.hasPrefix("-") }
+        let sessions = DashboardStore.loadSessionsSync()
+
+        let session: SessionAgg
+        if let targetId = targetSessionId {
+            guard let found = sessions.first(where: { $0.id == targetId || $0.id.hasPrefix(targetId) }) else {
+                fputs("flightdeck: session '\(targetId)' not found in local transcripts.\n", stderr)
+                exit(1)
+            }
+            session = found
+        } else {
+            guard let latest = sessions.sorted(by: { ($0.lastSeen ?? .distantPast) > ($1.lastSeen ?? .distantPast) }).first else {
+                fputs("flightdeck: no Claude Code sessions found to generate a report.\n", stderr)
+                exit(1)
+            }
+            session = latest
+        }
+
+        // Compute Git outcome if session has working directory
+        let outcome: GitOutcome?
+        if !session.cwd.isEmpty, !session.filesModified.isEmpty {
+            outcome = GitOutcomeProbe.probe(
+                cwd: session.cwd,
+                files: session.filesModified,
+                since: session.startedAt,
+                until: session.lastSeen
+            )
+        } else {
+            outcome = nil
+        }
+
+        let hotspots = ChurnAnalyzer.hotspots(in: sessions)
+        let waste = WasteReport(sessions: [session])
+
+        if isJson {
+            let dict = SessionReportGenerator.generateJSON(session: session, outcome: outcome, hotspots: hotspots)
+            if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted]),
+               let str = String(data: data, encoding: .utf8) {
+                if let outputPath {
+                    try? str.write(toFile: outputPath, atomically: true, encoding: .utf8)
+                    print("✓ JSON post-mortem written to \(outputPath)")
+                } else {
+                    print(str)
+                }
+            }
+            exit(0)
+        }
+
+        let markdown = SessionReportGenerator.generateMarkdown(
+            session: session,
+            outcome: outcome,
+            hotspots: hotspots,
+            waste: waste
+        )
+
+        if let outputPath {
+            do {
+                try markdown.write(toFile: outputPath, atomically: true, encoding: .utf8)
+                print("✓ Post-mortem report written to \(outputPath)")
+            } catch {
+                fputs("flightdeck: could not write report to \(outputPath): \(error.localizedDescription)\n", stderr)
+                exit(1)
+            }
+        } else {
+            print(markdown)
+        }
+
         exit(0)
     }
 

@@ -6,13 +6,13 @@
 
 [![macOS](https://img.shields.io/badge/macOS-14.0%2B-000000?style=for-the-badge&logo=apple&logoColor=white)](https://apple.com)
 [![Swift](https://img.shields.io/badge/Swift-6%20%2F%205.10%2B-F05138?style=for-the-badge&logo=swift&logoColor=white)](https://swift.org)
-[![Release](https://img.shields.io/badge/Release-v0.1.0-00f0ff?style=for-the-badge)](https://github.com/Jackpkn/Flightdeck/releases/tag/v0.1.0)
-[![Tests](https://img.shields.io/badge/Tests-279%20Passing%20(43%20suites)-39ff88?style=for-the-badge)](Tests/)
+[![Release](https://img.shields.io/badge/Release-v0.2.0-00f0ff?style=for-the-badge)](https://github.com/Jackpkn/Flightdeck/releases/tag/v0.2.0)
+[![Tests](https://img.shields.io/badge/Tests-282%20Passing%20(44%20suites)-39ff88?style=for-the-badge)](Tests/)
 [![License](https://img.shields.io/badge/License-MIT-00f0ff?style=for-the-badge)](LICENSE)
 
 *Flightdeck is a hyper-dense, high-performance telemetry dashboard and developer cockpit built in Swift & SwiftUI with native Darwin Mach kernel, BSD C-level integrations, and a headless developer CLI.*
 
-[**Website & Live Simulator**](https://flightdeck-app.netlify.app) &nbsp;&bull;&nbsp; [**Download DMG**](https://github.com/Jackpkn/Flightdeck/releases/tag/v0.1.0) &nbsp;&bull;&nbsp; [**Contributing Guide**](CONTRIBUTING.md)
+[**Website & Live Simulator**](https://flightdeck-app.netlify.app) &nbsp;&bull;&nbsp; [**Download DMG**](https://github.com/Jackpkn/Flightdeck/releases/tag/v0.2.0) &nbsp;&bull;&nbsp; [**Contributing Guide**](CONTRIBUTING.md)
 
 </div>
 
@@ -37,9 +37,9 @@ ln -sfn "$(brew --prefix flightdeck)/Flightdeck.app" /Applications/Flightdeck.ap
 
 ### Option 2: Standalone Universal DMG
 
-Download the latest universal DMG (`arm64` + `x86_64`) from [GitHub Releases](https://github.com/Jackpkn/Flightdeck/releases/tag/v0.1.0):
+Download the latest universal DMG (`arm64` + `x86_64`) from [GitHub Releases](https://github.com/Jackpkn/Flightdeck/releases/tag/v0.2.0):
 
-1. Download **`Flightdeck-0.1.0.dmg`**
+1. Download **`Flightdeck-0.2.0.dmg`**
 2. Drag `Flightdeck.app` to `/Applications`
 3. Clear browser quarantine flag in Terminal:
    ```bash
@@ -75,7 +75,8 @@ swift run Flightdeck <command> [options]
 
 | Command | Description | Useful Flags |
 | :--- | :--- | :--- |
-| `flightdeck vitals` / `top` | Live Mach kernel CPU, RAM (wired/active), disk I/O, and network throughput | `--json` |
+| `flightdeck top` | Interactive real-time terminal HUD streaming Mach CPU, RAM, ports & spend | `--once` |
+| `flightdeck vitals` | Immediate one-shot snapshot of Mach CPU, RAM, disk I/O, and network | `--json` |
 | `flightdeck ports` | Fast Darwin TCP socket inspector with process names and PIDs | `--dev-only`, `--json` |
 | `flightdeck kill-port <port>` | Cleanly unbind stuck port (`SIGTERM` &rarr; `SIGKILL`) with system PID protection | |
 | `flightdeck clean` / `cruft` | Scan & reclaim gigabytes of disk space from Xcode, SwiftPM, NPM, CocoaPods, Gradle | `--dry-run`, `--force`, `--json` |
@@ -84,6 +85,7 @@ swift run Flightdeck <command> [options]
 | `flightdeck mcp` | Inspect running & configured Model Context Protocol (MCP) servers | `--json` |
 | `flightdeck sessions` | List locally tracked Claude Code sessions, token count, and spend | `--json` |
 | `flightdeck hotspots` / `churn` | Scan files repeatedly rewritten across sessions with root-cause diagnosis | `--limit <N>`, `--json` |
+| `flightdeck report [session-id]` | Export Markdown or JSON post-mortem combining tokens, git survival, and churn | `--output <file>`, `--json` |
 | `flightdeck prune` | Prune historical activity and AI event telemetry to reclaim SQLite storage | `--days <N>`, `--vacuum`, `--dry-run` |
 | `flightdeck redact [text]` | Zero-leak secret scrubber for API keys (Anthropic, OpenAI, GitHub, AWS, Bearer) | |
 | `flightdeck install-hooks` | Safely configure Claude Code statusline & event hooks in `~/.claude/settings.json` | `--dry-run` |
@@ -91,7 +93,13 @@ swift run Flightdeck <command> [options]
 ### CLI Examples
 
 ```bash
-# Detect agent file churn oscillation & root-cause diagnosis:
+# Launch interactive terminal HUD (updates live every 1s):
+flightdeck top
+
+# Export full session post-mortem report to Markdown:
+flightdeck report --output postmortem.md
+
+# Scan file churn hotspots across sessions with root-cause diagnostics:
 flightdeck hotspots
 
 # Prune SQLite telemetry older than 14 days and reclaim disk space:
