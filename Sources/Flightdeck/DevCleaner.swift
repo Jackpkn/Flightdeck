@@ -98,6 +98,30 @@ public final class DevCleaner {
                 name: "Yarn Cache",
                 icon: "shippingbox.fill",
                 path: home.appendingPathComponent("Library/Caches/Yarn")
+            ),
+            CruftCategory(
+                id: "homebrew_cache",
+                name: "Homebrew Downloads",
+                icon: "cup.and.saucer.fill",
+                path: home.appendingPathComponent("Library/Caches/Homebrew")
+            ),
+            CruftCategory(
+                id: "cargo_cache",
+                name: "Rust / Cargo Cache",
+                icon: "gearshape.2.fill",
+                path: home.appendingPathComponent(".cargo/registry/cache")
+            ),
+            CruftCategory(
+                id: "pip_cache",
+                name: "Python / pip Cache",
+                icon: "cube.fill",
+                path: home.appendingPathComponent("Library/Caches/pip")
+            ),
+            CruftCategory(
+                id: "pnpm_cache",
+                name: "pnpm Store Cache",
+                icon: "shippingbox.and.arrow.backward.fill",
+                path: home.appendingPathComponent("Library/pnpm/store")
             )
         ]
     }
@@ -239,25 +263,31 @@ public final class DevCleaner {
         let path = url.path
         guard FileManager.default.fileExists(atPath: path) else { return 0 }
 
-        // Extra guard: Path must be under current user's home and contain "Cache" or "DerivedData"
+        // Extra guard: Path must be under current user's home and contain valid cache identifiers
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         guard path.hasPrefix(home) else { return 0 }
         let isSafeTarget = path.contains("DerivedData")
             || path.contains("cache")
             || path.contains("Cache")
             || path.contains("Caches")
+            || path.contains("pnpm")
+            || path.contains("CoreSimulator")
         guard isSafeTarget else { return 0 }
 
-        guard let contents = try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.fileSizeKey]) else {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey]
+        ) else {
             return 0
         }
 
         var freed: Int64 = 0
         for item in contents {
-            let size = (try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            let size = isDir ? calculateDirectorySize(at: item) : Int64((try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
             do {
                 try FileManager.default.removeItem(at: item)
-                freed += Int64(size)
+                freed += size
             } catch {
                 // Skip files in active use
             }

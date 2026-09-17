@@ -36,7 +36,7 @@ enum CLI {
             handleKillPort(arguments: arguments)
 
         case "clean", "cruft":
-            handleClean(flags: flags)
+            handleClean(flags: flags, arguments: Array(arguments.dropFirst()))
 
         case "zombies", "zombie":
             handleZombies(flags: flags)
@@ -981,7 +981,7 @@ enum CLI {
 
     // MARK: - 10. Developer Cruft & Cache Cleaner
 
-    private static func handleClean(flags: Set<String>) -> Never {
+    private static func handleClean(flags: Set<String>, arguments: [String] = []) -> Never {
         let isJson = flags.contains("--json")
         let isDryRun = flags.contains("--dry-run")
         let isForce = flags.contains("--force") || flags.contains("-f")
@@ -989,7 +989,24 @@ enum CLI {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
 
-        let categories = DevCleaner.scanSynchronously()
+        var categories = DevCleaner.scanSynchronously()
+        let nonFlags = arguments.filter { !$0.hasPrefix("-") }
+        if let query = nonFlags.first?.lowercased() {
+            let filtered = categories.filter {
+                $0.id.lowercased().contains(query) || $0.name.lowercased().contains(query)
+            }
+            if filtered.isEmpty {
+                let validIds = categories.map(\.id).joined(separator: ", ")
+                if isJson {
+                    print("{\"error\":\"No cache target matching '\(query)'. Available: \(validIds)\"}")
+                } else {
+                    print("Unknown target '\(query)'. Available targets: \(validIds)")
+                }
+                exit(1)
+            }
+            categories = filtered
+        }
+
         let nonRAM = categories.filter { !$0.isRAM }
         let totalBytes = nonRAM.reduce(0) { $0 + $1.sizeBytes }
 

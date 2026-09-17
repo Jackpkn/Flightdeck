@@ -15,6 +15,10 @@ struct DevCleanerTests {
         #expect(ids.contains("spm_cache"))
         #expect(ids.contains("cocoapods_cache"))
         #expect(ids.contains("simulator_cache"))
+        #expect(ids.contains("homebrew_cache"))
+        #expect(ids.contains("cargo_cache"))
+        #expect(ids.contains("pip_cache"))
+        #expect(ids.contains("pnpm_cache"))
     }
 
     @Test("All target paths reside securely inside user home directory")
@@ -55,5 +59,33 @@ struct DevCleanerTests {
 
         let etc = URL(fileURLWithPath: "/etc")
         #expect(DevCleaner.safelyEmptyDirectory(at: etc) == 0)
+    }
+
+    @Test("Safely empties directory contents while preserving the root directory")
+    func safelyEmptyDirectoryPurgesContentsPreservingRoot() throws {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let testCacheDir = home.appendingPathComponent("Library/Caches/FlightdeckTestCache_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: testCacheDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: testCacheDir) }
+
+        // Create a root file
+        let rootFile = testCacheDir.appendingPathComponent("package.bin")
+        let rootPayload = Data(repeating: 0x41, count: 2048)
+        try rootPayload.write(to: rootFile)
+
+        // Create a subfolder with a nested file
+        let subDir = testCacheDir.appendingPathComponent("DerivedData_Build")
+        try FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
+        let nestedFile = subDir.appendingPathComponent("output.o")
+        let nestedPayload = Data(repeating: 0x42, count: 4096)
+        try nestedPayload.write(to: nestedFile)
+
+        let freed = DevCleaner.safelyEmptyDirectory(at: testCacheDir)
+
+        // Root directory must still exist, but be completely emptied
+        #expect(FileManager.default.fileExists(atPath: testCacheDir.path))
+        let remaining = try FileManager.default.contentsOfDirectory(at: testCacheDir, includingPropertiesForKeys: nil)
+        #expect(remaining.isEmpty)
+        #expect(freed >= 6144)
     }
 }
