@@ -7,7 +7,7 @@
 [![macOS](https://img.shields.io/badge/macOS-14.0%2B-000000?style=for-the-badge&logo=apple&logoColor=white)](https://apple.com)
 [![Swift](https://img.shields.io/badge/Swift-6%20%2F%205.10%2B-F05138?style=for-the-badge&logo=swift&logoColor=white)](https://swift.org)
 [![Release](https://img.shields.io/badge/Release-v0.2.0-00f0ff?style=for-the-badge)](https://github.com/Jackpkn/Flightdeck/releases/tag/v0.2.0)
-[![Tests](https://img.shields.io/badge/Tests-282%20Passing%20(44%20suites)-39ff88?style=for-the-badge)](Tests/)
+[![Tests](https://img.shields.io/badge/Tests-291%20Passing%20(46%20suites)-39ff88?style=for-the-badge)](Tests/)
 [![License](https://img.shields.io/badge/License-MIT-00f0ff?style=for-the-badge)](LICENSE)
 
 *Flightdeck is a hyper-dense, high-performance telemetry dashboard and developer cockpit built in Swift & SwiftUI with native Darwin Mach kernel, BSD C-level integrations, and a headless developer CLI.*
@@ -82,8 +82,11 @@ swift run Flightdeck <command> [options]
 | `flightdeck clean` / `cruft` | Scan & reclaim gigabytes of disk space from Xcode, SwiftPM, NPM, CocoaPods, Gradle | `--dry-run`, `--force`, `--json` |
 | `flightdeck zombies` | Detect runaway developer background processes (`ppid == 1 && NODEV`) | `--kill`, `--json` |
 | `flightdeck kill-zombies` | Immediate batch-kill of orphaned developer processes to free RAM | |
-| `flightdeck mcp` | Inspect running & configured Model Context Protocol (MCP) servers | `--json` |
+| `flightdeck mcp` | Inspect running & configured Model Context Protocol (MCP) servers | `--ping`, `--test`, `--json` |
+| `flightdeck mcp ping [name]` | Diagnostic JSON-RPC 2.0 handshake probe measuring server response latency | `--json` |
 | `flightdeck sessions` | List locally tracked Claude Code sessions, token count, and spend | `--json` |
+| `flightdeck session [id]` / `replay` | Inspect conversation turns, prompts, tool calls, errors, and token spend | `--verbose`, `--tail`, `--json` |
+| `flightdeck tail [id]` | Stream live conversation turns and tool calls as they occur in real time | `--verbose` |
 | `flightdeck hotspots` / `churn` | Scan files repeatedly rewritten across sessions with root-cause diagnosis | `--limit <N>`, `--json` |
 | `flightdeck report [session-id]` | Export Markdown or JSON post-mortem combining tokens, git survival, and churn | `--output <file>`, `--json` |
 | `flightdeck prune` | Prune historical activity and AI event telemetry to reclaim SQLite storage | `--days <N>`, `--vacuum`, `--dry-run` |
@@ -98,6 +101,16 @@ flightdeck top
 
 # Export full session post-mortem report to Markdown:
 flightdeck report --output postmortem.md
+
+# Inspect conversation turns and tool calls of a session:
+flightdeck session
+flightdeck session --verbose
+
+# Stream live turns and tool executions as the agent works:
+flightdeck tail
+
+# Benchmark and health-check all Model Context Protocol (MCP) servers:
+flightdeck mcp ping
 
 # Scan file churn hotspots across sessions with root-cause diagnostics:
 flightdeck hotspots

@@ -185,8 +185,15 @@ final class MCPServerScanner {
                 continue
             }
 
-            // Exclude self grep / ps commands
-            if lower.contains("grep") || lower.contains("/bin/ps") { continue }
+            // Exclude self grep / ps commands, Flightdeck itself, and Electron renderer/utility workers
+            if lower.contains("grep") ||
+               lower.contains("/bin/ps") ||
+               lower.contains("flightdeck") ||
+               lower.contains("--type=renderer") ||
+               lower.contains("--type=gpu-process") ||
+               lower.contains("--type=utility") {
+                continue
+            }
 
             let parts = lineStr.split(separator: " ", maxSplits: 4, omittingEmptySubsequences: true)
             guard parts.count >= 5,
@@ -263,13 +270,22 @@ final class MCPServerScanner {
         // Fallback name extraction from command
         let words = cmd.split(separator: " ")
         for word in words {
-            if word.contains("mcp") {
-                let cleaned = URL(fileURLWithPath: String(word)).lastPathComponent
-                return (cleaned, .systemProcess, socketPath)
+            let w = String(word)
+            // Skip json chunks and flags
+            if w.contains("{") || w.contains("}") || w.contains("\"") || w.contains(":") || w.contains("=") {
+                continue
+            }
+            if w.lowercased().contains("mcp") {
+                let cleaned = URL(fileURLWithPath: w).lastPathComponent
+                if !cleaned.isEmpty && cleaned.count < 30 {
+                    return (cleaned, .systemProcess, socketPath)
+                }
             }
         }
 
-        return ("MCP Process (\(words.first.map(String.init) ?? "daemon"))", .systemProcess, socketPath)
+        let first = words.first.map(String.init) ?? "daemon"
+        let binaryName = URL(fileURLWithPath: first).lastPathComponent
+        return ("MCP Process (\(binaryName))", .systemProcess, socketPath)
     }
 
     private static func defaultToolsForKnownServer(name: String) -> [String] {

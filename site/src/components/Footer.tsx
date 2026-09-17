@@ -52,7 +52,7 @@ export default function Footer() {
           <span className="text-[#2f3031]">|</span>
           <span>Apple Silicon &amp; Intel x86_64</span>
           <span className="text-[#2f3031]">|</span>
-          <span className="text-[#59d499]">282 Tests Passing</span>
+          <span className="text-[#59d499]">291 Tests Passing</span>
           <span className="text-[#2f3031]">|</span>
           <span>MIT License</span>
         </div>

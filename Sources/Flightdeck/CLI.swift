@@ -45,10 +45,16 @@ enum CLI {
             handleZombies(flags: flags, autoKill: true)
 
         case "mcp", "mcpservers", "mcp-servers":
-            handleMCP(flags: flags)
+            handleMCP(flags: flags, arguments: arguments)
 
         case "sessions":
             handleSessions(json: isJson)
+
+        case "session", "replay":
+            handleSessionReplay(flags: flags, arguments: arguments)
+
+        case "tail":
+            handleSessionReplay(flags: flags.union(["--tail"]), arguments: arguments)
 
         case "hotspots", "churn":
             handleHotspots(flags: flags, arguments: arguments)
@@ -104,6 +110,8 @@ enum CLI {
           kill-zombies            Terminate all orphaned zombie processes to free RAM
           mcp, mcpservers         List configured & running Model Context Protocol (MCP) servers
           sessions                List locally tracked Claude Code sessions and spend telemetry
+          session, replay [id]    Inspect turns, tools used, and tokens for a Claude Code session
+          tail [session-id]       Stream live conversation turns and tool calls as they occur
           hotspots, churn         Detect files repeatedly rewritten across sessions with diagnosis
           report [session-id]     Export Markdown or JSON post-mortem of a Claude Code session
           prune                   Prune historical telemetry and SQLite database to reclaim disk
@@ -115,6 +123,9 @@ enum CLI {
         OPTIONS:
           --json                  Output metrics as structured JSON
           --once                  Single non-interactive snapshot for 'top'
+          --tail, -f              Stream newly appended turns live for 'session'
+          --verbose, -v           Display complete prompts and tool outputs for 'session'
+          --ping, --test          Run JSON-RPC 2.0 handshake and benchmark latency for 'mcp'
           --output <file>         Write post-mortem report to specified path for 'report'
           --dev-only              Filter to developer ports (< 49152) for 'ports'
           --dry-run               Preview changes without executing (install-hooks, clean, prune)
@@ -133,8 +144,13 @@ enum CLI {
           flightdeck clean --dry-run
           flightdeck clean --force
           flightdeck zombies --kill
-          flightdeck mcp --json
+          flightdeck mcp
+          flightdeck mcp ping
+          flightdeck mcp --ping
           flightdeck sessions
+          flightdeck session
+          flightdeck session --verbose
+          flightdeck tail
           flightdeck hotspots
           flightdeck report --output postmortem.md
           flightdeck prune --days 14 --vacuum
@@ -496,6 +512,75 @@ enum CLI {
             }
         }
         exit(0)
+    }
+
+    // MARK: - 5b. Claude Session Replay & Live Tail
+
+    private static func handleSessionReplay(flags: Set<String>, arguments: [String]) -> Never {
+        let isJson = flags.contains("--json")
+        let isVerbose = flags.contains("--verbose") || flags.contains("-v")
+        let isTail = flags.contains("--tail") || flags.contains("-f")
+
+        let targetId = arguments.dropFirst().first { !$0.hasPrefix("-") }
+        let sessions = DashboardStore.loadSessionsSync()
+
+        let session: SessionAgg?
+        let sessionFile: URL?
+
+        if let targetId {
+            session = sessions.first(where: { $0.id == targetId || $0.id.hasPrefix(targetId) })
+            let actualId = session?.id ?? targetId
+            sessionFile = ClaudeTranscriptReader.locateTranscriptFile(sessionId: actualId)
+        } else {
+            session = sessions.sorted(by: { ($0.lastSeen ?? .distantPast) > ($1.lastSeen ?? .distantPast) }).first
+            if let sid = session?.id {
+                sessionFile = ClaudeTranscriptReader.locateTranscriptFile(sessionId: sid)
+            } else {
+                sessionFile = nil
+            }
+        }
+
+        guard let fileURL = sessionFile, FileManager.default.fileExists(atPath: fileURL.path) else {
+            fputs("flightdeck: transcript file not found for session.\n", stderr)
+            fputs("Check available sessions with 'flightdeck sessions'.\n", stderr)
+            exit(1)
+        }
+
+        let turns = ClaudeTranscriptReader.parseTurns(from: fileURL)
+
+        if isJson {
+            let dict = ClaudeSessionReplay.turnsToJSON(turns: turns, session: session)
+            if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted]),
+               let str = String(data: data, encoding: .utf8) {
+                print(str)
+            }
+            exit(0)
+        }
+
+        if isTail {
+            print("⚡️ STREAMING CLAUDE CODE TRANSCRIPT: \(fileURL.lastPathComponent) (Ctrl+C to exit)\n")
+            var printedCount = 0
+            for turn in turns {
+                print(ClaudeSessionReplay.formatTurn(turn, verbose: isVerbose))
+                printedCount += 1
+            }
+
+            // Polling loop watching file for appended turns
+            while true {
+                usleep(850_000)
+                let latestTurns = ClaudeTranscriptReader.parseTurns(from: fileURL)
+                if latestTurns.count > printedCount {
+                    for i in printedCount..<latestTurns.count {
+                        print(ClaudeSessionReplay.formatTurn(latestTurns[i], verbose: isVerbose))
+                    }
+                    printedCount = latestTurns.count
+                }
+            }
+        } else {
+            let output = ClaudeSessionReplay.formatSessionReplay(turns: turns, session: session, verbose: isVerbose)
+            print(output)
+            exit(0)
+        }
     }
 
     // MARK: - Hotspot Churn & Agent Diagnostics
@@ -1048,12 +1133,75 @@ enum CLI {
         exit(0)
     }
 
-    // MARK: - 12. Model Context Protocol (MCP) Servers
+    // MARK: - 12. Model Context Protocol (MCP) Servers & Diagnostic Probe
 
-    private static func handleMCP(flags: Set<String>) -> Never {
+    private static func handleMCP(flags: Set<String>, arguments: [String] = []) -> Never {
         let isJson = flags.contains("--json")
+        let isPing = flags.contains("--ping") || flags.contains("--test") || arguments.dropFirst().first == "ping" || arguments.dropFirst().first == "test"
+        let pingTarget = arguments.dropFirst().filter { $0 != "ping" && $0 != "test" && !$0.hasPrefix("-") }.first
 
         let servers = MCPServerScanner.scanAllSync()
+
+        if isPing {
+            let targets: [MCPServerItem]
+            if let pingTarget {
+                targets = servers.filter { $0.name.lowercased().contains(pingTarget.lowercased()) || $0.id.lowercased().contains(pingTarget.lowercased()) }
+                if targets.isEmpty {
+                    fputs("flightdeck: no MCP server found matching '\(pingTarget)'.\n", stderr)
+                    exit(1)
+                }
+            } else {
+                targets = servers
+            }
+
+            if targets.isEmpty {
+                print("No Model Context Protocol (MCP) servers configured to probe.")
+                exit(0)
+            }
+
+            var results: [MCPPingResult] = []
+            for s in targets {
+                let res = MCPPingProbe.probe(server: s)
+                results.append(res)
+            }
+
+            if isJson {
+                let list = results.map { r in
+                    [
+                        "serverName": r.serverName,
+                        "source": r.source,
+                        "isHealthy": r.isHealthy,
+                        "latencyMs": r.latencyMs,
+                        "protocolVersion": r.protocolVersion as Any,
+                        "serverTitle": r.serverTitle as Any,
+                        "serverVersion": r.serverVersion as Any,
+                        "error": r.errorDescription as Any
+                    ] as [String: Any]
+                }
+                if let data = try? JSONSerialization.data(withJSONObject: list, options: [.prettyPrinted]),
+                   let str = String(data: data, encoding: .utf8) {
+                    print(str)
+                }
+            } else {
+                print("⚡️ FLIGHTDECK MCP DIAGNOSTIC PING & HEALTH PROBE (\(results.count) PROBED)")
+                let hName = "SERVER NAME".padding(toLength: 24, withPad: " ", startingAt: 0)
+                let hStatus = "STATUS".padding(toLength: 10, withPad: " ", startingAt: 0)
+                let hLatency = "LATENCY".padding(toLength: 10, withPad: " ", startingAt: 0)
+                let hProto = "PROTOCOL".padding(toLength: 14, withPad: " ", startingAt: 0)
+                print("\(hName)  \(hStatus)  \(hLatency)  \(hProto)  DETAILS / DIAGNOSTICS")
+                print(String(repeating: "─", count: 80))
+
+                for r in results {
+                    let nameStr = String(r.serverName.prefix(24)).padding(toLength: 24, withPad: " ", startingAt: 0)
+                    let statusStr = (r.isHealthy ? "✓ PASS" : "❌ FAIL").padding(toLength: 10, withPad: " ", startingAt: 0)
+                    let latStr = (r.latencyMs > 0 ? "\(String(format: "%.1f", r.latencyMs))ms" : "-").padding(toLength: 10, withPad: " ", startingAt: 0)
+                    let protoStr = (r.protocolVersion ?? "-").padding(toLength: 14, withPad: " ", startingAt: 0)
+                    let detail = r.isHealthy ? (r.serverVersion ?? "OK") : (r.errorDescription ?? "Error")
+                    print("\(nameStr)  \(statusStr)  \(latStr)  \(protoStr)  \(detail)")
+                }
+            }
+            exit(0)
+        }
 
         if isJson {
             let list = servers.map { s in
