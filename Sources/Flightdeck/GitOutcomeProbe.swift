@@ -1,5 +1,12 @@
 import Foundation
 
+/// Survival status of a specific file modified during a session.
+enum FileSurvivalStatus: String, Codable, Sendable {
+    case inHead = "IN HEAD"
+    case uncommitted = "UNCOMMITTED"
+    case dropped = "DROPPED"
+}
+
 /// What actually became of the code a session wrote.
 ///
 /// This is the question no cloud usage dashboard can answer: it needs the repository
@@ -24,6 +31,28 @@ struct GitOutcome: Equatable, Sendable {
     /// Lines added by those commits, per `git log --numstat`. Nil with the window.
     let linesAdded: Int?
     let linesRemoved: Int?
+    /// Status breakdown per file (keyed by both absolute path and repository-relative path).
+    let fileStatuses: [String: FileSurvivalStatus]
+
+    init(
+        filesConsidered: Int,
+        filesInHead: Int,
+        filesUncommitted: Int,
+        filesDropped: Int,
+        commits: Int?,
+        linesAdded: Int?,
+        linesRemoved: Int?,
+        fileStatuses: [String: FileSurvivalStatus] = [:]
+    ) {
+        self.filesConsidered = filesConsidered
+        self.filesInHead = filesInHead
+        self.filesUncommitted = filesUncommitted
+        self.filesDropped = filesDropped
+        self.commits = commits
+        self.linesAdded = linesAdded
+        self.linesRemoved = linesRemoved
+        self.fileStatuses = fileStatuses
+    }
 
     /// Share of the session's files that survived into HEAD.
     var survivalRate: Double {
@@ -34,6 +63,10 @@ struct GitOutcome: Equatable, Sendable {
     var netLines: Int? {
         guard let linesAdded, let linesRemoved else { return nil }
         return linesAdded - linesRemoved
+    }
+
+    func status(for file: String) -> FileSurvivalStatus? {
+        fileStatuses[file]
     }
 }
 
@@ -65,6 +98,7 @@ enum GitOutcomeProbe {
         var uncommitted = 0
         var dropped = 0
         var repoRelativePaths: [String] = []
+        var statuses: [String: FileSurvivalStatus] = [:]
 
         for file in files {
             // Only files belonging to this repository can be judged by it.
@@ -75,10 +109,16 @@ enum GitOutcomeProbe {
             repoRelativePaths.append(relative)
             if tracked.contains(relative) {
                 inHead += 1
+                statuses[file] = .inHead
+                statuses[relative] = .inHead
             } else if FileManager.default.fileExists(atPath: file) {
                 uncommitted += 1
+                statuses[file] = .uncommitted
+                statuses[relative] = .uncommitted
             } else {
                 dropped += 1
+                statuses[file] = .dropped
+                statuses[relative] = .dropped
             }
         }
 
@@ -93,7 +133,8 @@ enum GitOutcomeProbe {
             filesDropped: dropped,
             commits: stats?.commits,
             linesAdded: stats?.added,
-            linesRemoved: stats?.removed
+            linesRemoved: stats?.removed,
+            fileStatuses: statuses
         )
     }
 

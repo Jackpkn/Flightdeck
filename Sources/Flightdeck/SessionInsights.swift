@@ -244,6 +244,42 @@ struct ChurnHotspot: Identifiable, Sendable {
             suggestedAction: suggestedAction
         )
     }
+
+    /// Generates a tailored, copy-pasteable rule block for `CLAUDE.md`.
+    var claudeMdSnippet: String {
+        let name = fileName
+        switch diagnosis {
+        case .missingInstructions:
+            return """
+            ## File Rule: \(name)
+            - Target: `\(path)` (churned across \(sessionCount) sessions)
+            - Pattern: \(diagnosis.rawValue)
+            - Upfront Specification: Inspect existing tests and invariants before editing.
+            - Explicit Constraints: Preserve existing public APIs and verify with project tests immediately after modifying.
+            """
+        case .taskTooLarge:
+            return """
+            ## Context & Task Boundary: \(name)
+            - Target: `\(path)` (churned across \(sessionCount) sessions)
+            - Pattern: \(diagnosis.rawValue) (reached ≥85% context pressure or triggered compaction)
+            - Strategy: Split implementation into atomic, single-responsibility commits before modifying `\(name)`.
+            - Compact Early: If context window approaches 80%, end the session or issue `/compact` before editing complex logic.
+            """
+        case .architecturalCoupling:
+            return """
+            ## Architecture & Boundaries: \(name)
+            - Target: `\(path)` (churned across \(sessionCount) sessions in \(projects.joined(separator: ", ")))
+            - Pattern: \(diagnosis.rawValue)
+            - Modular Rule: Do not add cross-project dependencies directly into `\(name)`. Extract shared protocols or decouple caller contracts.
+            """
+        case .activeIteration:
+            return """
+            ## Active Development: \(name)
+            - Target: `\(path)` (active across \(sessionCount) sessions)
+            - Test Invariants: Ensure all unit tests pass before committing changes.
+            """
+        }
+    }
 }
 
 /// Finds files that repeatedly get reworked and diagnoses root causes.

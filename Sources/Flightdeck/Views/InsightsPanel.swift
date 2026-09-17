@@ -148,34 +148,7 @@ struct InsightsPanel: View {
             } else {
                 VStack(spacing: 6) {
                     ForEach(hotspots.prefix(10)) { spot in
-                        HStack(spacing: 8) {
-                            Text("\(spot.sessionCount)×")
-                                .font(Theme.mono(11, weight: .bold))
-                                .foregroundStyle(spot.sessionCount >= 4 ? Theme.warning : Theme.accentSecondary)
-                                .frame(width: 26, alignment: .trailing)
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(store.redactor.fileName(spot.fileName))
-                                        .font(Theme.mono(11))
-                                        .foregroundStyle(Theme.ink1)
-                                        .lineLimit(1)
-                                    Spacer()
-                                    Text(spot.diagnosis.rawValue)
-                                        .font(Theme.mono(8, weight: .bold))
-                                        .foregroundStyle(diagnosisColor(spot.diagnosis))
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 1.5)
-                                        .background(diagnosisColor(spot.diagnosis).opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
-                                }
-                                Text(spot.projects.map(store.redactor.project).joined(separator: ", "))
-                                    .font(Theme.mono(9))
-                                    .foregroundStyle(Theme.ink3)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .help("\(store.redactor.path(spot.path))\n\n\(spot.diagnosis.rawValue): \(spot.suggestedAction)")
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 7))
+                        ChurnHotspotRow(spot: spot, redactor: store.redactor)
                     }
                 }
             }
@@ -328,5 +301,85 @@ private struct SurvivalRow: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 7)
         .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 7))
+    }
+}
+
+private struct ChurnHotspotRow: View {
+    let spot: ChurnHotspot
+    let redactor: Redactor
+
+    @State private var copied = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("\(spot.sessionCount)×")
+                .font(Theme.mono(11, weight: .bold))
+                .foregroundStyle(spot.sessionCount >= 4 ? Theme.warning : Theme.accentSecondary)
+                .frame(width: 26, alignment: .trailing)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(redactor.fileName(spot.fileName))
+                        .font(Theme.mono(11))
+                        .foregroundStyle(Theme.ink1)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(spot.diagnosis.rawValue)
+                        .font(Theme.mono(8, weight: .bold))
+                        .foregroundStyle(diagnosisColor(spot.diagnosis))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(diagnosisColor(spot.diagnosis).opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                }
+
+                HStack {
+                    Text(spot.projects.map(redactor.project).joined(separator: ", "))
+                        .font(Theme.mono(9))
+                        .foregroundStyle(Theme.ink3)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(spot.claudeMdSnippet, forType: .string)
+                        CockpitAudio.playPing()
+                        copied = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                            copied = false
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: copied ? "checkmark" : "doc.badge.plus")
+                                .font(.system(size: 8.5))
+                            Text(copied ? "COPIED RULE" : "CLAUDE.md RULE")
+                                .font(Theme.mono(8.5, weight: .semibold))
+                        }
+                        .foregroundStyle(copied ? Theme.good : Theme.accentSecondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background((copied ? Theme.good : Theme.accentSecondary).opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke((copied ? Theme.good : Theme.accentSecondary).opacity(0.3), lineWidth: 0.8)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy tailored CLAUDE.md rule block for \(spot.fileName) based on \(spot.diagnosis.rawValue)")
+                }
+            }
+        }
+        .help("\(redactor.path(spot.path))\n\n\(spot.diagnosis.rawValue): \(spot.suggestedAction)")
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 7))
+    }
+
+    private func diagnosisColor(_ diagnosis: ChurnDiagnosis) -> Color {
+        switch diagnosis {
+        case .missingInstructions: return Theme.warning
+        case .taskTooLarge: return Theme.critical
+        case .architecturalCoupling: return Theme.accentSecondary
+        case .activeIteration: return Theme.good
+        }
     }
 }

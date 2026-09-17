@@ -80,4 +80,46 @@ struct HotspotDiagnosticsTests {
         #expect(top.diagnosis == .missingInstructions)
         #expect(top.suggestedAction.contains("CLAUDE.md"))
     }
+
+    @Test("Generates actionable CLAUDE.md snippets for all diagnosis variants")
+    func generatesClaudeMdSnippets() {
+        let missing = ChurnHotspot(
+            path: "Sources/Auth/Login.swift",
+            sessionCount: 4,
+            projects: ["Flightdeck"],
+            diagnosis: .missingInstructions
+        )
+        #expect(missing.claudeMdSnippet.contains("## File Rule: Login.swift"))
+        #expect(missing.claudeMdSnippet.contains("MISSING INSTRUCTIONS"))
+        #expect(missing.claudeMdSnippet.contains("Preserve existing public APIs"))
+
+        let tooLarge = ChurnHotspot(
+            path: "Sources/Core/Engine.swift",
+            sessionCount: 3,
+            projects: ["Flightdeck"],
+            diagnosis: .taskTooLarge
+        )
+        #expect(tooLarge.claudeMdSnippet.contains("## Context & Task Boundary: Engine.swift"))
+        #expect(tooLarge.claudeMdSnippet.contains("TASK TOO LARGE"))
+        #expect(tooLarge.claudeMdSnippet.contains("85%"))
+
+        let coupling = ChurnHotspot(
+            path: "Sources/Shared/Config.swift",
+            sessionCount: 2,
+            projects: ["Client", "Server"],
+            diagnosis: .architecturalCoupling
+        )
+        #expect(coupling.claudeMdSnippet.contains("## Architecture & Boundaries: Config.swift"))
+        #expect(coupling.claudeMdSnippet.contains("ARCHITECTURAL COUPLING"))
+        #expect(coupling.claudeMdSnippet.contains("Extract shared protocols"))
+
+        let iteration = ChurnHotspot(
+            path: "Sources/UI/Theme.swift",
+            sessionCount: 2,
+            projects: ["Flightdeck"],
+            diagnosis: .activeIteration
+        )
+        #expect(iteration.claudeMdSnippet.contains("## Active Development: Theme.swift"))
+        #expect(iteration.claudeMdSnippet.contains("Test Invariants"))
+    }
 }

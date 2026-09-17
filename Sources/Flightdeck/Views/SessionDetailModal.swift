@@ -8,7 +8,12 @@ struct SessionDetailModal: View {
     let session: SessionAgg
     let onDismiss: () -> Void
 
+    @Environment(SessionOutcomeStore.self) private var outcomeStore
+    @Environment(DashboardStore.self) private var store
+
     @State private var copied = false
+    @State private var copiedReport = false
+
     private var projectColor: Color {
         Theme.colorForProject(session.project)
     }
@@ -24,19 +29,28 @@ struct SessionDetailModal: View {
                 }
 
             // Modal Card
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 14) {
                 header
                 sessionMetaBar
-                heroStats
-                tokenBreakdownSection
-                if !session.modelUsages.isEmpty {
-                    modelBreakdownSection
+
+                ScrollView(.vertical, showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        heroStats
+                        gitOutcomeSection
+                        tokenBreakdownSection
+                        if !session.modelUsages.isEmpty {
+                            modelBreakdownSection
+                        }
+                        contextWindowSection
+                    }
+                    .padding(.vertical, 2)
                 }
-                contextWindowSection
+
                 footerDetails
             }
-            .padding(24)
-            .frame(width: 580)
+            .padding(22)
+            .frame(width: 620)
+            .frame(maxHeight: 740)
             .background(Theme.panel.opacity(0.96))
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(
@@ -45,6 +59,9 @@ struct SessionDetailModal: View {
             )
             .cornerBracket(color: projectColor)
             .shadow(color: projectColor.opacity(0.18), radius: 30)
+            .onAppear {
+                outcomeStore.refresh(sessions: [session])
+            }
         }
     }
 
@@ -138,6 +155,45 @@ struct SessionDetailModal: View {
                 .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 6))
             }
 
+            // Export Post-Mortem Button
+            Button {
+                let outcome = outcomeStore.outcome(for: session.id)
+                let rawSessions = store.rawActiveSessions
+                let hotspots = ChurnAnalyzer.hotspots(in: rawSessions)
+                let waste = WasteReport(sessions: rawSessions)
+                let md = SessionReportGenerator.generateMarkdown(
+                    session: session,
+                    outcome: outcome,
+                    hotspots: hotspots,
+                    waste: waste
+                )
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(md, forType: .string)
+                CockpitAudio.playPing()
+                copiedReport = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    copiedReport = false
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: copiedReport ? "checkmark" : "doc.badge.arrow.up")
+                        .font(.system(size: 10))
+                        .foregroundStyle(copiedReport ? Theme.good : Theme.accentSecondary)
+                    Text(copiedReport ? "COPIED MD" : "EXPORT POST-MORTEM")
+                        .font(Theme.mono(10, weight: .bold))
+                        .foregroundStyle(copiedReport ? Theme.good : Theme.ink1)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background((copiedReport ? Theme.good : Theme.accentSecondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke((copiedReport ? Theme.good : Theme.accentSecondary).opacity(copiedReport ? 0.4 : 0.3), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Copy GitHub-flavored Markdown post-mortem with cost, Git survival, and waste findings")
+
             Spacer()
 
             if session.toolUseCount > 0 {
@@ -202,6 +258,152 @@ struct SessionDetailModal: View {
             .padding(12)
             .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline, lineWidth: 1))
+        }
+    }
+
+    // MARK: - Git Outcome & Code Survival in HEAD
+
+    private var gitOutcomeSection: some View {
+        let outcome = outcomeStore.outcome(for: session.id)
+        let isNotRepo = outcomeStore.isNotRepository(session.id)
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.accentSecondary)
+                    Text("GIT OUTCOME & CODE SURVIVAL IN HEAD")
+                        .font(Theme.mono(10.5, weight: .semibold))
+                        .tracking(0.7)
+                        .foregroundStyle(Theme.ink3)
+                }
+
+                Spacer()
+
+                if let outcome, outcome.filesConsidered > 0 {
+                    let pct = Int(outcome.survivalRate * 100)
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(pct >= 75 ? Theme.good : (pct >= 50 ? Theme.warning : Theme.critical))
+                            .frame(width: 6, height: 6)
+                        Text("\(pct)% SURVIVAL")
+                            .font(Theme.mono(10, weight: .bold))
+                            .foregroundStyle(pct >= 75 ? Theme.good : (pct >= 50 ? Theme.warning : Theme.critical))
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2.5)
+                    .background(
+                        (pct >= 75 ? Theme.good : (pct >= 50 ? Theme.warning : Theme.critical)).opacity(0.12),
+                        in: Capsule()
+                    )
+                }
+            }
+
+            if let outcome, outcome.filesConsidered > 0 {
+                // Survival Metrics Grid
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    OutcomeStatCell(
+                        label: "IN HEAD",
+                        value: "\(outcome.filesInHead)/\(outcome.filesConsidered)",
+                        subtext: "surviving files",
+                        color: Theme.good
+                    )
+                    OutcomeStatCell(
+                        label: "UNCOMMITTED",
+                        value: "\(outcome.filesUncommitted)",
+                        subtext: "in working tree",
+                        color: Theme.accent
+                    )
+                    OutcomeStatCell(
+                        label: "DROPPED",
+                        value: "\(outcome.filesDropped)",
+                        subtext: "reverted/deleted",
+                        color: outcome.filesDropped > 0 ? Theme.critical : Theme.ink3
+                    )
+                    OutcomeStatCell(
+                        label: "NET COMMITTED",
+                        value: outcome.netLines.map { ($0 >= 0 ? "+" : "") + "\($0)" } ?? "—",
+                        subtext: "\(outcome.commits ?? 0) commits",
+                        color: Theme.claudeColor
+                    )
+                }
+
+                // File survival listing if any files were modified
+                if !session.filesModified.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(session.filesModified.sorted().prefix(6)), id: \.self) { file in
+                            let status = outcome.status(for: file)
+                            let fileName = URL(fileURLWithPath: file).lastPathComponent
+                            let parentDir = URL(fileURLWithPath: file).deletingLastPathComponent().lastPathComponent
+
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc.text")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Theme.ink3)
+                                Text(parentDir.isEmpty ? fileName : "\(parentDir)/\(fileName)")
+                                    .font(Theme.mono(10))
+                                    .foregroundStyle(Theme.ink1)
+                                    .lineLimit(1)
+                                Spacer()
+                                if let status {
+                                    Text(status.rawValue)
+                                        .font(Theme.mono(8.5, weight: .bold))
+                                        .foregroundStyle(survivalColor(status))
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1.5)
+                                        .background(survivalColor(status).opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
+                                }
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3.5)
+                            .background(Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 5))
+                        }
+
+                        if session.filesModified.count > 6 {
+                            Text("+ \(session.filesModified.count - 6) more modified files")
+                                .font(Theme.mono(9))
+                                .foregroundStyle(Theme.ink3)
+                                .padding(.leading, 6)
+                        }
+                    }
+                }
+            } else if isNotRepo {
+                HStack(spacing: 8) {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.ink3)
+                    Text("Non-git workspace — code survival is only measured inside Git repositories.")
+                        .font(Theme.mono(10))
+                        .foregroundStyle(Theme.ink3)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 6))
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                        .frame(width: 14, height: 14)
+                    Text("Measuring code survival against Git…")
+                        .font(Theme.mono(10))
+                        .foregroundStyle(Theme.ink3)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 6))
+            }
+        }
+        .padding(14)
+        .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.hairline, lineWidth: 1))
+    }
+
+    private func survivalColor(_ status: FileSurvivalStatus) -> Color {
+        switch status {
+        case .inHead: return Theme.good
+        case .uncommitted: return Theme.accent
+        case .dropped: return Theme.critical
         }
     }
 
@@ -439,5 +641,32 @@ private struct StatusPill: View {
         .foregroundStyle(active ? Theme.good : Theme.ink3)
         .padding(.horizontal, 9).padding(.vertical, 4)
         .background((active ? Theme.good : Color.white).opacity(active ? 0.13 : 0.05), in: Capsule())
+    }
+}
+
+private struct OutcomeStatCell: View {
+    let label: String
+    let value: String
+    let subtext: String
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(Theme.mono(8.5, weight: .medium))
+                .foregroundStyle(Theme.ink3)
+                .lineLimit(1)
+            Text(value)
+                .font(Theme.mono(13, weight: .bold))
+                .foregroundStyle(color)
+            Text(subtext)
+                .font(Theme.mono(8))
+                .foregroundStyle(Theme.ink3)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(7)
+        .background(Color.white.opacity(0.02), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline2, lineWidth: 1))
     }
 }

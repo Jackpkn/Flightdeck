@@ -341,4 +341,41 @@ struct CommitAttributionTests {
         ))
         #expect(outcome.commits == 2)
     }
+
+    @Test("Individual file survival statuses are accurately tracked")
+    func tracksPerFileSurvivalStatus() throws {
+        let repo = try makeRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+
+        let keptFile = repo.appendingPathComponent("Kept.swift")
+        let uncommittedFile = repo.appendingPathComponent("Uncommitted.swift")
+        let droppedFile = repo.appendingPathComponent("Dropped.swift")
+
+        try Data("kept\n".utf8).write(to: keptFile)
+        try Data("dropped\n".utf8).write(to: droppedFile)
+        git(["add", "."], repo)
+        git(["commit", "-qm", "initial"], repo)
+
+        // Drop one file
+        git(["rm", "-q", "Dropped.swift"], repo)
+        git(["commit", "-qm", "drop"], repo)
+
+        // Add an uncommitted file
+        try Data("uncommitted\n".utf8).write(to: uncommittedFile)
+
+        let outcome = try #require(GitOutcomeProbe.probe(
+            cwd: repo.path,
+            files: [keptFile.path, uncommittedFile.path, droppedFile.path],
+            since: nil,
+            until: nil
+        ))
+
+        #expect(outcome.filesInHead == 1)
+        #expect(outcome.filesUncommitted == 1)
+        #expect(outcome.filesDropped == 1)
+        #expect(outcome.status(for: keptFile.path) == .inHead)
+        #expect(outcome.status(for: uncommittedFile.path) == .uncommitted)
+        #expect(outcome.status(for: droppedFile.path) == .dropped)
+        #expect(outcome.status(for: "Kept.swift") == .inHead)
+    }
 }
