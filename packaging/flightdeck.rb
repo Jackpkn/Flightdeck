@@ -14,9 +14,9 @@
 class Flightdeck < Formula
   desc "macOS activity monitor that measures what your Claude Code spend produced"
   homepage "https://github.com/Jackpkn/Flightdeck"
-  url "https://github.com/Jackpkn/Flightdeck/releases/download/v0.1.0/Flightdeck-0.1.0-universal.tar.gz"
-  sha256 "6dd9eb7f1bed343b0a48c860faac18973d7ef71f020f4ab80bfd4b716dbf0cb3"
-  version "0.1.0"
+  url "https://github.com/Jackpkn/Flightdeck/releases/download/v0.2.0/Flightdeck-0.2.0-universal.tar.gz"
+  sha256 "947eeebde05521719704ed34a15c29b00b221de4ca4ece3186984bef93e69aa8"
+  version "0.2.0"
   license "MIT"
 
   depends_on macos: :sonoma
