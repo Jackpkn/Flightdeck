@@ -89,6 +89,7 @@ swift run Flightdeck <command> [options]
 | `flightdeck tail [id]` | Stream live conversation turns and tool calls as they occur in real time | `--verbose` |
 | `flightdeck hotspots` / `churn` | Scan files repeatedly rewritten across sessions with root-cause diagnosis | `--limit <N>`, `--json` |
 | `flightdeck report [session-id]` | Export Markdown or JSON post-mortem combining tokens, git survival, and churn | `--output <file>`, `--json` |
+| `flightdeck handoff [session-id]` | Generate clean Markdown task handoff prompt before lossy context auto-compaction | |
 | `flightdeck prune` | Prune historical activity and AI event telemetry to reclaim SQLite storage | `--days <N>`, `--vacuum`, `--dry-run` |
 | `flightdeck redact [text]` | Zero-leak secret scrubber for API keys (Anthropic, OpenAI, GitHub, AWS, Bearer) | |
 | `flightdeck install-hooks` | Safely configure Claude Code statusline & event hooks in `~/.claude/settings.json` | `--dry-run` |
@@ -98,6 +99,9 @@ swift run Flightdeck <command> [options]
 ```bash
 # Launch interactive terminal HUD (updates live every 1s):
 flightdeck top
+
+# Generate structured Task Handoff Prompt before context auto-compaction:
+flightdeck handoff
 
 # Export full session post-mortem report to Markdown:
 flightdeck report --output postmortem.md

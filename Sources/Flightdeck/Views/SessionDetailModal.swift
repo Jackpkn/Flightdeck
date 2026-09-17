@@ -13,6 +13,7 @@ struct SessionDetailModal: View {
 
     @State private var copied = false
     @State private var copiedReport = false
+    @State private var copiedHandoff = false
 
     private var projectColor: Color {
         Theme.colorForProject(session.project)
@@ -35,6 +36,9 @@ struct SessionDetailModal: View {
 
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 14) {
+                        if session.isNearCompaction {
+                            compactionWarningBanner
+                        }
                         heroStats
                         gitOutcomeSection
                         tokenBreakdownSection
@@ -194,6 +198,29 @@ struct SessionDetailModal: View {
             .buttonStyle(.plain)
             .help("Copy GitHub-flavored Markdown post-mortem with cost, Git survival, and waste findings")
 
+            // Task Handoff Button
+            Button {
+                copyHandoffPrompt()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: copiedHandoff ? "checkmark" : "arrow.right.doc.on.clipboard")
+                        .font(.system(size: 10))
+                        .foregroundStyle(copiedHandoff ? Theme.good : (session.isNearCompaction ? Theme.critical : Theme.accent))
+                    Text(copiedHandoff ? "COPIED HANDOFF" : "TASK HANDOFF")
+                        .font(Theme.mono(10, weight: .bold))
+                        .foregroundStyle(copiedHandoff ? Theme.good : Theme.ink1)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background((copiedHandoff ? Theme.good : (session.isNearCompaction ? Theme.critical : Theme.accent)).opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke((copiedHandoff ? Theme.good : (session.isNearCompaction ? Theme.critical : Theme.accent)).opacity(copiedHandoff ? 0.4 : 0.3), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Copy Markdown task handoff prompt for seamless transition to a fresh session")
+
             Spacer()
 
             if session.toolUseCount > 0 {
@@ -205,6 +232,64 @@ struct SessionDetailModal: View {
                 }
                 .foregroundStyle(Theme.ink3)
             }
+        }
+    }
+
+    // MARK: - Compaction Warning Banner
+
+    private var compactionWarningBanner: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.octagon.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(Theme.critical)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("COMPACTION IMMINENT (\(Int(session.contextFraction * 100))% CONTEXT USED)")
+                        .font(Theme.mono(11, weight: .bold))
+                        .foregroundStyle(Theme.critical)
+                    Text("· RISK OF INSTRUCTION LOSS")
+                        .font(Theme.mono(9.5, weight: .semibold))
+                        .foregroundStyle(Theme.ink2)
+                }
+                Text("Claude Code is about to run lossy compaction. Copy a Task Handoff Prompt to migrate state cleanly to a fresh session.")
+                    .font(Theme.ui(11))
+                    .foregroundStyle(Theme.ink2)
+                    .lineLimit(2)
+            }
+
+            Spacer()
+
+            Button {
+                copyHandoffPrompt()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: copiedHandoff ? "checkmark" : "doc.on.clipboard.fill")
+                        .font(.system(size: 10))
+                    Text(copiedHandoff ? "COPIED" : "COPY HANDOFF")
+                        .font(Theme.mono(10, weight: .bold))
+                }
+                .foregroundStyle(copiedHandoff ? Theme.good : Color.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(copiedHandoff ? Theme.good.opacity(0.2) : Theme.critical.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke((copiedHandoff ? Theme.good : Theme.critical).opacity(0.6), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help("Copy Task Handoff Prompt to clipboard")
+        }
+        .padding(12)
+        .background(Theme.critical.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.critical.opacity(0.3), lineWidth: 1))
+    }
+
+    private func copyHandoffPrompt() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(session.taskHandoffPrompt, forType: .string)
+        CockpitAudio.playPing()
+        copiedHandoff = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            copiedHandoff = false
         }
     }
 

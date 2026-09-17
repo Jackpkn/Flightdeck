@@ -68,6 +68,9 @@ enum CLI {
         case "report", "postmortem", "export":
             handleReport(flags: flags, arguments: arguments)
 
+        case "handoff":
+            handleHandoff(arguments: arguments)
+
         case "statusline":
             handleStatusline()
 
@@ -114,6 +117,7 @@ enum CLI {
           tail [session-id]       Stream live conversation turns and tool calls as they occur
           hotspots, churn         Detect files repeatedly rewritten across sessions with diagnosis
           report [session-id]     Export Markdown or JSON post-mortem of a Claude Code session
+          handoff [session-id]    Generate Markdown task handoff prompt for clean session migration
           prune                   Prune historical telemetry and SQLite database to reclaim disk
           redact [text]           Scrub secrets, API keys, and bearer tokens from text or stdin
           install-hooks           Configure Claude Code statusline & hooks in ~/.claude/settings.json
@@ -507,7 +511,13 @@ enum CLI {
                     let model = String(s.model.prefix(18)).padding(toLength: 18, withPad: " ", startingAt: 0)
                     let tokens = "\(Formatters.tokens(s.contextTokens))/\(Formatters.tokens(s.contextTotalTokens))".padding(toLength: 14, withPad: " ", startingAt: 0)
                     let cost = Formatters.usd(s.totalCostUsd).padding(toLength: 12, withPad: " ", startingAt: 0)
-                    print("\(project)  \(model)  \(tokens)  \(cost)  \(s.sessionId)")
+                    let alert: String
+                    if s.contextTotalTokens > 0 && Double(s.contextTokens) / Double(s.contextTotalTokens) >= 0.80 {
+                        alert = " ⚠️ [COMPACTION RISK]"
+                    } else {
+                        alert = ""
+                    }
+                    print("\(project)  \(model)  \(tokens)  \(cost)  \(s.sessionId)\(alert)")
                 }
             }
         }
@@ -520,6 +530,7 @@ enum CLI {
         let isJson = flags.contains("--json")
         let isVerbose = flags.contains("--verbose") || flags.contains("-v")
         let isTail = flags.contains("--tail") || flags.contains("-f")
+        let isHandoff = flags.contains("--handoff")
 
         let targetId = arguments.dropFirst().first { !$0.hasPrefix("-") }
         let sessions = DashboardStore.loadSessionsSync()
@@ -538,6 +549,16 @@ enum CLI {
             } else {
                 sessionFile = nil
             }
+        }
+
+        if isHandoff {
+            if let session {
+                print(session.taskHandoffPrompt)
+            } else {
+                fputs("flightdeck: session data not found for handoff prompt.\n", stderr)
+                exit(1)
+            }
+            exit(0)
         }
 
         guard let fileURL = sessionFile, FileManager.default.fileExists(atPath: fileURL.path) else {
@@ -785,6 +806,31 @@ enum CLI {
             print(markdown)
         }
 
+        exit(0)
+    }
+
+    // MARK: - 5f. Task Handoff Prompt Generator
+
+    private static func handleHandoff(arguments: [String]) -> Never {
+        let targetSessionId = arguments.dropFirst().first { !$0.hasPrefix("-") }
+        let sessions = DashboardStore.loadSessionsSync()
+
+        let session: SessionAgg
+        if let targetId = targetSessionId {
+            guard let found = sessions.first(where: { $0.id == targetId || $0.id.hasPrefix(targetId) }) else {
+                fputs("flightdeck: session '\(targetId)' not found in local transcripts.\n", stderr)
+                exit(1)
+            }
+            session = found
+        } else {
+            guard let latest = sessions.sorted(by: { ($0.lastSeen ?? .distantPast) > ($1.lastSeen ?? .distantPast) }).first else {
+                fputs("flightdeck: no Claude Code sessions found to generate a handoff prompt.\n", stderr)
+                exit(1)
+            }
+            session = latest
+        }
+
+        print(session.taskHandoffPrompt)
         exit(0)
     }
 

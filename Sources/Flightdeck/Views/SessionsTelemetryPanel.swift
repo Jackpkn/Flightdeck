@@ -12,6 +12,7 @@ struct SessionsTelemetryPanel: View {
     @State private var searchQuery: String = ""
     @State private var selectedFilter: SessionFilter = .all
     @State private var copiedId = false
+    @State private var copiedHandoff = false
 
     enum InspectorTab: String, CaseIterable {
         case metrics = "METRICS & TELEMETRY"
@@ -352,7 +353,14 @@ struct SessionsTelemetryPanel: View {
 
                     Spacer()
 
-                    if session.mode.lowercased() == "plan" {
+                    if session.isNearCompaction {
+                        Text("COMPACT")
+                            .font(Theme.mono(8.5, weight: .bold))
+                            .foregroundStyle(Theme.critical)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Theme.critical.opacity(0.18), in: Capsule())
+                    } else if session.mode.lowercased() == "plan" {
                         Text("PLAN")
                             .font(Theme.mono(8.5, weight: .bold))
                             .foregroundStyle(Color.purple)
@@ -399,7 +407,7 @@ struct SessionsTelemetryPanel: View {
                         ZStack(alignment: .leading) {
                             Capsule().fill(Color.white.opacity(0.06))
                             Capsule()
-                                .fill(session.contextFraction > 0.7 ? Theme.warning : Theme.claudeColor)
+                                .fill(session.isNearCompaction ? Theme.critical : (session.contextFraction > 0.7 ? Theme.warning : Theme.claudeColor))
                                 .frame(width: max(2, geo.size.width * CGFloat(session.contextFraction)))
                         }
                     }
@@ -427,6 +435,9 @@ struct SessionsTelemetryPanel: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         inspectorHeader(session)
+                        if session.isNearCompaction {
+                            compactionInspectorBanner(session)
+                        }
                         actionButtonsBar(session)
 
                         // Mode switcher between metrics and transcript turns
@@ -595,7 +606,28 @@ struct SessionsTelemetryPanel: View {
             }
             .buttonStyle(.plain)
 
-            // 3. Copy Session ID / Path
+            // 3. Task Handoff Prompt
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(session.taskHandoffPrompt, forType: .string)
+                CockpitAudio.playPing()
+                copiedHandoff = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { copiedHandoff = false }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: copiedHandoff ? "checkmark" : "arrow.right.doc.on.clipboard")
+                    Text(copiedHandoff ? "COPIED HANDOFF" : "TASK HANDOFF")
+                }
+                .font(Theme.mono(10.5, weight: session.isNearCompaction ? .bold : .regular))
+                .foregroundStyle(copiedHandoff ? Theme.good : (session.isNearCompaction ? Theme.critical : Theme.ink2))
+                .padding(.horizontal, 8).padding(.vertical, 5)
+                .background((copiedHandoff ? Theme.good : (session.isNearCompaction ? Theme.critical : Theme.accent)).opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke((session.isNearCompaction ? Theme.critical.opacity(0.5) : Theme.hairline), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help("Copy Markdown task handoff prompt for seamless transition to a fresh session")
+
+            // 4. Copy Session ID / Path
             Button {
                 let toCopy = session.id.hasPrefix("proj-") ? (session.cwd.isEmpty ? session.id : session.cwd) : session.id
                 NSPasteboard.general.clearContents()
@@ -620,7 +652,7 @@ struct SessionsTelemetryPanel: View {
             }
             .buttonStyle(.plain)
 
-            // 4. Open Folder in Finder
+            // 5. Open Folder in Finder
             if !session.cwd.isEmpty {
                 Button {
                     let url = URL(fileURLWithPath: session.cwd)
@@ -641,6 +673,53 @@ struct SessionsTelemetryPanel: View {
 
             Spacer()
         }
+    }
+
+    private func compactionInspectorBanner(_ session: SessionAgg) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.octagon.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(Theme.critical)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("COMPACTION IMMINENT (\(Int(session.contextFraction * 100))% CONTEXT FILLED)")
+                        .font(Theme.mono(10.5, weight: .bold))
+                        .foregroundStyle(Theme.critical)
+                    Text("· INSTRUCTION DRIFT RISK")
+                        .font(Theme.mono(9, weight: .semibold))
+                        .foregroundStyle(Theme.ink3)
+                }
+                Text("Claude Code will auto-summarize conversation history shortly. Copy a Task Handoff Prompt to launch a fresh session without loss of directives.")
+                    .font(Theme.ui(10.5))
+                    .foregroundStyle(Theme.ink2)
+            }
+
+            Spacer()
+
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(session.taskHandoffPrompt, forType: .string)
+                CockpitAudio.playPing()
+                copiedHandoff = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { copiedHandoff = false }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: copiedHandoff ? "checkmark" : "doc.on.clipboard.fill")
+                        .font(.system(size: 9))
+                    Text(copiedHandoff ? "COPIED" : "COPY HANDOFF")
+                        .font(Theme.mono(9.5, weight: .bold))
+                }
+                .foregroundStyle(copiedHandoff ? Theme.good : Color.white)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(copiedHandoff ? Theme.good.opacity(0.2) : Theme.critical.opacity(0.85), in: RoundedRectangle(cornerRadius: 5))
+                .overlay(RoundedRectangle(cornerRadius: 5).stroke((copiedHandoff ? Theme.good : Theme.critical).opacity(0.5), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(10)
+        .background(Theme.critical.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.critical.opacity(0.3), lineWidth: 1))
     }
 
     private func resumeSessionInTerminal(_ session: SessionAgg) {

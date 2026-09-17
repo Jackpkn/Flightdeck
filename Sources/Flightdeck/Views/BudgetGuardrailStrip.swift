@@ -7,6 +7,7 @@ struct BudgetGuardrailStrip: View {
     @State private var budgetManager = BudgetManager.shared
     @State private var showBudgetPopover = false
     @State private var customBudgetText = ""
+    @State private var copiedHandoffId: String? = nil
 
     private var todaySpend: Double {
         store.todaySpend
@@ -158,20 +159,24 @@ struct BudgetGuardrailStrip: View {
     }
 
     private var contextBorder: Color {
-        store.highContextSessions.isEmpty ? Theme.good.opacity(0.2) : Theme.warning.opacity(0.4)
+        guard let high = store.highContextSessions.first else { return Theme.good.opacity(0.2) }
+        return high.isNearCompaction ? Theme.critical.opacity(0.5) : Theme.warning.opacity(0.4)
     }
 
     @ViewBuilder
     private func contextAlert(_ high: SessionAgg) -> some View {
-        Image(systemName: "exclamationmark.triangle.fill")
+        let isCompacting = high.isNearCompaction
+        let isCopied = copiedHandoffId == high.id
+
+        Image(systemName: isCompacting ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")
             .font(.system(size: 16))
-            .foregroundStyle(Theme.warning)
+            .foregroundStyle(isCompacting ? Theme.critical : Theme.warning)
 
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                Text("CONTEXT ALERT")
+                Text(isCompacting ? "COMPACTION IMMINENT" : "CONTEXT ALERT")
                     .font(Theme.mono(9.5, weight: .bold))
-                    .foregroundStyle(Theme.warning)
+                    .foregroundStyle(isCompacting ? Theme.critical : Theme.warning)
 
                 Text("· \(high.project)")
                     .font(Theme.mono(10, weight: .semibold))
@@ -185,11 +190,35 @@ struct BudgetGuardrailStrip: View {
 
         Spacer()
 
-        Text("RUN /compact")
-            .font(Theme.mono(9, weight: .bold))
-            .foregroundStyle(Color.orange)
-            .padding(.horizontal, 6).padding(.vertical, 3)
-            .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(high.taskHandoffPrompt, forType: .string)
+            CockpitAudio.playPing()
+            copiedHandoffId = high.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                if copiedHandoffId == high.id {
+                    copiedHandoffId = nil
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                if isCopied {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 8.5))
+                }
+                Text(isCopied ? "COPIED" : "COPY HANDOFF")
+                    .font(Theme.mono(9, weight: .bold))
+            }
+            .foregroundStyle(isCopied ? Theme.good : (isCompacting ? Theme.critical : Color.orange))
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background((isCopied ? Theme.good : (isCompacting ? Theme.critical : Color.orange)).opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke((isCopied ? Theme.good : (isCompacting ? Theme.critical : Color.orange)).opacity(0.4), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Copy Task Handoff Prompt to clipboard for a clean session transition")
     }
 
     private static func contextSummary(_ high: SessionAgg) -> String {
