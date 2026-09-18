@@ -22,6 +22,10 @@ This skill interfaces with the Flightdeck Epistemic Causal Substrate (ECS) via M
   Reports active capsules, tombstone counts, and physical database metrics.
 * **`memory_dream(project, apply)`**:
   Runs the offline consolidation sweep with retention floors.
+* **`memory_pending_adjudication(project)`**:
+  Lists candidate memories queued in `pending_adjudication` waiting for Gate 4 host-agent disambiguation.
+* **`memory_adjudicate(candidate_id, decision, reason, host_agent, target_file)`**:
+  Gate 4 Host Agent Adjudication: Resolves multi-file attribution (`decision='attribute'`), content-dependency validity (`decision='valid'|'stale'`), or UNKNOWN conflicts (`decision='distinct_scope'|'resolve_conflict'`).
 
 ## CLI Equivalent Commands
 

@@ -243,6 +243,48 @@ Because session logs and hook events record every tool argument and command, str
 3. **Sidecar Rotation & 7-Day TTL**: The raw `tool_events.jsonl` sidecar has an automatic 7-day retention floor, rotated and purged during `flightdeck prune`.
 4. **Telemetry Confidentiality**: The telemetry log (`ecs_telemetry.jsonl`) logs structured numerical and enum metrics only (`query_tokens`, `status`, `top_bm25`, `hit_atom_ids`, `latency_ms`). It is strictly prohibited from logging raw query strings, code fragments, or prompt text.
 
+### 5. The 4-Gate Pipeline & Host Agent as Adjudicator
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                   THE 4-GATE INGESTION & ADJUDICATION PIPELINE                   │
+├───────────────────┬───────────────────────────────────┬──────────────────────────┤
+│ Gate              │ Verification Mechanism            │ Authority & Target       │
+├───────────────────┼───────────────────────────────────┼──────────────────────────┤
+│ Gate 1: Exit Code │ Compiler / Test Runner Exit Code  │ L1 / L2m (Deterministic) │
+│ Gate 2: Verifier  │ Code Identifier & Substring Match │ Structural Sanity Check  │
+│ Gate 3: CUPMem    │ Slot Hierarchy & Double Verify    │ Graph Consistency        │
+│ Gate 4: Host Agent│ Deferred AI Adjudication via MCP  │ L2 Provenance (Bounded)  │
+└───────────────────┴───────────────────────────────────┴──────────────────────────┘
+```
+
+#### Where AI Enters, and Where It Must Never Enter:
+1. **Gate 1 (Compiler Exit Codes) — NEVER AI**: Exit codes (`0` vs `!= 0`) are physical ground truth. Adding an LLM here risks hallucinating false failures or missed breaks. Stays 100% deterministic machine logic.
+   * *Known Limitation (Negative-Trap Mining in v1)*: The miner isolates $\text{Edit} \to \text{Failure} \to \text{Fix} \to \text{Pass}$. Successful first-time edits are deliberately dropped. This focuses exclusively on hazard avoidance (compiler-mistake prevention). Capturing positive procedural templates (clean first-try passes) is deferred to v2.
+   * *Mined Authority Level*: Mined triples are explicitly **`AuthorityLevel.L2`** (`verified_by: "transcript_miner"`). They are empirical hypotheses, never unassailable $L1$ assertions.
+2. **Gate 2 (Quality & Attribution Filter) — Deterministic Structural Bar**:
+   * *Structural Code Identifier Requirement*: The resolution must contain a code identifier (file path `/...`, backticked identifier `` `...` ``, function call `func(...)`, enum case `.case`, CLI flag `--flag`, or PascalCase symbol). Generic phrases like `"try again"` or `"be careful"` fail Gate 2 immediately.
+   * *Trigger Substring Grounding*: If a compiler `failure_signature` is recorded, the `trigger_pattern` must appear verbatim or share anchor tokens in the error message. This anchors the trigger to the observed compiler failure and prevents hallucinated triggers.
+   * *Multi-File Causal Attribution Guard*: If multiple files were modified between the failure and the pass, temporal sequence does not prove causal attribution. Gate 2 tags the triple with `confidence = 0.50`, flags it as `ambiguous_causal_attribution`, and routes it to `LifecycleState.PENDING_ADJUDICATION` for Gate 4 host-agent adjudication.
+3. **Gate 3 (CUPMem Graph Adjudication) — Miner Path Must Not Skip**:
+   * Background transcript mining does *not* bypass Gate 3. Candidates pass through `adjudicate_write` asynchronously during the dream phase or session end.
+   * This prevents duplicate candidate accumulation, enforces $L1$-supersedes-$L2$ invariant against existing compiler ground truth, and executes cross-session double-verification promotion.
+4. **Gate 4 (Deferred AI Adjudication via Host Agent MCP) — The Host Agent Pattern**:
+   * *Zero Cloud / Zero Cost*: Instead of spinning up an external cloud LLM, Flightdeck ECS calls the developer's **already-active host agent** (Claude Code, Cursor, Codex, Antigravity) via the `memory_adjudicate` MCP tool.
+   * *Zero Write-Path Latency*: Gate 4 never runs on the hot query ($<9\,\text{ms}$) or write ($<10\,\text{ms}$) paths. It is deferred to session end or dream phase.
+   * *Strictly Bounded Scope (3 Questions Only)*:
+     1. **Multi-File Causal Attribution**: Given a multi-file diff, which edit caused the pass? (`decision="attribute"`)
+     2. **Content-Dependency Re-Verification**: Given $D$'s claim and $C$'s update, is $D$ still valid? (`decision="valid"` or `"stale"`)
+     3. **UNKNOWN Conflict Disambiguation**: Given two equal-authority claims, are they contradictory or distinct in scope? (`decision="distinct_scope"` or `"resolve_conflict"`)
+   * Anything outside these 3 questions is retained in `pending_adjudication` for human review.
+   * *Proven Traceable Provenance (`verified_by`)*:
+     - `compiler`: L1 machine exit code
+     - `filesystem`: L1 git hash / AST symbol presence
+     - `host_agent:<name>`: L2 host agent adjudication via MCP tool
+     - `transcript_miner`: L2 deterministic pattern match
+     - `human`: L3 explicit user directive
+   * *Lifecycle State `pending_adjudication`*: When a candidate cannot be resolved deterministically and no host agent is active, it sits in `pending_adjudication`. It is retrievable for review via `memory_pending_adjudication`, but **never injected as fact into agent prompt contexts**.
+
 ---
 
 ## 7. Dream Phase Consolidation & Safety Guardrails

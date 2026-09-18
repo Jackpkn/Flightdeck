@@ -652,5 +652,32 @@ struct CausalMemoryTests {
         #expect(reloaded?.status == .stale)
         #expect(reloaded?.anchorStatus != .verified)
     }
+
+    @Test("Capsule verifiedBy and pendingAdjudication state are stored and formatted")
+    func capsuleVerifiedByAndPendingAdjudicationState() throws {
+        let db = try ActivityDatabase.inMemory()
+
+        let capsule = MemoryCapsule(
+            id: "capsule-adjudication-001",
+            project: "Flightdeck",
+            filePath: "Sources/Flightdeck/App.swift",
+            symbol: "AppConfig",
+            kind: .rule,
+            authority: .L2,
+            triggerPattern: "AppConfig location",
+            resolution: "Use ~/.flightdeck/config.json",
+            verifiedBy: "host_agent:claude_code",
+            status: .pendingAdjudication
+        )
+
+        db.saveMemoryCapsule(capsule)
+
+        let reloaded = db.fetchMemoryCapsule(id: "capsule-adjudication-001")
+        #expect(reloaded != nil)
+        #expect(reloaded?.status == .pendingAdjudication)
+        #expect(reloaded?.verifiedBy == "host_agent:claude_code")
+        #expect(reloaded?.microDirective.contains("[PENDING ADJUDICATION:") == true)
+    }
 }
+
 

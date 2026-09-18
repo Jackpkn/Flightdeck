@@ -24,10 +24,15 @@ class AdjudicationEngine:
     def __init__(self, db: ECSDatabase):
         self.db = db
 
+    CODE_IDENTIFIER_PATTERN = re.compile(
+        r'(\.[a-zA-Z_][a-zA-Z0-9_]*|`[^`]+`|[a-zA-Z_][a-zA-Z0-9_]*\([^\)]*\)|--[a-z0-9-]+|[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+|\b[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+\b|\b[A-Z][a-zA-Z0-9]+(?:\.[A-Z][a-zA-Z0-9]+)*\b)'
+    )
+
     def verify_candidate(self, atom: MemoryAtom) -> VerifierSignal:
         """MemGuard-style verification pass assessing trajectory validity & authority."""
         # 1. External L4 documents are always quarantined
         if atom.authority == AuthorityLevel.L4:
+            atom.verified_by = "untrusted_external"
             return VerifierSignal(
                 reward=0.3,
                 confidence=0.3,
@@ -37,6 +42,10 @@ class AdjudicationEngine:
 
         # 2. Ground truth L0 / L1 compiler exit codes & filesystem state
         if atom.authority in (AuthorityLevel.L0, AuthorityLevel.L1):
+            if atom.authority == AuthorityLevel.L0:
+                atom.verified_by = "filesystem"
+            else:
+                atom.verified_by = "compiler"
             return VerifierSignal(
                 reward=1.0,
                 confidence=0.98,
@@ -46,6 +55,7 @@ class AdjudicationEngine:
 
         # 3. User explicit intent (L3)
         if atom.authority == AuthorityLevel.L3:
+            atom.verified_by = "human"
             return VerifierSignal(
                 reward=0.95,
                 confidence=0.90,
@@ -56,6 +66,23 @@ class AdjudicationEngine:
         # 4. Mined transcript hypotheses (source: transcript_miner) enter as candidate L2
         if atom.source == "transcript_miner":
             atom.authority = AuthorityLevel.L2
+            atom.verified_by = "transcript_miner"
+
+            # Check for ambiguous multi-file causal attribution (Gate 2 attribution guard)
+            # If multiple files were modified between failure and pass, attribution is ambiguous
+            has_multi_file = (
+                len([ref for ref in atom.evidence_refs if "/" in ref or "." in ref]) > 1
+                or (atom.conflict_note and "multi-file" in atom.conflict_note.lower())
+            )
+            if has_multi_file:
+                atom.state = LifecycleState.PENDING_ADJUDICATION
+                return VerifierSignal(
+                    reward=0.50,
+                    confidence=0.50,
+                    label="ambiguous_causal_attribution",
+                    view_set=["risk"],
+                )
+
             atom.state = LifecycleState.CANDIDATE
             return VerifierSignal(
                 reward=0.65,
@@ -65,8 +92,47 @@ class AdjudicationEngine:
             )
 
         # 5. Agent operational observation (L2)
+        if not atom.verified_by or atom.verified_by == "compiler":
+            atom.verified_by = atom.agent_id or "host_agent:claude_code"
+
         has_resolution = bool(atom.resolution and len(atom.resolution.strip()) > 5)
         has_trigger = bool(atom.trigger_pattern and len(atom.trigger_pattern.strip()) > 3)
+
+        # Check 5a: Trigger verbosity threshold -> Gate 4 deferred adjudication
+        if atom.trigger_pattern and len(atom.trigger_pattern.strip()) > 120:
+            atom.state = LifecycleState.PENDING_ADJUDICATION
+            return VerifierSignal(
+                reward=0.55,
+                confidence=0.50,
+                label="trigger_too_verbose_pending_adjudication",
+                view_set=["risk"],
+            )
+
+        # Check 5b: Trigger Substring Grounding in Failure Signature (if present)
+        if atom.failure_signature and atom.trigger_pattern:
+            sig_norm = atom.failure_signature.strip().lower()
+            trig_norm = atom.trigger_pattern.strip().lower()
+            trigger_grounded = (trig_norm in sig_norm) or any(
+                token in sig_norm
+                for token in re.findall(r'[a-zA-Z0-9_]{4,}', trig_norm)
+            )
+            if not trigger_grounded:
+                return VerifierSignal(
+                    reward=0.45,
+                    confidence=0.40,
+                    label="trigger_not_found_in_error",
+                    view_set=["risk"],
+                )
+
+        # Check 5c: Structural Code Identifier Requirement in Resolution
+        has_code_identifier = bool(self.CODE_IDENTIFIER_PATTERN.search(atom.resolution)) if atom.resolution else False
+        if not has_code_identifier:
+            return VerifierSignal(
+                reward=0.40,
+                confidence=0.35,
+                label="vague_resolution_lacks_identifier",
+                view_set=["risk"],
+            )
 
         if has_resolution and has_trigger:
             return VerifierSignal(
@@ -309,3 +375,122 @@ class AdjudicationEngine:
     def _is_contradictory_text(self, res_a: str, res_b: str) -> bool:
         negations = ["not", "never", "instead of", "don't", "avoid", "deprecated", "removed"]
         return any(neg in res_a or neg in res_b for neg in negations)
+
+    def adjudicate_host_agent(
+        self,
+        candidate_id: str,
+        host_agent: str,
+        decision: str,
+        reason: str = "",
+        target_file: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Gate 4: Deferred AI Adjudication via Host Agent MCP.
+        Strictly bounded to 3 questions:
+        1. Multi-file causal attribution ("attribute"): which edit caused the pass?
+        2. Content-dependency re-verification ("valid" | "stale"): does D still hold given C'?
+        3. UNKNOWN conflict adjudication ("resolve_conflict" | "distinct_scope"): contradictory vs different scope?
+
+        Decisions outside this scope are retained in pending_adjudication for human review.
+        """
+        atom = self.db.get_atom(candidate_id)
+        if not atom:
+            return {"error": f"Atom not found: {candidate_id}"}
+
+        dec = decision.lower().strip()
+        now = datetime.now(timezone.utc)
+        provenance = f"host_agent:{host_agent}"
+
+        if dec in ("attribute", "attributed"):
+            # Question 1: Given multi-file diff, which edit caused the pass?
+            if target_file:
+                atom.file_path = target_file
+            atom.state = LifecycleState.ACTIVE
+            atom.verified_by = provenance
+            atom.confidence = max(atom.confidence, 0.85)
+            atom.conflict_note = f"✓ Causally attributed by {provenance}: {reason}".strip()
+            atom.updated_at = now
+            self.db.save_atom(atom)
+            return {
+                "status": "ADJUDICATED",
+                "atom_id": atom.id,
+                "state": atom.state.value,
+                "verified_by": atom.verified_by,
+                "confidence": atom.confidence,
+                "note": atom.conflict_note,
+            }
+
+        elif dec in ("valid", "verified"):
+            # Question 2: Content-dependency re-verification (D still holds given C')
+            atom.state = LifecycleState.ACTIVE
+            atom.verified_by = provenance
+            atom.confidence = max(atom.confidence, 0.85)
+            atom.conflict_note = f"✓ Content dependency re-verified by {provenance}: {reason}".strip()
+            atom.updated_at = now
+            self.db.save_atom(atom)
+            return {
+                "status": "ADJUDICATED",
+                "atom_id": atom.id,
+                "state": atom.state.value,
+                "verified_by": atom.verified_by,
+                "note": atom.conflict_note,
+            }
+
+        elif dec in ("invalid", "stale", "refuted"):
+            # Question 2 (refuted): Content dependency broken by C'
+            atom.state = LifecycleState.STALE
+            atom.valid_until = now
+            atom.conflict_note = f"Refuted by {provenance}: {reason}".strip()
+            atom.updated_at = now
+            self.db.save_atom(atom)
+            return {
+                "status": "ADJUDICATED",
+                "atom_id": atom.id,
+                "state": atom.state.value,
+                "note": atom.conflict_note,
+            }
+
+        elif dec in ("distinct_scope", "scope_disambiguated"):
+            # Question 3: Not contradictory, just different in scope
+            atom.state = LifecycleState.ACTIVE
+            atom.verified_by = provenance
+            atom.conflict_note = f"✓ Distinct scope confirmed by {provenance}: {reason}".strip()
+            atom.updated_at = now
+            self.db.save_atom(atom)
+            return {
+                "status": "ADJUDICATED",
+                "atom_id": atom.id,
+                "state": atom.state.value,
+                "verified_by": atom.verified_by,
+                "note": atom.conflict_note,
+            }
+
+        elif dec in ("resolve_conflict", "supersede"):
+            # Question 3: Semantically contradictory, candidate chosen as winner
+            atom.state = LifecycleState.ACTIVE
+            atom.verified_by = provenance
+            atom.confidence = max(atom.confidence, 0.85)
+            atom.conflict_note = f"✓ Conflict resolved in favor of {atom.id} by {provenance}: {reason}".strip()
+            atom.updated_at = now
+            self.db.save_atom(atom)
+            return {
+                "status": "ADJUDICATED",
+                "atom_id": atom.id,
+                "state": atom.state.value,
+                "verified_by": atom.verified_by,
+                "note": atom.conflict_note,
+            }
+
+        else:
+            # Outside the 3 bounded questions: hold in pending_adjudication for human review
+            atom.state = LifecycleState.PENDING_ADJUDICATION
+            atom.conflict_note = f"Pending human review (unsupported decision '{decision}'): {reason}".strip()
+            atom.updated_at = now
+            self.db.save_atom(atom)
+            return {
+                "status": "PENDING_HUMAN_REVIEW",
+                "atom_id": atom.id,
+                "state": atom.state.value,
+                "message": "Question outside bounded Gate 4 scope. Deferred to pending_adjudication for human review.",
+            }
+

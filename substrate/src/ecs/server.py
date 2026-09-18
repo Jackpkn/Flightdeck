@@ -129,6 +129,7 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
         failure_signature: str = "",
         agent_id: str = "",
         session_id: str = "",
+        verified_by: str = "",
     ) -> str:
         """
         Stores a verified memory atom after running write-side adjudication (CUPMem protocol).
@@ -156,6 +157,7 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
             resolution=resolution,
             agent_id=agent_id if agent_id else None,
             session_id=session_id if session_id else None,
+            verified_by=verified_by if verified_by else ("compiler" if auth == AuthorityLevel.L1 else "host_agent:claude_code"),
         )
 
         persisted, affected, edges = adjudicator.adjudicate_write(atom)
@@ -170,6 +172,8 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
             adj_res = "CONFLICT"
         elif persisted.state == LifecycleState.STALE:
             adj_res = "STALE"
+        elif persisted.state == LifecycleState.PENDING_ADJUDICATION:
+            adj_res = "PENDING_ADJUDICATION"
         else:
             adj_res = "KEEP"
 
@@ -188,6 +192,7 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
             "stored_atom_id": persisted.id,
             "state": persisted.state.value,
             "authority": persisted.authority.value,
+            "verified_by": persisted.verified_by,
             "reward": persisted.reward,
             "confidence": persisted.confidence,
             "label": persisted.label,
@@ -224,6 +229,80 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
         )
 
         return json.dumps([a.to_dict() for a in atoms], indent=2)
+
+    @server.tool()
+    def memory_adjudicate(
+        candidate_id: str,
+        decision: str,
+        reason: str = "",
+        host_agent: str = "claude_code",
+        target_file: str = "",
+    ) -> str:
+        """
+        Gate 4: Deferred AI Adjudication via Host Agent MCP.
+        Allows the host agent (Claude, Cursor, Antigravity) to resolve pending items:
+        - 'attribute': Disambiguates multi-file diff to specific cause
+        - 'valid': Re-verifies content dependency after refactor
+        - 'stale' / 'invalid': Confirms content dependency broken
+        - 'distinct_scope': Disambiguates equal-authority claims to different contexts
+        - 'resolve_conflict': Chooses winning claim between equal authorities
+        """
+        res = adjudicator.adjudicate_host_agent(
+            candidate_id=candidate_id,
+            host_agent=host_agent,
+            decision=decision,
+            reason=reason,
+            target_file=target_file if target_file else None,
+        )
+        log_telemetry_event({
+            "event": "memory_adjudicate",
+            "candidate_id": candidate_id,
+            "host_agent": host_agent,
+            "decision": decision,
+            "status": res.get("status"),
+        })
+        return json.dumps(res, indent=2)
+
+    @server.tool()
+    def memory_pending_adjudication(project: str = "") -> str:
+        """
+        Lists memory candidates sitting in 'pending_adjudication' or unresolved 'conflicted'
+        state waiting for host-agent review (Gate 4).
+        """
+        pending_atoms = db.fetch_atoms(
+            project=project if project else None,
+            state=LifecycleState.PENDING_ADJUDICATION,
+            active_only=False,
+        )
+        conflicted_atoms = db.fetch_atoms(
+            project=project if project else None,
+            state=LifecycleState.CONFLICTED,
+            active_only=False,
+        )
+
+        items = []
+        for a in pending_atoms + conflicted_atoms:
+            items.append({
+                "id": a.id,
+                "project": a.project,
+                "file_path": a.file_path,
+                "state": a.state.value,
+                "kind": a.kind.value,
+                "authority": a.authority.value,
+                "verified_by": a.verified_by,
+                "trigger_pattern": a.trigger_pattern,
+                "failure_signature": a.failure_signature,
+                "resolution": a.resolution,
+                "conflict_note": a.conflict_note,
+                "evidence_refs": a.evidence_refs,
+                "confidence": a.confidence,
+                "updated_at": a.updated_at.isoformat(),
+            })
+
+        return json.dumps({
+            "pending_count": len(items),
+            "candidates": items,
+        }, indent=2)
 
     @server.tool()
     def memory_resolve(atom_id: str, action: str) -> str:

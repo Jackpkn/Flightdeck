@@ -74,6 +74,8 @@ def test_mcp_server_stdio_end_to_end():
         tool_names = [t["name"] for t in tools_res["result"]["tools"]]
         assert "memory_context" in tool_names
         assert "memory_store" in tool_names
+        assert "memory_adjudicate" in tool_names
+        assert "memory_pending_adjudication" in tool_names
         assert "memory_resolve" in tool_names
         assert "memory_dream" in tool_names
 

@@ -71,6 +71,8 @@ public enum MemoryStatus: String, Codable, Sendable, CaseIterable {
     case superseded = "superseded"
     /// Low-trust external document pending verification.
     case quarantined = "quarantined"
+    /// Candidate requires Gate 4 host-agent adjudication before active injection.
+    case pendingAdjudication = "pending_adjudication"
     /// Contradictory claims at equal authority pending resolution.
     case conflicted = "conflicted"
     /// File was deleted or rule was explicitly refuted.
@@ -168,6 +170,7 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
     public var resolution: String
     public var originSessionId: String?
     public var source: String
+    public var verifiedBy: String
     public var occurrenceCount: Int
     public var gitSha: String
     public var fileHash: String?
@@ -198,6 +201,7 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
         resolution: String,
         originSessionId: String? = nil,
         source: String = "agent",
+        verifiedBy: String = "compiler",
         occurrenceCount: Int = 1,
         gitSha: String = "HEAD",
         fileHash: String? = nil,
@@ -227,6 +231,7 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
         self.resolution = resolution
         self.originSessionId = originSessionId
         self.source = source
+        self.verifiedBy = verifiedBy
         self.occurrenceCount = occurrenceCount
         self.gitSha = gitSha
         self.fileHash = fileHash
@@ -248,6 +253,9 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
     public var microDirective: String {
         if status == .quarantined {
             return "[QUARANTINED: `\(filePath)`]\n  ⚠️ External document pending verification against compiler/git evidence."
+        }
+        if status == .pendingAdjudication {
+            return "[PENDING ADJUDICATION: `\(filePath)`]\n  ⚠️ Mined or multi-file candidate pending host-agent review."
         }
         if let conflictNote, !conflictNote.isEmpty {
             return "[CONFLICT: \(subject ?? symbol ?? filePath)]\n⚠️ Two sources disagree on this code region:\n\(conflictNote)\n  Review code before proceeding."

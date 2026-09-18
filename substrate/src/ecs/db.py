@@ -85,6 +85,7 @@ class ECSDatabase:
                 agent_id TEXT,
                 session_id TEXT,
                 source TEXT NOT NULL DEFAULT 'agent',
+                verified_by TEXT NOT NULL DEFAULT 'compiler',
                 occurrence_count INTEGER NOT NULL DEFAULT 1,
                 evidence_refs TEXT,
                 valid_from TEXT NOT NULL,
@@ -104,13 +105,15 @@ class ECSDatabase:
         # Safe migrations for pre-existing databases
         cur.execute("PRAGMA table_info(memory_atoms);")
         existing_cols = {row[1] for row in cur.fetchall()}
-        for col_name in ["subject", "predicate", "object_value", "anchor_status", "anchor_json", "conflict_note", "source", "occurrence_count"]:
+        for col_name in ["subject", "predicate", "object_value", "anchor_status", "anchor_json", "conflict_note", "source", "verified_by", "occurrence_count"]:
             if col_name not in existing_cols:
                 try:
                     if col_name == "occurrence_count":
                         col_type = "INTEGER DEFAULT 1"
                     elif col_name == "anchor_status":
                         col_type = "TEXT DEFAULT 'unverified'"
+                    elif col_name == "verified_by":
+                        col_type = "TEXT DEFAULT 'compiler'"
                     else:
                         col_type = "TEXT"
                     cur.execute(f"ALTER TABLE memory_atoms ADD COLUMN {col_name} {col_type};")
@@ -208,11 +211,11 @@ class ECSDatabase:
                 id, project, file_path, symbol, subject, predicate, object_value,
                 kind, authority, trigger_pattern, failure_signature, resolution, state,
                 anchor_status, anchor_json, conflict_note,
-                git_sha, file_hash, agent_id, session_id, source, occurrence_count, evidence_refs,
+                git_sha, file_hash, agent_id, session_id, source, verified_by, occurrence_count, evidence_refs,
                 valid_from, valid_until, recorded_at, invalidated_by,
                 reward, confidence, label, view_set, hit_count,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 project=excluded.project,
                 file_path=excluded.file_path,
@@ -234,6 +237,7 @@ class ECSDatabase:
                 agent_id=excluded.agent_id,
                 session_id=excluded.session_id,
                 source=excluded.source,
+                verified_by=excluded.verified_by,
                 occurrence_count=excluded.occurrence_count,
                 evidence_refs=excluded.evidence_refs,
                 valid_from=excluded.valid_from,
@@ -267,6 +271,7 @@ class ECSDatabase:
             atom.agent_id,
             atom.session_id,
             atom.source,
+            atom.verified_by,
             atom.occurrence_count,
             json.dumps(atom.evidence_refs),
             atom.valid_from.isoformat(),
@@ -663,6 +668,7 @@ class ECSDatabase:
             agent_id=row["agent_id"],
             session_id=row["session_id"],
             source=row["source"] if "source" in row.keys() and row["source"] else "agent",
+            verified_by=row["verified_by"] if "verified_by" in row.keys() and row["verified_by"] else "compiler",
             occurrence_count=row["occurrence_count"] if "occurrence_count" in row.keys() and row["occurrence_count"] is not None else 1,
             evidence_refs=evidence,
             valid_from=_parse_dt(row["valid_from"]) or datetime.now(timezone.utc),

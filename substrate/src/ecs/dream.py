@@ -23,6 +23,8 @@ class DreamAuditReport:
     aged_conflicts_eligible: int
     potential_contradictions: int
     dead_edges: int
+    pending_candidates: int = 0
+    pending_adjudications: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -35,6 +37,8 @@ class DreamAuditReport:
             "aged_conflicts_eligible": self.aged_conflicts_eligible,
             "potential_contradictions": self.potential_contradictions,
             "dead_edges": self.dead_edges,
+            "pending_candidates": self.pending_candidates,
+            "pending_adjudications": self.pending_adjudications,
         }
 
 
@@ -80,6 +84,9 @@ class DreamEngine:
         """)
         dead_edges = cur.fetchone()[0]
 
+        pending_candidates = len(self.db.fetch_atoms(project=project, state=LifecycleState.CANDIDATE, active_only=False))
+        pending_adjudications = len(self.db.fetch_atoms(project=project, state=LifecycleState.PENDING_ADJUDICATION, active_only=False))
+
         return DreamAuditReport(
             total_atoms=stats["total_atoms"],
             active_atoms=stats["active_atoms"],
@@ -90,6 +97,8 @@ class DreamEngine:
             aged_conflicts_eligible=compaction.get("archived_conflicts", 0),
             potential_contradictions=contradictions,
             dead_edges=dead_edges,
+            pending_candidates=pending_candidates,
+            pending_adjudications=pending_adjudications,
         )
 
     def apply(self, project: str | None = None) -> dict[str, Any]:
@@ -141,8 +150,18 @@ class DreamEngine:
                         self.db.save_edge(edge)
                         flagged_conflicts += 1
 
+        # 4. Asynchronous Gate 3 Adjudication pass for background-mined candidates
+        from .adjudication import AdjudicationEngine
+        adjudicator = AdjudicationEngine(self.db)
+        candidates = self.db.fetch_atoms(project=project, state=LifecycleState.CANDIDATE, active_only=False)
+        reconciled_candidates = 0
+        for cand in candidates:
+            adjudicator.adjudicate_write(cand)
+            reconciled_candidates += 1
+
         return {
             "status": "APPLIED",
             "compacted_tombstones": res["deleted"],
             "flagged_conflicts": flagged_conflicts,
+            "reconciled_candidates": reconciled_candidates,
         }

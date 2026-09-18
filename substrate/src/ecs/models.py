@@ -55,6 +55,7 @@ class LifecycleState(str, Enum):
     """Lifecycle state of an atom in the bitemporal causal graph."""
     CANDIDATE = "candidate"
     ACTIVE = "active"
+    PENDING_ADJUDICATION = "pending_adjudication"  # Queued for Gate 4 host-agent adjudication
     STALE = "stale"
     SUPERSEDED = "superseded"
     QUARANTINED = "quarantined"
@@ -166,6 +167,7 @@ class MemoryAtom:
     agent_id: str | None = None
     session_id: str | None = None
     source: str = "agent"  # "agent", "transcript_miner", "user_directive", "git_probe"
+    verified_by: str = "compiler"  # "compiler" (L1), "filesystem" (L1), "host_agent:<name>" (L2), "transcript_miner" (L2), "human" (L3)
     occurrence_count: int = 1
     evidence_refs: list[str] = field(default_factory=list)
     conflict_note: str | None = None

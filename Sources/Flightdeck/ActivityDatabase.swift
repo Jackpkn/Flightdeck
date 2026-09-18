@@ -194,6 +194,13 @@ final class ActivityDatabase {
             }
         }
 
+        // Add verifiedBy for deterministic provenance tracking (Gate 1 compiler, Gate 4 host_agent, human)
+        migrator.registerMigration("addCapsuleVerifiedBy") { db in
+            try db.alter(table: MemoryCapsule.databaseTableName) { t in
+                t.add(column: "verifiedBy", .text).notNull().defaults(to: "compiler")
+            }
+        }
+
         return migrator
     }
 

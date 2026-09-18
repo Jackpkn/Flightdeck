@@ -661,3 +661,169 @@ def test_double_verification_promotion_and_differing_fix(db):
     assert atom3.state == LifecycleState.CANDIDATE
     assert atom3.confidence == 0.60
 
+
+def test_gate2_quality_filters_identifier_and_trigger_match(adjudicator, db):
+    """Gate 2 enforces structural code identifiers and error-signature substring grounding."""
+    # 1. Vague resolution without any code identifier ('try again')
+    vague_atom = MemoryAtom(
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/App.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern="database lock error",
+        resolution="try again and be careful",
+        authority=AuthorityLevel.L2,
+    )
+    sig_vague = adjudicator.verify_candidate(vague_atom)
+    assert sig_vague.label == "vague_resolution_lacks_identifier"
+    assert sig_vague.confidence <= 0.40
+
+    # 2. Resolution with structural code identifier ('.statusline')
+    valid_atom = MemoryAtom(
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/ClaudeUsageMath.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern=".measured",
+        failure_signature="type ContextWindowSource has no member 'measured'",
+        resolution="Valid cases are .statusline, .inferred, .fallback",
+        authority=AuthorityLevel.L2,
+    )
+    sig_valid = adjudicator.verify_candidate(valid_atom)
+    assert sig_valid.label == "verified_success"
+    assert sig_valid.confidence >= 0.80
+
+    # 3. Hallucinated trigger not in failure signature
+    hallucinated_atom = MemoryAtom(
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/ClaudeUsageMath.swift",
+        kind=MemoryKind.TRAP,
+        trigger_pattern="unrelated_function_xyz",
+        failure_signature="type ContextWindowSource has no member 'measured'",
+        resolution="Use .statusline instead",
+        authority=AuthorityLevel.L2,
+    )
+    sig_hallucinated = adjudicator.verify_candidate(hallucinated_atom)
+    assert sig_hallucinated.label == "trigger_not_found_in_error"
+    assert sig_hallucinated.confidence <= 0.45
+
+
+def test_gate2_multi_file_attribution_guard(adjudicator, db):
+    """Gate 2 flags ambiguous causal attribution when multiple files changed between failure and pass."""
+    multi_file_candidate = MemoryAtom(
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/DevCleaner.swift",
+        kind=MemoryKind.TRAP,
+        trigger_pattern="linker error",
+        resolution="Update Package.swift dependencies and clean cache",
+        source="transcript_miner",
+        evidence_refs=["Sources/Flightdeck/DevCleaner.swift", "Package.swift"],
+    )
+    sig = adjudicator.verify_candidate(multi_file_candidate)
+    assert multi_file_candidate.state == LifecycleState.PENDING_ADJUDICATION
+    assert sig.label == "ambiguous_causal_attribution"
+    assert sig.confidence == 0.50
+
+
+def test_gate4_host_agent_adjudication_bounded_scope(adjudicator, db):
+    """Gate 4 resolves deferred decisions via host agent MCP tool with full provenance tracking."""
+    # Setup candidate sitting in pending_adjudication
+    candidate = MemoryAtom(
+        id="pending-cand-42",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/DevCleaner.swift",
+        kind=MemoryKind.TRAP,
+        trigger_pattern="linker error symbol not found",
+        resolution="Add GRDB dependency to Package.swift",
+        state=LifecycleState.PENDING_ADJUDICATION,
+        source="transcript_miner",
+        verified_by="transcript_miner",
+        evidence_refs=["Sources/Flightdeck/DevCleaner.swift", "Package.swift"],
+    )
+    db.save_atom(candidate)
+
+    # 1. Question 1: Host agent adjudicates multi-file causal attribution
+    res_attr = adjudicator.adjudicate_host_agent(
+        candidate_id="pending-cand-42",
+        host_agent="claude_code",
+        decision="attribute",
+        reason="Package.swift target dependency addition was the actual causal fix",
+        target_file="Package.swift",
+    )
+    assert res_attr["status"] == "ADJUDICATED"
+    assert res_attr["verified_by"] == "host_agent:claude_code"
+    reloaded = db.get_atom("pending-cand-42")
+    assert reloaded.state == LifecycleState.ACTIVE
+    assert reloaded.file_path == "Package.swift"
+    assert reloaded.verified_by == "host_agent:claude_code"
+    assert reloaded.confidence >= 0.85
+
+    # 2. Question 2: Host agent re-verifies content dependency (valid)
+    res_valid = adjudicator.adjudicate_host_agent(
+        candidate_id="pending-cand-42",
+        host_agent="claude_code",
+        decision="valid",
+        reason="GRDB import persists in target after refactoring",
+    )
+    assert res_valid["status"] == "ADJUDICATED"
+
+    # 3. Question 2 (refuted): Content dependency broken (invalid/stale)
+    res_stale = adjudicator.adjudicate_host_agent(
+        candidate_id="pending-cand-42",
+        host_agent="claude_code",
+        decision="stale",
+        reason="GRDB removed in favor of SQLite3 C bindings",
+    )
+    assert res_stale["status"] == "ADJUDICATED"
+    reloaded_stale = db.get_atom("pending-cand-42")
+    assert reloaded_stale.state == LifecycleState.STALE
+    assert reloaded_stale.valid_until is not None
+
+    # 4. Question 3: UNKNOWN conflict resolution (distinct scope)
+    res_scope = adjudicator.adjudicate_host_agent(
+        candidate_id="pending-cand-42",
+        host_agent="cursor",
+        decision="distinct_scope",
+        reason="Applies only on macOS 14+, Linux builds use alternate stub",
+    )
+    assert res_scope["status"] == "ADJUDICATED"
+    assert res_scope["verified_by"] == "host_agent:cursor"
+
+    # 5. Out of bounds decision -> retained in pending_adjudication for human review
+    res_oob = adjudicator.adjudicate_host_agent(
+        candidate_id="pending-cand-42",
+        host_agent="claude_code",
+        decision="arbitrary_unbounded_decision",
+        reason="I think we should rewrite the module",
+    )
+    assert res_oob["status"] == "PENDING_HUMAN_REVIEW"
+    reloaded_oob = db.get_atom("pending-cand-42")
+    assert reloaded_oob.state == LifecycleState.PENDING_ADJUDICATION
+
+
+def test_dream_phase_miner_candidate_reconciliation(adjudicator, db):
+    """The Dream Phase asynchronously runs Gate 3 on background miner candidate atoms."""
+    from ecs.dream import DreamEngine
+    dreamer = DreamEngine(db)
+
+    # Miner writes a candidate hypothesis
+    cand = MemoryAtom(
+        id="miner-cand-101",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/DevCleaner.swift",
+        kind=MemoryKind.TRAP,
+        trigger_pattern=".measured",
+        failure_signature="type ContextWindowSource has no member 'measured'",
+        resolution="Valid cases are .statusline, .inferred, .fallback",
+        state=LifecycleState.CANDIDATE,
+        source="transcript_miner",
+    )
+    db.save_atom(cand)
+
+    # Dream audit reports pending candidate
+    audit = dreamer.audit(project="Flightdeck")
+    assert audit.pending_candidates >= 1
+
+    # Dream apply runs Gate 3 reconciliation
+    report = dreamer.apply(project="Flightdeck")
+    assert report["reconciled_candidates"] >= 1
+
+
