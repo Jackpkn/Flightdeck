@@ -1,0 +1,24 @@
+[project]
+name = "flightdeck-ecs"
+version = "0.1.0"
+description = "Flightdeck Epistemic Causal Substrate (ECS) - Write-Side Governed Bitemporal Memory Layer"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+]
+
+[project.scripts]
+ecs = "ecs.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ecs"]
