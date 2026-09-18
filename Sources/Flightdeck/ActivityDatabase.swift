@@ -109,6 +109,91 @@ final class ActivityDatabase {
             }
         }
 
+        // Epistemic Causal Substrate (ECS) - Causal Memory Capsules
+        migrator.registerMigration("addMemoryCapsules") { db in
+            try db.create(table: MemoryCapsule.databaseTableName) { t in
+                t.column("id", .text).primaryKey()
+                t.column("project", .text).notNull()
+                t.column("filePath", .text).notNull()
+                t.column("symbol", .text)
+                t.column("kind", .text).notNull()
+                t.column("triggerPattern", .text).notNull()
+                t.column("failureSignature", .text)
+                t.column("resolution", .text).notNull()
+                t.column("originSessionId", .text)
+                t.column("gitSha", .text).notNull()
+                t.column("fileHash", .text)
+                t.column("confidence", .double).notNull().defaults(to: 1.0)
+                t.column("hitCount", .integer).notNull().defaults(to: 0)
+                t.column("status", .text).notNull().defaults(to: "active")
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(
+                index: "idx_memory_project_path",
+                on: MemoryCapsule.databaseTableName,
+                columns: ["project", "filePath"]
+            )
+            try db.create(
+                index: "idx_memory_status",
+                on: MemoryCapsule.databaseTableName,
+                columns: ["status"]
+            )
+        }
+
+        // Causal edges table for bitemporal graph & recursive CTE
+        migrator.registerMigration("addCausalEdges") { db in
+            try db.create(table: MemoryEdge.databaseTableName) { t in
+                t.column("id", .text).primaryKey()
+                t.column("fromCapsuleId", .text).notNull()
+                t.column("toCapsuleId", .text).notNull()
+                t.column("edgeType", .text).notNull()
+                t.column("validFrom", .datetime).notNull()
+                t.column("validUntil", .datetime)
+                t.column("recordedAt", .datetime).notNull()
+                t.column("invalidatedBy", .text)
+            }
+            try db.create(
+                index: "idx_edges_from",
+                on: MemoryEdge.databaseTableName,
+                columns: ["fromCapsuleId"]
+            )
+            try db.create(
+                index: "idx_edges_to",
+                on: MemoryEdge.databaseTableName,
+                columns: ["toCapsuleId"]
+            )
+            try db.create(
+                index: "idx_edges_type",
+                on: MemoryEdge.databaseTableName,
+                columns: ["edgeType"]
+            )
+        }
+
+        // Add Causal Bitemporal & Anchor Fields to MemoryCapsules
+        migrator.registerMigration("addCapsuleCausalFields") { db in
+            try db.alter(table: MemoryCapsule.databaseTableName) { t in
+                t.add(column: "subject", .text)
+                t.add(column: "predicate", .text)
+                t.add(column: "objectValue", .text)
+                t.add(column: "authority", .text).notNull().defaults(to: "L2")
+                t.add(column: "anchorStatus", .text).notNull().defaults(to: "unverified")
+                t.add(column: "conflictNote", .text)
+                t.add(column: "validFrom", .datetime)
+                t.add(column: "validUntil", .datetime)
+                t.add(column: "recordedAt", .datetime)
+                t.add(column: "invalidatedBy", .text)
+            }
+        }
+
+        // Add source and occurrenceCount for candidate hypothesis & double-verification promotion
+        migrator.registerMigration("addCapsuleSourceAndOccurrence") { db in
+            try db.alter(table: MemoryCapsule.databaseTableName) { t in
+                t.add(column: "source", .text).notNull().defaults(to: "agent")
+                t.add(column: "occurrenceCount", .integer).notNull().defaults(to: 1)
+            }
+        }
+
         return migrator
     }
 
@@ -254,6 +339,221 @@ final class ActivityDatabase {
         } catch {
             print("ActivityDatabase: recentEvents failed — \(error)")
             return []
+        }
+    }
+
+    // MARK: - Epistemic Causal Memory (ECS)
+
+    /// Saves or updates a causal memory capsule.
+    func saveMemoryCapsule(_ capsule: MemoryCapsule) {
+        do {
+            try dbQueue.write { db in
+                try capsule.save(db)
+            }
+        } catch {
+            print("ActivityDatabase: saveMemoryCapsule failed — \(error)")
+        }
+    }
+
+    /// Fetches memory capsules filtered by optional project, file path, and status.
+    func fetchMemoryCapsules(
+        project: String? = nil,
+        filePath: String? = nil,
+        status: MemoryStatus? = nil
+    ) -> [MemoryCapsule] {
+        do {
+            return try dbQueue.read { db in
+                var query = MemoryCapsule.all()
+                if let project, !project.isEmpty {
+                    query = query.filter(Column("project") == project)
+                }
+                if let filePath, !filePath.isEmpty {
+                    query = query.filter(Column("filePath") == filePath)
+                }
+                if let status {
+                    query = query.filter(Column("status") == status.rawValue)
+                }
+                return try query.order(Column("updatedAt").desc).fetchAll(db)
+            }
+        } catch {
+            print("ActivityDatabase: fetchMemoryCapsules failed — \(error)")
+            return []
+        }
+    }
+
+    /// Fetches a single memory capsule by ID.
+    func fetchMemoryCapsule(id: String) -> MemoryCapsule? {
+        do {
+            return try dbQueue.read { db in
+                try MemoryCapsule.fetchOne(db, key: id)
+            }
+        } catch {
+            return nil
+        }
+    }
+
+    /// Records that an agent consulted or benefited from this capsule.
+    func recordMemoryHit(id: String) {
+        do {
+            try dbQueue.write { db in
+                if var capsule = try MemoryCapsule.fetchOne(db, key: id) {
+                    capsule.hitCount += 1
+                    capsule.updatedAt = Date()
+                    try capsule.update(db)
+                }
+            }
+        } catch {
+            print("ActivityDatabase: recordMemoryHit failed — \(error)")
+        }
+    }
+
+    /// Deletes a memory capsule by ID.
+    @discardableResult
+    func deleteMemoryCapsule(id: String) -> Bool {
+        do {
+            return try dbQueue.write { db in
+                try MemoryCapsule.deleteOne(db, key: id)
+            }
+        } catch {
+            print("ActivityDatabase: deleteMemoryCapsule failed — \(error)")
+            return false
+        }
+    }
+
+    /// Saves or updates a causal edge.
+    func saveMemoryEdge(_ edge: MemoryEdge) {
+        do {
+            try dbQueue.write { db in
+                try edge.save(db)
+            }
+        } catch {
+            print("ActivityDatabase: saveMemoryEdge failed — \(error)")
+        }
+    }
+
+    /// Fetches memory edges filtered by endpoints and type.
+    func fetchMemoryEdges(
+        fromId: String? = nil,
+        toId: String? = nil,
+        type: CausalEdgeType? = nil
+    ) -> [MemoryEdge] {
+        do {
+            return try dbQueue.read { db in
+                var query = MemoryEdge.all()
+                if let fromId {
+                    query = query.filter(Column("fromCapsuleId") == fromId)
+                }
+                if let toId {
+                    query = query.filter(Column("toCapsuleId") == toId)
+                }
+                if let type {
+                    query = query.filter(Column("edgeType") == type.rawValue)
+                }
+                return try query.fetchAll(db)
+            }
+        } catch {
+            print("ActivityDatabase: fetchMemoryEdges failed — \(error)")
+            return []
+        }
+    }
+
+    struct BlastRadiusResult: Equatable {
+        let nodes: [String]
+        let truncated: Bool
+        let totalEstimate: Int
+
+        init(nodes: [String], truncated: Bool, totalEstimate: Int) {
+            self.nodes = nodes
+            self.truncated = truncated
+            self.totalEstimate = totalEstimate
+        }
+    }
+
+    /// Computes causal blast radius using SQLite recursive CTE over causal edges.
+    /// Traverses outgoing dependencies/causes and incoming solutions (fix -> problem).
+    /// Orders deterministically by MIN(depth) ASC, id ASC and returns truncation metrics.
+    func computeBlastRadiusDetails(capsuleId: String, maxDepth: Int = 3, limit: Int = 100) -> BlastRadiusResult {
+        do {
+            return try dbQueue.read { db in
+                let sql = """
+                WITH RECURSIVE blast(id, depth) AS (
+                    SELECT ? as id, 0 as depth
+                    UNION
+                    -- Forward causal, dependency, and solution propagation
+                    SELECT e.toCapsuleId, blast.depth + 1
+                    FROM memory_edges e
+                    JOIN blast ON e.fromCapsuleId = blast.id
+                    WHERE e.edgeType IN ('DEPENDS_ON', 'CAUSES', 'SOLVES')
+                      AND (e.validUntil IS NULL OR e.validUntil > datetime('now'))
+                      AND blast.depth < ?
+                    UNION
+                    -- Reverse resolution & causation traversal:
+                    -- When seeded with a problem/trap, find the fix that SOLVES it (fix -> problem).
+                    -- When seeded with an effect, find the root cause (cause -> effect).
+                    SELECT e.fromCapsuleId, blast.depth + 1
+                    FROM memory_edges e
+                    JOIN blast ON e.toCapsuleId = blast.id
+                    WHERE e.edgeType IN ('SOLVES', 'CAUSES')
+                      AND (e.validUntil IS NULL OR e.validUntil > datetime('now'))
+                      AND blast.depth < ?
+                )
+                -- Deterministic ordering: primary key MIN(depth) ASC, secondary key id ASC to eliminate depth-boundary ties
+                SELECT id, MIN(depth) as min_depth
+                FROM blast
+                WHERE id != ?
+                GROUP BY id
+                ORDER BY min_depth ASC, id ASC;
+                """
+                let rows = try Row.fetchAll(db, sql: sql, arguments: [capsuleId, maxDepth, maxDepth, capsuleId])
+                let total = rows.count
+                let truncated = total > limit
+                let nodes = rows.prefix(limit).compactMap { $0["id"] as? String }
+                return BlastRadiusResult(nodes: nodes, truncated: truncated, totalEstimate: total)
+            }
+        } catch {
+            print("ActivityDatabase: computeBlastRadius failed — \(error)")
+            return BlastRadiusResult(nodes: [], truncated: false, totalEstimate: 0)
+        }
+    }
+
+    /// Computes causal blast radius using SQLite recursive CTE over causal edges.
+    /// Traverses outgoing dependencies/causes and incoming solutions (fix -> problem).
+    func computeBlastRadius(capsuleId: String, maxDepth: Int = 3, limit: Int = 100) -> [String] {
+        return computeBlastRadiusDetails(capsuleId: capsuleId, maxDepth: maxDepth, limit: limit).nodes
+    }
+
+    /// Compacts tombstones older than retention floor, and archives unresolved conflicts older than maxConflictAgeDays (default: 90 days).
+    func compactTombstones(retentionDays: Int = 7, maxConflictAgeDays: Int = 90) -> (purgedTombstones: Int, archivedConflicts: Int) {
+        do {
+            return try dbQueue.write { db in
+                let cutoff = Calendar.current.date(byAdding: .day, value: -retentionDays, to: Date()) ?? Date()
+                let conflictCutoff = Calendar.current.date(byAdding: .day, value: -maxConflictAgeDays, to: Date()) ?? Date()
+
+                // 1. Archive unresolved equal-authority conflicts older than 90 days to obsolete
+                try db.execute(sql: """
+                    UPDATE memory_capsules
+                    SET status = 'obsolete',
+                        conflictNote = COALESCE(conflictNote, '') || ' [Archived: unresolved after 90 days]',
+                        updatedAt = ?
+                    WHERE status = 'conflicted'
+                      AND updatedAt < ?
+                """, arguments: [Date(), conflictCutoff])
+                let conflictCount = db.changesCount
+
+                // 2. Prune tombstones past retention floor
+                let countBefore = try MemoryCapsule.filter(Column("status") == "superseded" || Column("status") == "stale" || Column("status") == "obsolete")
+                    .filter(Column("updatedAt") < cutoff)
+                    .fetchCount(db)
+                try db.execute(sql: """
+                    DELETE FROM memory_capsules
+                    WHERE status IN ('superseded', 'stale', 'obsolete')
+                      AND updatedAt < ?
+                """, arguments: [cutoff])
+                return (countBefore, conflictCount)
+            }
+        } catch {
+            print("ActivityDatabase: compactTombstones failed — \(error)")
+            return (0, 0)
         }
     }
 
