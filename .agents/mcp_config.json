@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "flightdeck-ecs": {
+      "command": "/Users/pawankumar/Projects/Flightdeck/substrate/.venv/bin/python",
+      "args": ["-m", "ecs.server"],
+      "env": {
+        "PYTHONPATH": "/Users/pawankumar/Projects/Flightdeck/substrate/src",
+        "FLIGHTDECK_ECS_DB": "/Users/pawankumar/Library/Application Support/Flightdeck/ecs.sqlite"
+      }
+    }
+  }
+}
