@@ -78,138 +78,295 @@ Standard RAG systems dump thousands of tokens into prompt context. Flightdeck co
 
 ```markdown
 [FLIGHTDECK MEMORY: Sources/Flightdeck/DevCleaner.swift]
-- TRAP: Cargo registry requires cache in ~/.cargo/registry/cache (not ~/.cargo/cache).
-- RULE: Run DevCleanerTests before committing any directory count logic.
+- TRAP: Trigger: `.measured`
+  Failure: type ContextWindowSource has no member 'measured'
+  Resolution: Valid cases are .statusline, .inferred, .fallback
+- RULE: Trigger: `cleanCargoRegistry`
+  Resolution: Run DevCleanerTests before committing directory count logic
 ```
 **Total footprint**: ~45 tokens. Zero context pollution; 100% actionable signal.
 
 ---
 
-## 3. Database Schema (Native SQLite & GRDB)
 
-Flightdeck ECS persists locally in `~/.flightdeck/activity.db` alongside existing session telemetry:
+## 3. Architecture & Memory Profile: The Dual-Tier System
+
+To satisfy strict operational footprint requirements while retaining cross-environment tool interoperability, ECS implements a **dual-tier architecture**:
+
+| Tier | Engine / Stack | RAM Budget | Target Role |
+| :--- | :--- | :--- | :--- |
+| **Tier 1: Production Engine** | **Native Swift + GRDB** (single-connection `DatabaseQueue`, SQLite WAL mode) | **10–14 MB** | Embedded Flightdeck macOS daemon, instant CLI queries, zero Python runtime dependencies. |
+| **Tier 2: Reference & MCP Server** | **Python 3.11+ / uv** (`mcp>=1.0.0`, single SQLite connection) | **45–60 MB** | Standalone headless JSON-RPC MCP server (`ecs serve`) for external agent runners (Claude Code, Cursor, Windsurf). |
+
+### SQLite Pragmas (Zero-Bloat Configuration)
+```sql
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA cache_size = -2000; -- Strict 2MB cache ceiling (negative KiB notation)
+PRAGMA temp_store = MEMORY;
+PRAGMA busy_timeout = 5000;
+PRAGMA foreign_keys = ON;
+```
+
+---
+
+## 4. Causal Graph & Bidirectional Recursive CTE
+
+The core differentiator of ECS is that memory is structured as a **bitemporal causal graph** rather than an isolated fact log.
+
+### Causal Edge Taxonomy
+* `SOLVES`: Links a verified fix capsule to an observed problem/trap (`fix --SOLVES--> problem`).
+* `CAUSES`: Links an action/mutation to a deterministic system outcome (`action --CAUSES--> effect`).
+* `DEPENDS_ON`: Links an architectural deduction or rule to its foundational premise (`derived --DEPENDS_ON--> premise`).
+* `CONTRADICTS`: Links opposing claims at equal authority levels (`claim_A --CONTRADICTS--> claim_B`).
+* `SUPERSEDES`: Links a higher-authority fact to an invalidated prior assumption (`new_L1 --SUPERSEDES--> old_L2`).
+
+### Bidirectional Blast Radius & Resolution CTE
+A naive outgoing CTE cannot find the solution when querying a problem node (since the edge points `fix -> problem`). ECS implements **bidirectional causal traversal** directly in SQLite:
 
 ```sql
--- 1. Persistent Causal Memory Capsules
-CREATE TABLE memory_capsules (
-    id TEXT PRIMARY KEY NOT NULL,
-    project TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    symbol TEXT,
-    kind TEXT NOT NULL, -- 'trap', 'rule', 'invariant', 'dead_end'
-    trigger_pattern TEXT NOT NULL,
-    failure_signature TEXT,
-    resolution TEXT NOT NULL,
-    origin_session_id TEXT,
-    git_sha TEXT NOT NULL,
-    file_hash TEXT,
-    confidence REAL NOT NULL DEFAULT 1.0,
-    hit_count INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'active', -- 'active', 'unverified', 'obsolete'
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL
-);
-
-CREATE INDEX idx_memory_project_path ON memory_capsules(project, file_path);
-CREATE INDEX idx_memory_status ON memory_capsules(status);
-
--- 2. Stigmergic Observations (Pheromone Trails)
-CREATE TABLE memory_observations (
-    id TEXT PRIMARY KEY NOT NULL,
-    capsule_id TEXT NOT NULL REFERENCES memory_capsules(id) ON DELETE CASCADE,
-    session_id TEXT NOT NULL,
-    outcome TEXT NOT NULL, -- 'prevented_failure', 'verified_success', 'stale_refuted'
-    observed_at DATETIME NOT NULL
-);
+WITH RECURSIVE blast(id, depth) AS (
+    SELECT ? as id, 0 as depth
+    UNION ALL
+    -- Outgoing forward causal / dependency / solution propagation:
+    SELECT e.toCapsuleId, blast.depth + 1
+    FROM memory_edges e
+    JOIN blast ON e.fromCapsuleId = blast.id
+    WHERE e.edgeType IN ('DEPENDS_ON', 'CAUSES', 'SOLVES')
+      AND (e.validUntil IS NULL OR e.validUntil > datetime('now'))
+      AND blast.depth < ?
+    UNION ALL
+    -- Reverse resolution & causation traversal:
+    -- When seeded with an error/trap, immediately yields the fix that SOLVES it.
+    -- When seeded with an effect, yields the root cause.
+    SELECT e.fromCapsuleId, blast.depth + 1
+    FROM memory_edges e
+    JOIN blast ON e.toCapsuleId = blast.id
+    WHERE e.edgeType IN ('SOLVES', 'CAUSES')
+      AND (e.validUntil IS NULL OR e.validUntil > datetime('now'))
+      AND blast.depth < ?
+)
+SELECT DISTINCT id FROM blast WHERE id != ?;
 ```
 
 ---
 
-## 4. Developer & Agent Integration Interfaces
+## 5. Write-Side Adjudication & Consensus Model
 
-### Interface A: Flightdeck Memory CLI
-Developers and shell scripts can interact directly with the substrate:
+### 1. CUPMem Slot Conflict Adjudication (Live in v1)
+Adjudication runs strictly on the write path when an agent attempts to register a memory targeting an existing Subject-Predicate-Object slot:
+* **Higher Authority Supersedes Lower Authority**: When an L1 compiler diagnostic arrives for a slot previously occupied by an L2 agent hypothesis, the L2 assumption is marked `SUPERSEDED`, assigned `validUntil = now()`, linked via an explicit `SUPERSEDES` edge, and evicted from active fact retrieval.
+* **Equal-Authority Contradiction (`[CONFLICT: ...]`)**: When two sessions at equal authority (e.g. two L2 sessions) assert conflicting resolutions, neither is silently discarded. Both are flagged `CONFLICTED`, linked via a `CONTRADICTS` edge, and formatted as a dual-claim micro-directive:
 
-```bash
-# List active memory traps and proven rules for current repo:
-flightdeck memory
-
-# Check hazards and invariants for specific files:
-flightdeck memory check Sources/Flightdeck/CLI.swift
-
-# Explicitly register a verified rule or trap:
-flightdeck memory trap \
-  --file "Sources/Flightdeck/DevCleaner.swift" \
-  --trigger "rm -rf ~/.cargo/cache" \
-  --fix "Cargo cache is located at ~/.cargo/registry/cache"
-
-# Prune obsolete or low-confidence capsules:
-flightdeck memory prune --reverify-git
+```text
+[CONFLICT: DatabasePath]
+⚠️ Two sources disagree on this code region:
+  • Session session_2026-01 (L2, verified_success): Use ~/.flightdeck/flightdeck.sqlite
+  • Session session_2026-02 (L2, verified_success): Use ~/Library/Application Support/Flightdeck/
+  Review code before proceeding.
 ```
 
-### Interface B: Local Model Context Protocol (MCP) Server
-Flightdeck exposes native MCP tools to Claude Code and other agent runners via `flightdeck mcp`:
+### 2. Topological Propagation (Type II Cascading Conflicts)
+When an upstream premise is superseded, ECS immediately executes a topology walk over `DEPENDS_ON` edges:
+* Any active downstream memory depending on the invalidated premise is updated with `anchorStatus = .stale` and tagged with a dependency warning:
+  > `⚠️ Dependency premise Sources/Premise.swift was superseded by fix-002.`
+* Prevents agents from continuing to trust deductions whose foundational premise has been falsified.
 
-```json
-{
-  "name": "flightdeck_check_hazards",
-  "description": "Checks Flightdeck's local deterministic memory for known failure traps, compiler gotchas, and invariants for files about to be modified.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "file_paths": {
-        "type": "array",
-        "items": { "type": "string" },
-        "description": "List of relative file paths the agent intends to edit or inspect"
-      }
-    },
-    "required": ["file_paths"]
-  }
-}
-```
+### 3. Re-Verification Path for Stale Dependents & Edge Rewiring
+When an upstream premise $C$ is superseded by $C'$, dependent deduction $D$ is topologically marked `STALE` with a provenance note.
+* **Dual Re-Verification Paths**:
+  1. **Automated Recovery Sweep (`flightdeck memory reverify` / pre-commit)**: In [`CausalMemoryEngine.reverifyStaleDependents`](file:///Users/pawankumar/Projects/Flightdeck/Sources/Flightdeck/CausalMemory.swift) and [`GitProbe.reverify_stale_dependents`](file:///Users/pawankumar/Projects/Flightdeck/substrate/src/ecs/git_probe.py), the substrate inspects the committed repository state. If $D$'s referenced symbol and trigger pattern still hold in the codebase, and $C$ has an active replacement $C'$, the substrate safely un-stales $D$, restores `status = .active` / `anchorStatus = .verified`, logs `"✓ Re-verified: Claim re-affirmed against repository state."`, and rewires $D$'s `DEPENDS_ON` edge to $C'$.
+  2. **Explicit Agent Re-Affirmation**: If the code or semantics drifted, the developer or agent re-affirms $D$ by asserting an updated capsule $D'$ linked to $C'$.
 
-```json
-{
-  "name": "flightdeck_record_causal_rule",
-  "description": "Records a verified cause-and-effect learning (such as a compiler fix, tool quirk, or invariant) into Flightdeck's persistent repository memory.",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "file_path": { "type": "string" },
-      "trigger": { "type": "string" },
-      "failure": { "type": "string" },
-      "resolution": { "type": "string" }
-    },
-    "required": ["file_path", "trigger", "resolution"]
-  }
-}
-```
+> [!WARNING]
+> **Subject-Dependency vs. Content-Dependency: The Residual Risk**
+> When rewiring $D \rightarrow C'$, the substrate distinguishes between subject vs content dependency:
+> * **Subject Dependency ($D \rightarrow Subject(C)$)**: If $D$ depended on the identity of $C$'s subject (e.g. "config loader reads from DB path $X$"), and $C'$ says "DB path is now $Y$", $D$ remains valid pointing to $Y$. Rewiring is semantically correct.
+> * **Content Dependency ($D \rightarrow Content(C)$)**: If $D$ depended on internal claims of $C$ (e.g. "DB at path $X$ has tables A, B, C"), and $C'$ changes the path to $Y$ where table schemas are different, $D$ is invalid — tables at path $X$ are irrelevant.
+>
+> **Safety Guard & Residual Risk**:
+> Flightdeck requires **ground-truth symbol verification** against the live repository before un-staling: if $D$'s asserted symbols are missing from the updated code, $D$ is **never un-staled** and remains `STALE`. (Verified in [`CausalMemoryTests.swift`](file:///Users/pawankumar/Projects/Flightdeck/Tests/FlightdeckTests/CausalMemoryTests.swift): `adversarialContentDependencyLeavesDependentStale`).
+>
+> *The Residual Risk*: If $D$'s referenced symbols happen to exist in the new codebase but the semantic claim about $C$'s content was invalidated (e.g. symbol names coincide but schemas drifted), symbol checking cannot detect semantic drift. The safety rule narrows adversarial rewiring strictly to *"cases where the symbol set is unchanged but the semantic claim is wrong."* For v2, an LLM semantic claim auditor will be introduced to evaluate content equivalence when surviving symbols are rewired.
+
+### 4. 90-Day Aging Policy for Equal-Authority Conflicts
+When two L2 sessions assert irreconcilable claims and neither is superseded, both atoms remain `CONFLICTED`. To prevent the memory store from growing monotonically with stale cross-session debates:
+* **Compaction Sweep**: During offline consolidation (`compactTombstones` / `memory_dream`), any unresolved `CONFLICTED` atom whose `updatedAt` timestamp is older than 90 days (`maxConflictAgeDays: 90`) is automatically transitioned to `status = 'obsolete'`.
+* **Provenance Preserved**: The record's `conflictNote` is appended with `[Archived: unresolved after 90 days]` rather than silently destroyed, preserving auditability while removing conflicting noise from active query context.
+* **Verified in Unit Tests**: Tested in [`CausalMemoryTests.swift`](file:///Users/pawankumar/Projects/Flightdeck/Tests/FlightdeckTests/CausalMemoryTests.swift) (`unresolvedConflictAgingPolicyAfter90Days`) and [`test_substrate.py`](file:///Users/pawankumar/Projects/Flightdeck/substrate/tests/test_substrate.py) (`test_unresolved_conflict_90_day_aging_policy`).
+
+### 5. Consensus Mechanism Scope Clarification
+* **Live in v1**: Deterministic slot-level conflict adjudication (CUPMem algorithm) over SPO triples, git hash anchoring, 90-day conflict aging, and topological propagation.
+* **Future Scope (Multi-Agent Swarms)**: Multi-sample LLM reasoning path divergence (A-MemGuard) is deferred to distributed multi-agent clusters where cloud LLM sampling is available. Within local desktop execution (<15MB RAM), deterministic slot adjudication provides proven correctness without LLM token waste.
 
 ---
 
-## 5. Cockpit Deck UI: Stigmergy & Memory Inspector
+## 6. Autonomous Ingestion & The Transcript Miner: The Double-Verification Boundary
 
-Within Flightdeck's macOS Cockpit HUD:
-1. **Visual Hazard Sentinel**:
-   - Files with active traps display an amber badge in the File Browser (`⚠️ 2 Traps`).
-   - Clicking reveals the exact failure signatures and proven fixes recorded by earlier sessions.
-2. **Causal Knowledge Graph**:
-   - Interactive node graph showing relationships: `File ➔ Compiler Error ➔ Proven Fix ➔ Commits in HEAD`.
-3. **1-Click Export to `CLAUDE.md` / Rules**:
-   - Compiles all active, high-confidence memory capsules directly into clean markdown rules for project initialization.
+### 1. The Agent Compliance Problem & Deterministic Hooks
+Instruction rules files (`causal_memory.md`, `CLAUDE.md`, `AGENTS.md`) suffer from model compliance decay under high token context, urgent user prompts, or complex refactoring tasks. Agents skip voluntary memory recording when cognitive load spikes.
+
+**The Solution: Deterministic Hooks Over Inline Reasoning**
+* Rather than requiring the agent to voluntarily decide mid-task whether an error constitutes a "trap" and synthesize an SPO triple inline, Flightdeck hooks (`PostToolUse`, `SessionStart`, `Stop`) capture **raw tool execution events** deterministically.
+* **The Raw-Event Sidecar**: In [`handleHook`](file:///Users/pawankumar/Projects/Flightdeck/Sources/Flightdeck/CLI.swift), every tool call payload (tool name, file paths, exit code, execution output) is appended directly to `~/Library/Application Support/Flightdeck/tool_events.jsonl` in $< 2\,\text{ms}$ with zero LLM inference.
+* Synthesis happens **out-of-band** in the local Flightdeck background daemon. The agent never has to remember instructions or interrupt its coding flow.
+
+### 2. The Ingestion Authority Boundary: Mined Triples are L2 Hypotheses (Never L1)
+A compiler exit code is ground-truth ($L1$). A test suite pass is $L1$. But inferring that *"edit $E_2$ caused build pass $S$ after compiler error $F$"* is an **empirical inference over a sequence of events**, not a compiler assertion.
+* **The Failure Modes of Mined Triples**:
+  1. The agent made multiple edits before the build succeeded; attributing the fix to the last edit may be a false positive.
+  2. The pass resulted from unrelated environmental factors (e.g., test runner cache, flaky test, external process).
+  3. The edit and success are correlated, but not causally coupled.
+* **The Fix**: All triples synthesized by the transcript miner enter the substrate strictly at **`AuthorityLevel.L2`** with provenance `source = "transcript_miner"` and status **`candidate`** (initial confidence $0.60$). They are **hypotheses**, not ground truth. They never receive unassailable $L1$ protection against aging or adjudication.
+
+### 3. The Double-Verification Promotion Lifecycle
+To promote mined hypotheses into verified causal rules, Flightdeck implements a **Double-Verification Pattern**:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Candidate: 1st Miner Observation (L2, conf=0.60)
+    Candidate --> Active: 2nd Observation in Independent Session (Same Fix)
+    Candidate --> Superseded: Recurrence with Differing Fix (Flawed Hypothesis)
+    Active --> Superseded: Recurrence with Differing Fix (Linked CONTRADICTS)
+```
+
+1. **First Occurrence**: The miner isolates $\text{Edit} \rightarrow \text{Failure} \rightarrow \text{Edit} \rightarrow \text{Pass}$. Persists an atom with `state = .candidate`, `authority = .L2`, `confidence = 0.60`, and `occurrenceCount = 1`.
+2. **Second Occurrence (Independent Session Promotion)**: If an agent in a *different session* encounters the same trigger/error on that file and applies the *exact same resolution*, the substrate recognizes cross-session reproducibility. The candidate is promoted to **`status = .active`** with **`confidence = 0.95`**, `occurrenceCount += 1`, an `EVIDENCE_FOR` edge is established, and a verification note is recorded:
+   > `✓ Double-verified across independent sessions.`
+3. **Recurrence with a Different Fix (Flawed Hypothesis Invalidation)**: If the same trap recurs and the agent resolves it with a *different resolution*, the original hypothesis was incomplete or wrong. The substrate immediately invalidates the prior record (`state = .superseded`, `invalidatedBy = candidate.id`), writes a typed **`CONTRADICTS`** edge, and sets the new resolution as the active candidate hypothesis.
+4. **Non-Recurrence**: Absence of recurrence is weak evidence (the agent may have simply avoided the file). Hypotheses are never promoted on silence alone.
+
+### 4. The Privacy Boundary & Sidecar Retention
+Because session logs and hook events record every tool argument and command, strict boundaries govern disk persistence and transmission:
+1. **100% Local Execution**: The miner runs entirely as a deterministic local Swift/Python daemon with zero external API calls and zero cloud egress.
+2. **Strict Synthesis Stripping**: Only the extracted micro-directive triple (file path, trigger pattern, failure signature, resolution) enters the permanent SQLite database. Surrounding conversational text, user prompts, and code context are never written to the memory graph.
+3. **Sidecar Rotation & 7-Day TTL**: The raw `tool_events.jsonl` sidecar has an automatic 7-day retention floor, rotated and purged during `flightdeck prune`.
+4. **Telemetry Confidentiality**: The telemetry log (`ecs_telemetry.jsonl`) logs structured numerical and enum metrics only (`query_tokens`, `status`, `top_bm25`, `hit_atom_ids`, `latency_ms`). It is strictly prohibited from logging raw query strings, code fragments, or prompt text.
 
 ---
 
-## 6. Implementation Roadmap
+## 7. Dream Phase Consolidation & Safety Guardrails
 
-| Phase | Milestone | Deliverables |
-| :--- | :--- | :--- |
-| **Phase 1: Substrate Core** | Data Model & SQLite Engine | `MemoryCapsule` models, GRDB migrations, Git SHA stamping, and unit tests. |
-| **Phase 2: CLI Interface** | Terminal Tooling | `flightdeck memory`, `flightdeck memory check`, `flightdeck memory trap`. |
-| **Phase 3: Automatic Ingestion** | Transcript Causal Miner | Background analyzer parsing transcripts for `tool_error` ➔ subsequent fix loops. |
-| **Phase 4: MCP Protocol** | Zero-Latency Agent Tools | `flightdeck_check_hazards` & `flightdeck_record_causal_rule` in Flightdeck MCP Hub. |
-| **Phase 5: Cockpit HUD** | Visual Stigmergy Deck | Live hazard map, capsule audit inspector, and 1-click rule synchronization. |
+Offline consolidation (`memory_dream` tool / `flightdeck memory compact`) runs in two phases:
+* **Phase 1 (Audit)**: Scans for expired capsules, calculates stale ratio, dead graph references, orphan entities, and aged unresolved conflicts.
+* **Phase 2 (Compaction)**: Prunes tombstoned records past the retention floor, and archives conflicts past the 90-day aging window.
+
+### Hard Safety Guardrails:
+1. **Dry-Run by Default**: Compaction requires explicit opt-in (`--apply`).
+2. **7-Day Retention Floor**: Rows tombstoned less than 7 days ago are strictly preserved.
+3. **90-Day Conflict Aging Ceiling**: Unresolved equal-authority conflicts older than 90 days are archived to obsolete.
+4. **Emergency Kill-Switch**: `ECS_DREAM_PAUSED=1` immediately aborts any consolidation pass.
+5. **Snapshot Before Compaction**: SQLite creates a point-in-time file snapshot before physical compaction.
 
 ---
 
-*Authored for Flightdeck — Zero-Cloud macOS Cockpit & Activity Monitor for AI Coding Agents.*
+## 7. Empirical Performance & Quality Benchmarks
+
+Measured via [`substrate/benchmark_10k.py`](file:///Users/pawankumar/Projects/Flightdeck/substrate/benchmark_10k.py) and `flightdeck memory status` on macOS (Apple Silicon):
+
+### A. Honest Retrieval Quality Evaluation (5-Tier Evaluation across 10,000 Atoms)
+Exact-match search on distinctive strings trivially scores 100%. To measure true retrieval capability and honest boundaries, the ECS benchmark evaluates 5 distinct query regimes:
+
+| Benchmark Tier | Query Type | Purpose & Conditions | Measured Result | Honest Interpretation |
+| :--- | :--- | :--- | :--- | :--- |
+| **Tier 1** | **Lexical Exact-Match Smoke Test** | 100 queries targeting planted needles with unique strings | **100.0%** Recall@5 | **Sanity check passes**. Confirms FTS5 inverted index & Porter stemming integrity. |
+| **Tier 2** | **Vocabulary-Sharing Decoy Competition** | Target needle surrounded by 50 same-file decoys & 200 cross-file decoys sharing `ContextWindowSource` & `compile error` | **Target Ranked #1** | **Ranking formula verified**. Authority + BM25 + active file boost surfaces the true needle despite lexical noise. |
+| **Tier 3** | **Near-Duplicate Disambiguation** | 3 competing atoms for same symptom with differing authority (L1 vs L2 vs L4) | **Top Result: L1** (score 0.95 vs 0.70 / 0.30) | **No tie**. Highest-authority verified directive strictly outranks agent observations and web claims. |
+| **Tier 4** | **Paraphrased Intent Queries** | 50 natural language queries with *no verbatim token overlap* (e.g. "how do I get context window measurement" for `.measured is not a member; use .statusline`) | **56.0%** Recall@5<br>**100.0%** Recall@10 | **Honest FTS5 Lexical Boundary**. Demonstrates exact recall limits of pure SQLite FTS5 without semantic hashing / vector embeddings. |
+| **Tier 5** | **Null Queries (Poisoning Resistance)** | 50 out-of-corpus queries for absent technologies (e.g. QuantumAnnealing, CRISPRCas9, WebAssemblyJIT opcode) | **0% False Positives** (50/50 returned `status="UNKNOWN"`) | **Poisoning prevented**. System never returns "least-bad" hallucinated matches when concepts are absent. |
+
+#### The In-Corpus Vocabulary / Out-of-Context Intent Caveat & Confidence Floor
+When an agent searches for in-corpus vocabulary with out-of-context intent (e.g., querying `"error handling strategy"` against 200 atoms containing the generic word `"error"` but none about `"strategy"`), unconstrained FTS would return the top generic "error" matches. If the classifier blindly asserted `status="KNOWN"`, the agent would receive noisy irrelevant memories.
+
+**The Confidence Floor Solution**:
+[`BudgetAwareRetriever.query`](file:///Users/pawankumar/Projects/Flightdeck/substrate/src/ecs/retrieval.py) enforces a strict confidence floor:
+* **`KNOWN`**: Requires top relevance score $\ge 0.75$ and strong content term overlap.
+* **`ADJACENT`**: Assigned when relevance is between $0.45$ and $0.75$. The agent is warned that matches are peripheral/contextual rather than exact.
+* **`UNKNOWN`**: Assigned when top relevance is $< 0.45$ or content term overlap fails. Zero false-positive memories are packed.
+
+### B. Graph Topology & Blast Radius Latency: Synthetic Power-Law vs Cliques
+* **Topology Label Note**: Graph topology is modeled as a **synthetic power-law distribution** (80/15/5 fanout: 80% atoms have 1–3 edges; 15% have 4–8 edges; 5% core abstractions have 20–45 edges; maximum fanout ~45). This represents a plausible structural model pending empirical calibration against live agent session data.
+* **Semantic Limit Cutoff vs Truncation Metadata**:
+  * `limit: 50` is a result cap, not a semantic cutoff. When a foundational change affects >50 nodes, returning 50 nodes without notice misleads the agent.
+  * ECS responses explicitly include `truncated: Bool` and `total_affected_estimate: Int` (e.g. `[truncated: true, total: 84]`) so agents know if the blast radius was capped.
+  * Ties at depth boundaries are broken deterministically using `ORDER BY MIN(depth) ASC, id ASC`.
+
+| Graph Topology & Mode | Edge Count & Fanout | Blast Radius Latency (P50) | Blast Radius Latency (P95) | Nodes Surfaced | Truncation Rate |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Synthetic Power-Law (Depth 3, limit=50)** | 17,456 edges, max fanout 45 | **0.061 ms (61 µs)** | **0.792 ms** | **31.0 avg** (Max: 50) | 40/100 capped (`truncated=true`) |
+| **Synthetic Power-Law (Depth 5, limit=50)** | 17,456 edges, max fanout 45 | **0.683 ms (683 µs)** | **8.920 ms** | **47.9 avg** (Max: 50) | 88/100 capped (`truncated=true`) |
+| *Degenerate Synthetic Hubs (No Limit)* | 50,000 edges (20 hubs × 2,000) | *51.8 ms* | *92.7 ms* | *8,306 avg (9,959 max)* | N/A (degenerate clique) |
+
+### C. Resource Footprint
+* **Native Swift Engine Resident RAM (Release)**: **`10.84 MB`** steady-state / **`14.67 MB`** peak (measured via `getrusage(RUSAGE_SELF)` in `swift run -c release Flightdeck memory status`).
+* **Native Swift Engine Resident RAM (Debug)**: **`15.42 MB`**.
+* **Python MCP Reference Peak RAM**: **`63.86 MB`** during 10,000-atom retrieval and graph benchmark.
+* **SQLite Physical Database Size**: **`10.44 MB`** (10,000 atoms + 17,456 causal edges + FTS5 Porter index).
+
+---
+
+## 8. Test Suite Verification & Product Demonstrations
+
+* **Native Swift Engine**: **315 tests across 48 suites passed** in 9.63s (100% green via `swift test`).
+  * Includes `blastRadiusTruncationAndDeterministicTieBreaking` and `adversarialContentDependencyLeavesDependentStale`.
+* **Python Substrate & MCP Engine**: **14/14 tests passed** in 1.09s (100% green via `uv run pytest -v`).
+  * Includes `test_blast_radius_semantic_limit_cutoff` and `test_adversarial_content_dependency_rewiring_caveat`.
+* **Cross-Process Restart MCP Test (The Product Demo)**:
+  * Tested in [`substrate/tests/test_mcp_stdio_e2e.py`](file:///Users/pawankumar/Projects/Flightdeck/substrate/tests/test_mcp_stdio_e2e.py).
+  * **Session 1 (Process A)** initializes via stdio JSON-RPC, stores a trap for `DevCleaner.swift` via `memory_store` with trigger, failure, and resolution, and exits.
+  * **Session 2 (Process B)** launches as a completely fresh cold subprocess with no shared memory, performs JSON-RPC handshake, and issues `memory_context` against `DevCleaner.swift`.
+  * **Result**: Process B retrieves the complete micro-directive from disk, proving cross-session persistence across disconnected agent invocations.
+
+---
+
+## 9. Live Usage Phase: Telemetry Instrumentation & Calibration Decision
+
+During live agent usage, Flightdeck automatically logs telemetry events to an append-only JSONL ledger (`~/Library/Application Support/Flightdeck/ecs_telemetry.jsonl` or `FLIGHTDECK_TELEMETRY_LOG`).
+
+### Live Telemetry Instrumentation Schema
+
+#### Per `memory_context` Invocation:
+| Logged Field | Telemetry Purpose |
+| :--- | :--- |
+| `query_tokens` | Distribution of query lengths across coding sessions |
+| `status` | Ratio of `KNOWN` / `ADJACENT` / `UNKNOWN` assertions |
+| `top_bm25` | Top relevance score; alerts if low-score matches ever assert `KNOWN` |
+| `results_count` | Number of memory directives surfaced to active prompt |
+| `hit_atom_ids` | IDs of retrieved atoms (joined downstream with agent tool actions) |
+| `has_conflict` | Frequency of `CONFLICTED` memories surfacing in context |
+| `has_stale` | Frequency of `STALE` memories retrieved under warning badges |
+| `blast_truncated` | How often the 50-node blast radius result cap fires |
+| `latency_ms` | Real-world P50/P95/P99 retrieval latency on user hardware |
+
+#### Per `memory_store` Invocation:
+| Logged Field | Telemetry Purpose |
+| :--- | :--- |
+| `authority_level` | Distribution of trust tiers (`L0`–`L4`) entering the store |
+| `kind` | Distribution of `trap`, `rule`, `invariant`, `lesson` |
+| `adjudication_result` | Outcome: `KEEP`, `STALE`, `REPLACE`, or `CONFLICT` |
+| `conflict_candidates` | Number of existing memories matched during adjudication |
+| `latency_ms` | Write-side adjudication and edge insertion duration |
+
+#### Prevention Proxy Signal:
+When an agent executes tool calls after receiving a `TRAP` directive:
+* **Probable Hit**: Next tool call succeeds on the file warned about (trap successfully prevented mistake).
+* **Miss**: Next tool call fails with the exact compiler error the trap warned about (trap fired too late or was ignored).
+
+---
+
+### The Calibration Decision Gates (After 50–200 Real Memories)
+
+After accumulating 50–200 real memories over 1–2 weeks of live coding, three empirical metrics will govern the next architectural evolution:
+
+1. **Paraphrase Recall Gate**:
+   * If live queries achieve **$\ge 80\%$ Recall@5**, pure SQLite FTS5 with Porter stemming is sufficient and remains zero-cloud/zero-dependency.
+   * If live recall falls **$< 60\%$**, an embedded semantic hashing embedder (e.g. compact local ONNX embedding model under 15MB RAM) will be added.
+2. **Degree Distribution Gate**:
+   * If maximum node fanout remains **$< 60$**, the synthetic power-law model is confirmed.
+   * If real memory graphs produce **200+ edge hubs**, traversal queries will transition to an **accumulated confidence threshold cutoff** rather than a fixed limit cap.
+3. **Conflict Rate Gate**:
+   * If unresolved equal-authority conflicts exceed **$> 5\%$** of total atoms, the 90-day aging policy will be tightened and tie-breaking heuristics beyond authority level will be introduced.
+
+---
+
+*Authored for Flightdeck — Zero-Cloud macOS Cockpit & Epistemic Substrate for Autonomous Coding Agents.*
