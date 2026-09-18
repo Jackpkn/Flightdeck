@@ -80,6 +80,9 @@ enum CLI {
         case "install-hooks":
             handleInstallHooks(dryRun: isDryRun)
 
+        case "memory", "ecs":
+            handleMemory(arguments: arguments)
+
         default:
             fputs("flightdeck: unknown subcommand or option '\(arguments.first ?? "")'\n\n", stderr)
             fputs("Run 'flightdeck --help' for usage and available commands.\n", stderr)
@@ -118,6 +121,7 @@ enum CLI {
           hotspots, churn         Detect files repeatedly rewritten across sessions with diagnosis
           report [session-id]     Export Markdown or JSON post-mortem of a Claude Code session
           handoff [session-id]    Generate Markdown task handoff prompt for clean session migration
+          memory, ecs             Inspect, check, or reverify Epistemic Causal Substrate (ECS) traps
           prune                   Prune historical telemetry and SQLite database to reclaim disk
           redact [text]           Scrub secrets, API keys, and bearer tokens from text or stdin
           install-hooks           Configure Claude Code statusline & hooks in ~/.claude/settings.json
@@ -903,7 +907,36 @@ enum CLI {
         )
 
         ActivityDatabase.shared?.insertEvent(record)
+
+        // Append raw tool event to local JSONL sidecar for out-of-band causal mining (zero-cloud, local-only)
+        appendRawEventSidecar(rawPayload: data, eventType: eventType)
         exit(0)
+    }
+
+    /// Appends un-synthesized raw tool execution events to append-only sidecar for daemon mining.
+    private static func appendRawEventSidecar(rawPayload: Data, eventType: String) {
+        let appSupport = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Flightdeck", isDirectory: true)
+        try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        let sidecarURL = appSupport.appendingPathComponent("tool_events.jsonl")
+
+        var jsonObj = (try? JSONSerialization.jsonObject(with: rawPayload) as? [String: Any]) ?? [:]
+        jsonObj["hook_event"] = eventType
+        jsonObj["recorded_at"] = ISO8601DateFormatter().string(from: Date())
+
+        if let lineData = try? JSONSerialization.data(withJSONObject: jsonObj),
+           let lineString = String(data: lineData, encoding: .utf8) {
+            let entry = lineString + "\n"
+            if let fileHandle = try? FileHandle(forWritingTo: sidecarURL) {
+                fileHandle.seekToEndOfFile()
+                if let entryData = entry.data(using: .utf8) {
+                    fileHandle.write(entryData)
+                }
+                try? fileHandle.close()
+            } else {
+                try? entry.write(to: sidecarURL, atomically: true, encoding: .utf8)
+            }
+        }
     }
 
     // MARK: - 8. Install Hooks
@@ -1304,6 +1337,130 @@ enum CLI {
                     print("\(nameStr)  \(statusStr)  \(hostStr)  \(pidStr)  \(toolsDesc)")
                 }
             }
+        }
+        exit(0)
+    }
+
+    // MARK: - Epistemic Causal Substrate (ECS) Memory
+
+    private static func handleMemory(arguments: [String]) {
+        let subargs = Array(arguments.dropFirst())
+        let action = subargs.first ?? "status"
+        guard let db = ActivityDatabase.shared else {
+            fputs("flightdeck memory: SQLite database unavailable\n", stderr)
+            exit(1)
+        }
+
+        switch action {
+        case "check":
+            let files = Array(subargs.dropFirst()).filter { !$0.hasPrefix("-") }
+            if files.isEmpty {
+                fputs("flightdeck memory check: specify at least one file path\n", stderr)
+                exit(1)
+            }
+            let hazards = CausalMemoryEngine.checkHazards(for: files, project: "Flightdeck", in: db)
+            if hazards.isEmpty {
+                print("✓ No active hazard traps or warnings for \(files.joined(separator: ", "))")
+            } else {
+                print(CausalMemoryEngine.formatMicroCapsules(hazards, project: "Flightdeck"))
+            }
+
+        case "record", "trap":
+            var file = ""
+            var trigger = ""
+            var fix = ""
+            var failure: String? = nil
+            var i = 1
+            while i < subargs.count {
+                let arg = subargs[i]
+                if (arg == "--file" || arg == "-f") && i + 1 < subargs.count {
+                    file = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--trigger" || arg == "-t") && i + 1 < subargs.count {
+                    trigger = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--fix" || arg == "-r") && i + 1 < subargs.count {
+                    fix = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--failure") && i + 1 < subargs.count {
+                    failure = subargs[i + 1]
+                    i += 2
+                } else {
+                    i += 1
+                }
+            }
+            if file.isEmpty || trigger.isEmpty || fix.isEmpty {
+                fputs("Usage: flightdeck memory record --file <path> --trigger <pattern> --fix <resolution> [--failure <err>]\n", stderr)
+                exit(1)
+            }
+            let capsule = MemoryCapsule(
+                project: "Flightdeck",
+                filePath: file,
+                kind: .trap,
+                authority: .L2,
+                triggerPattern: trigger,
+                failureSignature: failure,
+                resolution: fix,
+                originSessionId: "cli-record",
+                confidence: 0.95,
+                status: .active,
+                anchorStatus: .verified
+            )
+            db.saveMemoryCapsule(capsule)
+            print("✓ Saved causal memory trap for \(file):")
+            print("  Trigger: \(trigger)")
+            print("  Fix:     \(fix)")
+
+        case "list":
+            let capsules = db.fetchMemoryCapsules(project: nil, filePath: nil, status: nil)
+            if capsules.isEmpty {
+                print("No memory capsules found.")
+            } else {
+                print("⚡️ FLIGHTDECK CAUSAL MEMORY CAPSULES (\(capsules.count) FOUND)")
+                for c in capsules {
+                    print("[\(c.kind.badge)] `\(c.filePath)` (\(c.status.rawValue.uppercased()))")
+                    print("  Trigger: \(c.triggerPattern)")
+                    print("  Fix:     \(c.resolution)")
+                    print("  Hits: \(c.hitCount) | Confidence: \(c.confidence)")
+                    print()
+                }
+            }
+
+        case "status":
+            let capsules = db.fetchMemoryCapsules(project: nil, filePath: nil, status: nil)
+            let active = capsules.filter { $0.status == .active }.count
+            let unverified = capsules.filter { $0.status == .unverified }.count
+            let obsolete = capsules.filter { $0.status == .obsolete }.count
+            print("⚡️ FLIGHTDECK EPISTEMIC CAUSAL SUBSTRATE (ECS) STATUS")
+            print("  Total Capsules: \(capsules.count)")
+            print("  Active:         \(active)")
+            print("  Unverified:     \(unverified)")
+            print("  Obsolete:       \(obsolete)")
+            print("  DB Size:        \(ByteCountFormatter.string(fromByteCount: db.databaseSizeBytes(), countStyle: .file))")
+            var usage = rusage()
+            getrusage(RUSAGE_SELF, &usage)
+            let rssMB = Double(usage.ru_maxrss) / (1024.0 * 1024.0)
+            print(String(format: "  Resident RAM:   %.2f MB", rssMB))
+
+        case "reverify":
+            let cwd = FileManager.default.currentDirectoryPath
+            let res = CausalMemoryEngine.reverifyWithGit(project: "Flightdeck", cwd: cwd, in: db)
+            let depRes = CausalMemoryEngine.reverifyStaleDependents(project: "Flightdeck", cwd: cwd, in: db)
+            print("✓ Reverified with Git tree state:")
+            print("  Active:             \(res.active)")
+            print("  Unverified:         \(res.unverified)")
+            print("  Obsolete:           \(res.obsolete)")
+            print("  Stale Recovered:    \(depRes.recovered)")
+            print("  Remained Stale:     \(depRes.remainedStale)")
+
+        case "compact":
+            let res = db.compactTombstones(retentionDays: 7, maxConflictAgeDays: 90)
+            print("✓ Compacted memory capsules:")
+            print("  Purged tombstones (>7d):        \(res.purgedTombstones)")
+            print("  Archived conflicts (>90d old):  \(res.archivedConflicts)")
+
+        default:
+            print("Usage: flightdeck memory <check|list|status|reverify|compact> [options]")
         }
         exit(0)
     }
