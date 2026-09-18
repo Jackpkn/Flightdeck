@@ -908,6 +908,14 @@ enum CLI {
 
         ActivityDatabase.shared?.insertEvent(record)
 
+        // On SessionStart, check for pending Gate 4 adjudications and alert the agent
+        if eventType.lowercased() == "sessionstart" {
+            let pendingCount = ActivityDatabase.shared?.fetchPendingAdjudicationCount() ?? 0
+            if pendingCount > 0 {
+                fputs("⚠️ [FLIGHTDECK ACTION REQUIRED]: You have \(pendingCount) memory candidate(s) awaiting Gate 4 adjudication. Call memory_pending_adjudication() before proceeding.\n", stderr)
+            }
+        }
+
         // Append raw tool event to local JSONL sidecar for out-of-band causal mining (zero-cloud, local-only)
         appendRawEventSidecar(rawPayload: data, eventType: eventType)
         exit(0)

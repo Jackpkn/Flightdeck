@@ -36,11 +36,13 @@ public enum MemoryKind: String, Codable, Sendable, CaseIterable {
 
 /// Authority level governing write-side trust (MemGuard & A-MemGuard architecture).
 public enum AuthorityLevel: String, Codable, Sendable, CaseIterable {
-    case L0 = "L0" // Filesystem/git state (Ground truth, read-only)
-    case L1 = "L1" // Direct machine ground truth: AST symbols, compiler exit code, test pass (High, read-only)
-    case L2 = "L2" // Agent observations & transcript miner candidate hypotheses (Medium, writable)
-    case L3 = "L3" // User explicit directive (High user intent, writable)
-    case L4 = "L4" // External document/web (Low, quarantined)
+    case L0 = "L0"   // Filesystem/git state (Ground truth, read-only)
+    case L1 = "L1"   // Direct machine ground truth: AST symbols, compiler exit code, test pass (High, read-only)
+    case L2 = "L2"   // Generic/legacy agent observation
+    case L2a = "L2a" // Host agent LLM judgment (Contextual, high-reasoning, non-deterministic)
+    case L2b = "L2b" // Transcript miner sequential inference (Deterministic pattern match, reproducible)
+    case L3 = "L3"   // User explicit directive (High user intent, writable)
+    case L4 = "L4"   // External document/web (Low, quarantined)
 
     public var isQuarantined: Bool {
         self == .L4
@@ -51,6 +53,8 @@ public enum AuthorityLevel: String, Codable, Sendable, CaseIterable {
         case .L0: return 1.0
         case .L1: return 0.95
         case .L3: return 0.85
+        case .L2a: return 0.75
+        case .L2b: return 0.70
         case .L2: return 0.70
         case .L4: return 0.30
         }
@@ -181,10 +185,16 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
     public var conflictNote: String?
     public var validFrom: Date
     public var validUntil: Date?
+    public var trialUntil: Date?
     public var recordedAt: Date
     public var invalidatedBy: String?
     public var createdAt: Date
     public var updatedAt: Date
+
+    public var isProvisional: Bool {
+        guard let trialUntil else { return false }
+        return trialUntil > Date()
+    }
 
     public init(
         id: String = UUID().uuidString,
@@ -212,6 +222,7 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
         conflictNote: String? = nil,
         validFrom: Date = Date(),
         validUntil: Date? = nil,
+        trialUntil: Date? = nil,
         recordedAt: Date = Date(),
         invalidatedBy: String? = nil,
         createdAt: Date = Date(),
@@ -242,6 +253,7 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
         self.conflictNote = conflictNote
         self.validFrom = validFrom
         self.validUntil = validUntil
+        self.trialUntil = trialUntil
         self.recordedAt = recordedAt
         self.invalidatedBy = invalidatedBy
         self.createdAt = createdAt
@@ -266,13 +278,18 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
         let verifiedTag = (anchorStatus == .verified) ? " (verified against committed code)" : ""
         var out = "\(kind.badge): `\(filePath)`\(verifiedTag)"
         if let symbol, !symbol.isEmpty {
-            out += " (symbol: \(symbol))"
+            out += " (symbol: `\(symbol)`)"
         }
         out += "\n  Trigger: \(triggerPattern)"
         if let failureSignature, !failureSignature.isEmpty {
             out += "\n  Failure: \(failureSignature)"
         }
-        out += "\n  Resolution: \(resolution)"
+        out += "\n  Fix: \(resolution)"
+        if isProvisional, let trialUntil {
+            let df = ISO8601DateFormatter()
+            df.formatOptions = [.withFullDate]
+            out += "\n  ⚠️ [PROVISIONAL TRIAL]: Adjudicated by host agent until \(df.string(from: trialUntil)); subject to demotion if refutation occurs."
+        }
         return out
     }
 }

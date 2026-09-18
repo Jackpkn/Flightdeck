@@ -201,6 +201,13 @@ final class ActivityDatabase {
             }
         }
 
+        // Add trialUntil for provisional host-agent adjudication trial periods
+        migrator.registerMigration("addCapsuleTrialUntil") { db in
+            try db.alter(table: MemoryCapsule.databaseTableName) { t in
+                t.add(column: "trialUntil", .datetime)
+            }
+        }
+
         return migrator
     }
 
@@ -396,6 +403,21 @@ final class ActivityDatabase {
             }
         } catch {
             return nil
+        }
+    }
+
+    /// Fetches the count of capsules awaiting Gate 4 host-agent adjudication.
+    func fetchPendingAdjudicationCount(project: String? = nil) -> Int {
+        do {
+            return try dbQueue.read { db in
+                var query = MemoryCapsule.filter(Column("status") == "pending_adjudication")
+                if let project {
+                    query = query.filter(Column("project") == project)
+                }
+                return try query.fetchCount(db)
+            }
+        } catch {
+            return 0
         }
     }
 

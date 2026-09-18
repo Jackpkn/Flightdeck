@@ -25,7 +25,7 @@ This skill interfaces with the Flightdeck Epistemic Causal Substrate (ECS) via M
 * **`memory_pending_adjudication(project)`**:
   Lists candidate memories queued in `pending_adjudication` waiting for Gate 4 host-agent disambiguation.
 * **`memory_adjudicate(candidate_id, decision, reason, host_agent, target_file)`**:
-  Gate 4 Host Agent Adjudication: Resolves multi-file attribution (`decision='attribute'`), content-dependency validity (`decision='valid'|'stale'`), or UNKNOWN conflicts (`decision='distinct_scope'|'resolve_conflict'`).
+  Gate 4 Host Agent Adjudication: Resolves multi-file attribution (`decision='attribute'`), content-dependency validity (`decision='valid'|'stale'`), UNKNOWN conflicts (`decision='distinct_scope'|'resolve_conflict'`), or unpatterned advice validation (`decision='validate_advice'`).
 
 ## CLI Equivalent Commands
 
@@ -33,10 +33,15 @@ You can also inspect or verify memories directly in the terminal:
 ```bash
 # Check hazard traps for specific files
 flightdeck memory check Sources/Flightdeck/DevCleaner.swift
+# Or via ecs CLI
+ecs check Sources/Flightdeck/DevCleaner.swift
+
+# List pending candidate adjudications (Gate 4)
+ecs pending
+
+# Adjudicate a candidate
+ecs adjudicate <candidate_id> validate_advice --reason "Specific parameter ordering fix"
 
 # List all recorded memory capsules
 flightdeck memory list
-
-# Reverify stale dependents against current Git state
-flightdeck memory reverify
 ```

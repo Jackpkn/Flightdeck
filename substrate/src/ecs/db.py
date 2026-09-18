@@ -90,6 +90,7 @@ class ECSDatabase:
                 evidence_refs TEXT,
                 valid_from TEXT NOT NULL,
                 valid_until TEXT,
+                trial_until TEXT,
                 recorded_at TEXT NOT NULL,
                 invalidated_by TEXT,
                 reward REAL NOT NULL,
@@ -105,7 +106,7 @@ class ECSDatabase:
         # Safe migrations for pre-existing databases
         cur.execute("PRAGMA table_info(memory_atoms);")
         existing_cols = {row[1] for row in cur.fetchall()}
-        for col_name in ["subject", "predicate", "object_value", "anchor_status", "anchor_json", "conflict_note", "source", "verified_by", "occurrence_count"]:
+        for col_name in ["subject", "predicate", "object_value", "anchor_status", "anchor_json", "conflict_note", "source", "verified_by", "occurrence_count", "trial_until"]:
             if col_name not in existing_cols:
                 try:
                     if col_name == "occurrence_count":
@@ -212,10 +213,10 @@ class ECSDatabase:
                 kind, authority, trigger_pattern, failure_signature, resolution, state,
                 anchor_status, anchor_json, conflict_note,
                 git_sha, file_hash, agent_id, session_id, source, verified_by, occurrence_count, evidence_refs,
-                valid_from, valid_until, recorded_at, invalidated_by,
+                valid_from, valid_until, trial_until, recorded_at, invalidated_by,
                 reward, confidence, label, view_set, hit_count,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 project=excluded.project,
                 file_path=excluded.file_path,
@@ -242,6 +243,7 @@ class ECSDatabase:
                 evidence_refs=excluded.evidence_refs,
                 valid_from=excluded.valid_from,
                 valid_until=excluded.valid_until,
+                trial_until=excluded.trial_until,
                 invalidated_by=excluded.invalidated_by,
                 reward=excluded.reward,
                 confidence=excluded.confidence,
@@ -276,6 +278,7 @@ class ECSDatabase:
             json.dumps(atom.evidence_refs),
             atom.valid_from.isoformat(),
             atom.valid_until.isoformat() if atom.valid_until else None,
+            atom.trial_until.isoformat() if atom.trial_until else None,
             atom.recorded_at.isoformat(),
             atom.invalidated_by,
             atom.reward,
@@ -337,6 +340,14 @@ class ECSDatabase:
         cur = self._conn.cursor()
         cur.execute(query, params)
         return [self._row_to_atom(row) for row in cur.fetchall()]
+
+    def fetch_pending_adjudication_count(self, project: str | None = None) -> int:
+        cur = self._conn.cursor()
+        if project:
+            cur.execute("SELECT COUNT(*) FROM memory_atoms WHERE state = 'pending_adjudication' AND project = ?", (project,))
+        else:
+            cur.execute("SELECT COUNT(*) FROM memory_atoms WHERE state = 'pending_adjudication'")
+        return cur.fetchone()[0]
 
     def search_fts(
         self,
@@ -673,6 +684,7 @@ class ECSDatabase:
             evidence_refs=evidence,
             valid_from=_parse_dt(row["valid_from"]) or datetime.now(timezone.utc),
             valid_until=_parse_dt(row["valid_until"]),
+            trial_until=_parse_dt(row["trial_until"]) if "trial_until" in row.keys() else None,
             recorded_at=_parse_dt(row["recorded_at"]) or datetime.now(timezone.utc),
             invalidated_by=row["invalidated_by"],
             reward=row["reward"],

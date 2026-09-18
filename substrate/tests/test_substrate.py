@@ -613,7 +613,7 @@ def test_double_verification_promotion_and_differing_fix(db):
     atom1, affected1, edges1 = engine.adjudicate_write(cand1)
 
     assert atom1.state == LifecycleState.CANDIDATE
-    assert atom1.authority == AuthorityLevel.L2
+    assert atom1.authority == AuthorityLevel.L2b
     assert atom1.confidence == 0.60
 
     # 2. Second observation from transcript miner in Session B with SAME fix
@@ -663,8 +663,8 @@ def test_double_verification_promotion_and_differing_fix(db):
 
 
 def test_gate2_quality_filters_identifier_and_trigger_match(adjudicator, db):
-    """Gate 2 enforces structural code identifiers and error-signature substring grounding."""
-    # 1. Vague resolution without any code identifier ('try again')
+    """Gate 2 enforces structural code identifiers, routes unpatterned advice, and discards platitudes."""
+    # 1. Pure platitude ('try again and be careful') -> discarded
     vague_atom = MemoryAtom(
         project="Flightdeck",
         file_path="Sources/Flightdeck/App.swift",
@@ -674,10 +674,24 @@ def test_gate2_quality_filters_identifier_and_trigger_match(adjudicator, db):
         authority=AuthorityLevel.L2,
     )
     sig_vague = adjudicator.verify_candidate(vague_atom)
-    assert sig_vague.label == "vague_resolution_lacks_identifier"
-    assert sig_vague.confidence <= 0.40
+    assert sig_vague.label == "trivial_platitude_discarded"
+    assert sig_vague.confidence <= 0.30
 
-    # 2. Resolution with structural code identifier ('.statusline')
+    # 2. Actionable unpatterned resolution without explicit identifier tokens -> routes to pending_adjudication
+    unpatterned_atom = MemoryAtom(
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/App.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern="order of evaluation failure",
+        resolution="Move the initialization before the guard clause",
+        authority=AuthorityLevel.L2,
+    )
+    sig_unpatterned = adjudicator.verify_candidate(unpatterned_atom)
+    assert sig_unpatterned.label == "unpatterned_resolution_pending_adjudication"
+    assert unpatterned_atom.state == LifecycleState.PENDING_ADJUDICATION
+    assert sig_unpatterned.confidence == 0.55
+
+    # 3. Resolution with structural code identifier ('.statusline') -> verified active
     valid_atom = MemoryAtom(
         project="Flightdeck",
         file_path="Sources/Flightdeck/ClaudeUsageMath.swift",
@@ -691,7 +705,7 @@ def test_gate2_quality_filters_identifier_and_trigger_match(adjudicator, db):
     assert sig_valid.label == "verified_success"
     assert sig_valid.confidence >= 0.80
 
-    # 3. Hallucinated trigger not in failure signature
+    # 4. Hallucinated trigger not in failure signature -> trigger_not_found_in_error
     hallucinated_atom = MemoryAtom(
         project="Flightdeck",
         file_path="Sources/Flightdeck/ClaudeUsageMath.swift",
@@ -825,5 +839,136 @@ def test_dream_phase_miner_candidate_reconciliation(adjudicator, db):
     # Dream apply runs Gate 3 reconciliation
     report = dreamer.apply(project="Flightdeck")
     assert report["reconciled_candidates"] >= 1
+
+
+def test_provisional_trial_period_demoted_on_contradiction(adjudicator, db):
+    """Host-agent adjudicated atoms enter active with a 7-day trial period; contradiction demotes them."""
+    # 1. Candidate is adjudicated active by host agent -> enters with provisional trial_until
+    cand = MemoryAtom(
+        id="provisional-atom-1",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/App.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern="database lock error",
+        resolution="Use WAL mode with 5000ms timeout",
+        state=LifecycleState.PENDING_ADJUDICATION,
+    )
+    db.save_atom(cand)
+
+    adj_res = adjudicator.adjudicate_host_agent(
+        candidate_id="provisional-atom-1",
+        host_agent="claude_code",
+        decision="valid",
+        reason="Verified working in test suite",
+    )
+    assert adj_res["status"] == "ADJUDICATED"
+
+    active_atom = db.get_atom("provisional-atom-1")
+    assert active_atom.state == LifecycleState.ACTIVE
+    assert active_atom.is_provisional is True
+    assert active_atom.trial_until is not None
+    assert "PROVISIONAL TRIAL" in active_atom.micro_directive
+
+    # 2. A contradiction arrives in a later session (e.g. from compiler or transcript miner)
+    refuting_atom = MemoryAtom(
+        id="refuting-atom-2",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/App.swift",
+        kind=MemoryKind.RULE,
+        authority=AuthorityLevel.L1,
+        trigger_pattern="database lock error",
+        resolution="Use in-memory lock coordinator instead of WAL timeout",
+    )
+    persisted, affected, edges = adjudicator.adjudicate_write(refuting_atom)
+
+    # Because provisional-atom-1 was under provisional trial, it is demoted to pending_adjudication
+    reloaded_prov = db.get_atom("provisional-atom-1")
+    assert reloaded_prov.state == LifecycleState.PENDING_ADJUDICATION
+    assert "Demoted from provisional active to pending_adjudication" in (reloaded_prov.conflict_note or "")
+
+
+def test_peer_authority_l2a_vs_l2b_conflict(adjudicator, db):
+    """When L2a (host agent) and L2b (transcript miner) contradict, neither wins; state is CONFLICTED."""
+    # L2b atom stored first
+    atom_l2b = MemoryAtom(
+        id="peer-miner-atom",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/Model.swift",
+        kind=MemoryKind.TRAP,
+        authority=AuthorityLevel.L2b,
+        verified_by="transcript_miner",
+        trigger_pattern="unsupported enum value",
+        resolution="Use .inferred fallback",
+        state=LifecycleState.ACTIVE,
+    )
+    db.save_atom(atom_l2b)
+
+    # L2a atom arrives with contradicting resolution for identical trigger
+    atom_l2a = MemoryAtom(
+        id="peer-agent-atom",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/Model.swift",
+        kind=MemoryKind.TRAP,
+        authority=AuthorityLevel.L2a,
+        verified_by="host_agent:cursor",
+        trigger_pattern="unsupported enum value",
+        resolution="Use .fallback default",
+    )
+    persisted, affected, edges = adjudicator.adjudicate_write(atom_l2a)
+
+    # Equal peer conflict: neither overwrites the other
+    assert persisted.state == LifecycleState.CONFLICTED
+    reloaded_miner = db.get_atom("peer-miner-atom")
+    assert reloaded_miner.state == LifecycleState.CONFLICTED
+    assert any(e.edge_type == EdgeType.CONTRADICTS for e in edges)
+
+
+def test_gate4_question4_validate_advice(adjudicator, db):
+    """Gate 4 Question 4 allows host agent to validate unpatterned specific advice."""
+    unpatterned = MemoryAtom(
+        id="unpatterned-cand-1",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/Config.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern="argument ordering bug",
+        resolution="Use the second parameter instead of the first",
+        state=LifecycleState.PENDING_ADJUDICATION,
+    )
+    db.save_atom(unpatterned)
+
+    res = adjudicator.adjudicate_host_agent(
+        candidate_id="unpatterned-cand-1",
+        host_agent="claude_code",
+        decision="validate_advice",
+        reason="The second parameter is the destination URL while the first is the source",
+    )
+    assert res["status"] == "ADJUDICATED"
+    reloaded = db.get_atom("unpatterned-cand-1")
+    assert reloaded.state == LifecycleState.ACTIVE
+    assert reloaded.is_provisional is True
+    assert reloaded.verified_by == "host_agent:claude_code"
+
+
+def test_retrieval_pending_adjudications_banner(db):
+    """Retrieval responses include pending adjudication count and action required banner."""
+    from ecs.retrieval import BudgetAwareRetriever
+    retriever = BudgetAwareRetriever(db)
+
+    # Store a pending candidate
+    pending_atom = MemoryAtom(
+        id="pending-notice-1",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/Notice.swift",
+        kind=MemoryKind.TRAP,
+        trigger_pattern="fatal error",
+        resolution="Return nil on failure",
+        state=LifecycleState.PENDING_ADJUDICATION,
+    )
+    db.save_atom(pending_atom)
+
+    resp = retriever.query(project="Flightdeck", file_paths=["Sources/Flightdeck/Notice.swift"])
+    assert resp.pending_adjudications_count >= 1
+    assert "⚠️ [FLIGHTDECK ACTION REQUIRED:" in resp.formatted_prompt_block
+
 
 

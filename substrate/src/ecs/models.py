@@ -10,11 +10,29 @@ from typing import Any
 
 class AuthorityLevel(str, Enum):
     """Authority level governing write-side trust."""
-    L0 = "L0"  # File system state, git commit (Ground truth, read-only)
-    L1 = "L1"  # Direct machine ground truth: AST symbols, compiler exit code, test pass (High, read-only)
-    L2 = "L2"  # Agent observations & transcript miner candidate hypotheses (Medium, writable)
-    L3 = "L3"  # User explicit directive (High user intent, writable)
-    L4 = "L4"  # External document / web page (Low, writable, quarantined)
+    L0 = "L0"    # File system state, git commit (Ground truth, read-only)
+    L1 = "L1"    # Direct machine ground truth: AST symbols, compiler exit code, test pass (High, read-only)
+    L2 = "L2"    # Legacy / generic agent observation
+    L2a = "L2a"  # Host agent LLM judgment (Contextual, high-reasoning, non-deterministic)
+    L2b = "L2b"  # Transcript miner sequential inference (Deterministic pattern match, reproducible)
+    L3 = "L3"    # User explicit directive (High user intent, writable)
+    L4 = "L4"    # External document / web page (Low, writable, quarantined)
+
+    @classmethod
+    def from_str(cls, val: str) -> "AuthorityLevel":
+        normalized = val.strip().lower()
+        mapping = {
+            "l0": cls.L0,
+            "l1": cls.L1,
+            "l2": cls.L2,
+            "l2a": cls.L2a,
+            "l2b": cls.L2b,
+            "l3": cls.L3,
+            "l4": cls.L4,
+        }
+        if normalized in mapping:
+            return mapping[normalized]
+        raise ValueError(f"Unknown authority level: {val}")
 
     @property
     def is_quarantined(self) -> bool:
@@ -26,6 +44,8 @@ class AuthorityLevel(str, Enum):
             AuthorityLevel.L0: 1.0,
             AuthorityLevel.L1: 0.95,
             AuthorityLevel.L3: 0.85,
+            AuthorityLevel.L2a: 0.75,
+            AuthorityLevel.L2b: 0.70,
             AuthorityLevel.L2: 0.70,
             AuthorityLevel.L4: 0.30,
         }[self]
@@ -175,6 +195,7 @@ class MemoryAtom:
     # Bitemporal axes
     valid_from: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     valid_until: datetime | None = None
+    trial_until: datetime | None = None  # Provisional trial expiration for host-agent adjudications
     recorded_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     invalidated_by: str | None = None
 
@@ -187,6 +208,13 @@ class MemoryAtom:
     hit_count: int = 0
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @property
+    def is_provisional(self) -> bool:
+        """Indicates whether this atom is under a provisional trial period."""
+        if not self.trial_until:
+            return False
+        return self.trial_until > datetime.now(timezone.utc)
 
     @property
     def micro_directive(self) -> str:
@@ -216,7 +244,7 @@ class MemoryAtom:
             ]
             return "\n".join(lines)
 
-        # 3. Verified Active State
+        # 3. Verified Active State (with provisional trial tag if applicable)
         status_tag = ""
         if self.anchor_status == AnchorStatus.VERIFIED:
             status_tag = " (verified against committed code)"
@@ -228,12 +256,14 @@ class MemoryAtom:
         if self.failure_signature:
             lines.append(f"  Failure: {self.failure_signature}")
         lines.append(f"  Fix: {self.resolution}")
+        if self.is_provisional and self.trial_until:
+            lines.append(f"  ⚠️ [PROVISIONAL TRIAL]: Adjudicated by host agent until {self.trial_until.strftime('%Y-%m-%d')}; subject to demotion if contradiction occurs.")
         return "\n".join(lines)
 
     @property
     def token_estimate(self) -> int:
         """Rough token estimate (~4 chars per token)."""
-        return max(10, len(self.micro_directive) // 4)
+        return len(self.micro_directive) // 4
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -246,6 +276,8 @@ class MemoryAtom:
             "object_value": self.object_value,
             "kind": self.kind.value,
             "authority": self.authority.value,
+            "verified_by": self.verified_by,
+            "occurrence_count": self.occurrence_count,
             "trigger_pattern": self.trigger_pattern,
             "failure_signature": self.failure_signature,
             "resolution": self.resolution,
@@ -260,6 +292,8 @@ class MemoryAtom:
             "evidence_refs": self.evidence_refs,
             "valid_from": self.valid_from.isoformat(),
             "valid_until": self.valid_until.isoformat() if self.valid_until else None,
+            "trial_until": self.trial_until.isoformat() if self.trial_until else None,
+            "is_provisional": self.is_provisional,
             "recorded_at": self.recorded_at.isoformat(),
             "invalidated_by": self.invalidated_by,
             "reward": self.reward,

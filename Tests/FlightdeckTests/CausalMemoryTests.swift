@@ -16,11 +16,63 @@ struct CausalMemoryTests {
         #expect(AuthorityLevel.L3.trustScore == 0.85)
         #expect(!AuthorityLevel.L3.isQuarantined)
 
+        #expect(AuthorityLevel.L2a.trustScore == 0.75)
+        #expect(!AuthorityLevel.L2a.isQuarantined)
+
+        #expect(AuthorityLevel.L2b.trustScore == 0.70)
+        #expect(!AuthorityLevel.L2b.isQuarantined)
+
         #expect(AuthorityLevel.L2.trustScore == 0.70)
         #expect(!AuthorityLevel.L2.isQuarantined)
 
         #expect(AuthorityLevel.L4.trustScore == 0.30)
         #expect(AuthorityLevel.L4.isQuarantined)
+    }
+
+    @Test("MemoryCapsule provisional trial period formatting and status")
+    func provisionalCapsuleTrial() {
+        let trialDate = Date().addingTimeInterval(7 * 86400)
+        let capsule = MemoryCapsule(
+            project: "Flightdeck",
+            filePath: "Sources/Flightdeck/App.swift",
+            kind: .rule,
+            authority: .L2a,
+            triggerPattern: "startup timeout",
+            resolution: "Initialize coordinator asynchronously",
+            trialUntil: trialDate
+        )
+        #expect(capsule.isProvisional)
+        #expect(capsule.microDirective.contains("⚠️ [PROVISIONAL TRIAL]"))
+
+        let nonProvisional = MemoryCapsule(
+            project: "Flightdeck",
+            filePath: "Sources/Flightdeck/App.swift",
+            kind: .rule,
+            authority: .L1,
+            triggerPattern: "startup timeout",
+            resolution: "Initialize coordinator asynchronously"
+        )
+        #expect(!nonProvisional.isProvisional)
+        #expect(!nonProvisional.microDirective.contains("PROVISIONAL TRIAL"))
+    }
+
+    @Test("ActivityDatabase fetchPendingAdjudicationCount tracks pending candidates")
+    func pendingAdjudicationCounting() throws {
+        let db = try ActivityDatabase.inMemory()
+        #expect(db.fetchPendingAdjudicationCount() == 0)
+
+        let pending = MemoryCapsule(
+            id: "pending-001",
+            project: "Flightdeck",
+            filePath: "Sources/Pending.swift",
+            kind: .rule,
+            triggerPattern: "unpatterned",
+            resolution: "Move statement",
+            status: .pendingAdjudication
+        )
+        db.saveMemoryCapsule(pending)
+        #expect(db.fetchPendingAdjudicationCount(project: "Flightdeck") == 1)
+        #expect(db.fetchPendingAdjudicationCount(project: "OtherProject") == 0)
     }
 
     @Test("MemoryCapsule microDirective generates ultra-dense actionable context")
@@ -36,10 +88,10 @@ struct CausalMemoryTests {
         )
 
         let directive = capsule.microDirective
-        #expect(directive.contains("⚠️ TRAP: `Sources/Flightdeck/DevCleaner.swift` (symbol: ContextWindowSource)"))
+        #expect(directive.contains("⚠️ TRAP: `Sources/Flightdeck/DevCleaner.swift` (symbol: `ContextWindowSource`)"))
         #expect(directive.contains("Trigger: .measured"))
         #expect(directive.contains("Failure: error: type ContextWindowSource has no member 'measured'"))
-        #expect(directive.contains("Resolution: Valid cases are .statusline, .inferred, .fallback"))
+        #expect(directive.contains("Fix: Valid cases are .statusline, .inferred, .fallback"))
     }
 
     @Test("CausalMemoryEngine normalizes file paths correctly")
@@ -89,7 +141,7 @@ struct CausalMemoryTests {
         let block = CausalMemoryEngine.formatMicroCapsules([capsule], project: "Flightdeck")
         #expect(block.contains("### FLIGHTDECK CAUSAL MEMORY [FLIGHTDECK]"))
         #expect(block.contains("✓ RULE: `Sources/Flightdeck/DevCleaner.swift`"))
-        #expect(block.contains("Resolution: Registry cache lives in ~/.cargo/registry/cache"))
+        #expect(block.contains("Fix: Registry cache lives in ~/.cargo/registry/cache"))
     }
 
     @Test("Causal edges and recursive blast radius CTE in Swift")

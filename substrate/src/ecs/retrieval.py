@@ -26,6 +26,7 @@ class RetrievalResponse:
     blast_radius: list[str]
     has_more: bool
     total_tokens: int
+    pending_adjudications_count: int = 0
     blast_radius_truncated: bool = False
     blast_radius_total_estimate: int = 0
     drift: dict[str, Any] | None = None
@@ -40,6 +41,7 @@ class RetrievalResponse:
     def to_dict(self) -> dict[str, Any]:
         return {
             "status": self.status,
+            "pending_adjudications_count": self.pending_adjudications_count,
             "results": [
                 {
                     "id": item.atom.id,
@@ -63,6 +65,7 @@ class RetrievalResponse:
                 "status": self.status,
                 "top_bm25": round(self.top_bm25, 4),
                 "results_count": self.results_count,
+                "pending_adjudications_count": self.pending_adjudications_count,
                 "hit_atom_ids": self.hit_atom_ids,
                 "has_conflict": self.has_conflict,
                 "has_stale": self.has_stale,
@@ -74,13 +77,20 @@ class RetrievalResponse:
     @property
     def formatted_prompt_block(self) -> str:
         """Render ready-to-inject micro-directives block."""
+        lines = []
+        if self.pending_adjudications_count > 0:
+            lines.extend([
+                f"⚠️ [FLIGHTDECK ACTION REQUIRED: {self.pending_adjudications_count} pending memory adjudication(s)]",
+                "> Unresolved candidate(s) need review. Call `memory_pending_adjudication` or run `ecs pending`.",
+                "",
+            ])
         if not self.results:
-            return ""
-        lines = [
+            return "\n".join(lines).strip()
+        lines.extend([
             "### FLIGHTDECK CAUSAL MEMORY DIRECTIVES",
             "> Verified hazard traps and proven rules for current context:",
             "",
-        ]
+        ])
         for item in self.results:
             lines.append(item.content)
             lines.append("")
@@ -112,6 +122,7 @@ class BudgetAwareRetriever:
         clean_paths = [p.strip().lstrip("./") for p in (file_paths or [])]
         query_text = intent or " ".join(Path(p).stem for p in clean_paths)
         query_token_count = len(query_text.split())
+        pending_count = self.db.fetch_pending_adjudication_count(project=project)
 
         # 1. FTS5 Search with File Overlap & Staleness Penalty
         fts_results = self.db.search_fts(
@@ -141,6 +152,7 @@ class BudgetAwareRetriever:
                 blast_radius=[],
                 has_more=False,
                 total_tokens=0,
+                pending_adjudications_count=pending_count,
                 query_tokens=query_token_count,
                 top_bm25=0.0,
                 results_count=0,
@@ -181,6 +193,7 @@ class BudgetAwareRetriever:
                 blast_radius=[],
                 has_more=False,
                 total_tokens=0,
+                pending_adjudications_count=pending_count,
                 query_tokens=query_token_count,
                 top_bm25=0.0,
                 results_count=0,
@@ -249,6 +262,7 @@ class BudgetAwareRetriever:
             blast_radius=sorted(all_blast_radius),
             has_more=has_more,
             total_tokens=total_tokens,
+            pending_adjudications_count=pending_count,
             blast_radius_truncated=blast_radius_truncated,
             blast_radius_total_estimate=blast_radius_total_estimate,
             query_tokens=query_token_count,

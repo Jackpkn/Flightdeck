@@ -142,7 +142,7 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
             mem_kind = MemoryKind.RULE
 
         try:
-            auth = AuthorityLevel(authority.upper())
+            auth = AuthorityLevel.from_str(authority)
         except ValueError:
             auth = AuthorityLevel.L2
 

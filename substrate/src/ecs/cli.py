@@ -44,7 +44,7 @@ def main() -> None:
     store_p.add_argument("--project", required=True, help="Project name")
     store_p.add_argument("--file", required=True, help="Target file path")
     store_p.add_argument("--kind", choices=["trap", "rule", "invariant", "lesson", "dead_end"], default="trap")
-    store_p.add_argument("--authority", choices=["L0", "L1", "L2", "L3", "L4"], default="L2")
+    store_p.add_argument("--authority", choices=["L0", "L1", "L2", "L2a", "L2b", "L3", "L4"], default="L2")
     store_p.add_argument("--trigger", required=True, help="Trigger pattern / mistake")
     store_p.add_argument("--resolution", required=True, help="Resolution / correct pattern")
     store_p.add_argument("--symbol", default="", help="Optional symbol name (path::symbol)")
@@ -56,16 +56,29 @@ def main() -> None:
     list_p.add_argument("--file", default=None, help="Filter by file path")
     list_p.add_argument("--all", action="store_true", help="Include stale/superseded atoms")
 
-    # 4. status
+    # 4. pending
+    pending_p = subparsers.add_parser("pending", help="List memory candidates awaiting Gate 4 adjudication")
+    pending_p.add_argument("--project", default=None, help="Filter by project")
+    pending_p.add_argument("--json", action="store_true", help="Output as JSON")
+
+    # 5. adjudicate
+    adj_p = subparsers.add_parser("adjudicate", help="Gate 4: Adjudicate a pending candidate")
+    adj_p.add_argument("candidate_id", help="ID of candidate to adjudicate")
+    adj_p.add_argument("decision", help="Adjudication decision (attribute, valid, stale, distinct_scope, resolve_conflict, validate_advice)")
+    adj_p.add_argument("--reason", default="", help="Rationale for adjudication")
+    adj_p.add_argument("--target-file", default=None, help="Target file for attribution")
+    adj_p.add_argument("--host-agent", default="cli_operator", help="Adjudicating agent identifier")
+
+    # 6. status
     status_p = subparsers.add_parser("status", help="Show substrate statistics and health")
     status_p.add_argument("--project", default=None, help="Optional project filter")
 
-    # 5. dream
+    # 7. dream
     dream_p = subparsers.add_parser("dream", help="Run Khora-style Dream Phase consolidation")
     dream_p.add_argument("--project", default=None, help="Optional project filter")
     dream_p.add_argument("--apply", action="store_true", help="Apply compaction (default is dry-run audit)")
 
-    # 6. serve
+    # 8. serve
     serve_p = subparsers.add_parser("serve", help="Run MCP stdio server for Claude Code / Cursor")
 
     args = parser.parse_args()
@@ -99,7 +112,7 @@ def main() -> None:
             project=args.project,
             file_path=args.file,
             kind=MemoryKind(args.kind),
-            authority=AuthorityLevel(args.authority),
+            authority=AuthorityLevel.from_str(args.authority),
             trigger_pattern=args.trigger,
             resolution=args.resolution,
             symbol=args.symbol if args.symbol else None,
@@ -108,6 +121,8 @@ def main() -> None:
         persisted, affected, edges = adjudicator.adjudicate_write(atom)
         print(f"✓ Stored {persisted.kind.badge} (ID: {persisted.id[:8]}...)")
         print(f"  State: {persisted.state.value.upper()} | Authority: {persisted.authority.value} | Confidence: {persisted.confidence:.2f}")
+        if persisted.is_provisional:
+            print(f"  ⚠️ Under provisional trial until: {persisted.trial_until.isoformat() if persisted.trial_until else 'N/A'}")
         if affected:
             print(f"  Superseded/Affected: {len(affected)} existing memory atom(s)")
         if edges:
@@ -126,11 +141,54 @@ def main() -> None:
         print(f"--- FLIGHTDECK CAUSAL MEMORY ATOMS ({len(atoms)}) ---")
         for a in atoms:
             sym = f" :: {a.symbol}" if a.symbol else ""
-            print(f"[{a.kind.badge}] {a.file_path}{sym} ({a.state.value.upper()})")
+            prov = " [PROVISIONAL TRIAL]" if a.is_provisional else ""
+            print(f"[{a.kind.badge}] {a.file_path}{sym} ({a.state.value.upper()}){prov}")
             print(f"  Trigger: {a.trigger_pattern}")
             print(f"  Fix:     {a.resolution}")
             print(f"  Auth: {a.authority.value} | Conf: {a.confidence:.2f} | Hits: {a.hit_count}")
             print()
+
+    elif args.subcommand == "pending":
+        pending_atoms = db.fetch_atoms(
+            project=args.project,
+            state=LifecycleState.PENDING_ADJUDICATION,
+            active_only=False,
+        )
+        conflicted_atoms = db.fetch_atoms(
+            project=args.project,
+            state=LifecycleState.CONFLICTED,
+            active_only=False,
+        )
+        all_pending = pending_atoms + conflicted_atoms
+
+        if args.json:
+            print(json.dumps([a.to_dict() for a in all_pending], indent=2))
+        else:
+            if not all_pending:
+                print("✓ No pending adjudications.")
+                return
+            print(f"--- PENDING ADJUDICATIONS ({len(all_pending)}) ---")
+            for a in all_pending:
+                print(f"[{a.id[:8]}] ({a.state.value.upper()}) {a.file_path}")
+                print(f"  Trigger: {a.trigger_pattern}")
+                print(f"  Fix:     {a.resolution}")
+                print(f"  Auth:    {a.authority.value} | Verified By: {a.verified_by}")
+                if a.conflict_note:
+                    print(f"  Note:    {a.conflict_note}")
+                print(f"  Action:  ecs adjudicate {a.id} <decision> --reason <reason>")
+                print()
+
+    elif args.subcommand == "adjudicate":
+        adjudicator = AdjudicationEngine(db)
+        res = adjudicator.adjudicate_host_agent(
+            candidate_id=args.candidate_id,
+            host_agent=args.host_agent,
+            decision=args.decision,
+            reason=args.reason,
+            target_file=args.target_file,
+        )
+        print("✓ Adjudication processed:")
+        print(json.dumps(res, indent=2))
 
     elif args.subcommand == "status":
         stats = db.get_stats(project=args.project)

@@ -262,28 +262,38 @@ Because session logs and hook events record every tool argument and command, str
 1. **Gate 1 (Compiler Exit Codes) — NEVER AI**: Exit codes (`0` vs `!= 0`) are physical ground truth. Adding an LLM here risks hallucinating false failures or missed breaks. Stays 100% deterministic machine logic.
    * *Known Limitation (Negative-Trap Mining in v1)*: The miner isolates $\text{Edit} \to \text{Failure} \to \text{Fix} \to \text{Pass}$. Successful first-time edits are deliberately dropped. This focuses exclusively on hazard avoidance (compiler-mistake prevention). Capturing positive procedural templates (clean first-try passes) is deferred to v2.
    * *Mined Authority Level*: Mined triples are explicitly **`AuthorityLevel.L2`** (`verified_by: "transcript_miner"`). They are empirical hypotheses, never unassailable $L1$ assertions.
-2. **Gate 2 (Quality & Attribution Filter) — Deterministic Structural Bar**:
-   * *Structural Code Identifier Requirement*: The resolution must contain a code identifier (file path `/...`, backticked identifier `` `...` ``, function call `func(...)`, enum case `.case`, CLI flag `--flag`, or PascalCase symbol). Generic phrases like `"try again"` or `"be careful"` fail Gate 2 immediately.
-   * *Trigger Substring Grounding*: If a compiler `failure_signature` is recorded, the `trigger_pattern` must appear verbatim or share anchor tokens in the error message. This anchors the trigger to the observed compiler failure and prevents hallucinated triggers.
-   * *Multi-File Causal Attribution Guard*: If multiple files were modified between the failure and the pass, temporal sequence does not prove causal attribution. Gate 2 tags the triple with `confidence = 0.50`, flags it as `ambiguous_causal_attribution`, and routes it to `LifecycleState.PENDING_ADJUDICATION` for Gate 4 host-agent adjudication.
+2. **Gate 2 (Quality & Attribution Filter) — Structural Checks & Routing over Discarding**:
+   * *Routing over Discarding*: Pure platitudes (empty strings, `"try again"`, `"be careful"`) with zero code context are discarded outright. However, actionable resolutions that lack explicit regex patterns (e.g., `"Use the second parameter instead of the first"`, `"Move the initialization before the guard clause"`) are **routed to `pending_adjudication` rather than discarded**. Gate 4 host agent reviews these specific-but-unpatterned resolutions without silently losing domain knowledge.
+   * *Structural Code Identifier Fast-Path*: Resolutions containing explicit identifiers (file path `/...`, backticked identifier `` `...` ``, function call `func(...)`, enum case `.case`, CLI flag `--flag`, or PascalCase symbol like `ContextWindowSource`) immediately pass Gate 2 to active/candidate verification.
+   * *Trigger Substring Grounding*: If a compiler `failure_signature` is recorded, the `trigger_pattern` must appear verbatim or share anchor tokens in the error message. This anchors the trigger to observed compiler feedback and prevents hallucinated triggers.
+   * *Multi-File Causal Attribution Guard*: If multiple files were modified between failure and pass, temporal sequence does not prove causal attribution. Gate 2 tags the triple with `confidence = 0.50`, flags it as `ambiguous_causal_attribution`, and routes it to `LifecycleState.PENDING_ADJUDICATION` for Gate 4 host-agent adjudication.
 3. **Gate 3 (CUPMem Graph Adjudication) — Miner Path Must Not Skip**:
    * Background transcript mining does *not* bypass Gate 3. Candidates pass through `adjudicate_write` asynchronously during the dream phase or session end.
-   * This prevents duplicate candidate accumulation, enforces $L1$-supersedes-$L2$ invariant against existing compiler ground truth, and executes cross-session double-verification promotion.
-4. **Gate 4 (Deferred AI Adjudication via Host Agent MCP) — The Host Agent Pattern**:
-   * *Zero Cloud / Zero Cost*: Instead of spinning up an external cloud LLM, Flightdeck ECS calls the developer's **already-active host agent** (Claude Code, Cursor, Codex, Antigravity) via the `memory_adjudicate` MCP tool.
-   * *Zero Write-Path Latency*: Gate 4 never runs on the hot query ($<9\,\text{ms}$) or write ($<10\,\text{ms}$) paths. It is deferred to session end or dream phase.
-   * *Strictly Bounded Scope (3 Questions Only)*:
+   * Enforces the authority hierarchy, executes double-verification promotion across independent sessions, and records explicit `CONTRADICTS` or `SUPERSEDES` edges.
+4. **Gate 4 (Deferred AI Adjudication via Host Agent MCP) — Deterministic Discovery & Provisional Recovery**:
+   * *Solving the Compliance Problem (SessionStart Hook Wiring)*: Rather than relying on the agent to voluntarily remember `memory_pending_adjudication`, Flightdeck deterministically checks pending adjudication counts at `SessionStart` (via native Swift CLI hooks and `memory_context` prompt blocks). If pending candidates exist, a mandatory banner is surfaced: `⚠️ [FLIGHTDECK ACTION REQUIRED: N pending memory adjudication(s)]`.
+   * *Zero Hot-Path Overhead*: Gate 4 never runs on the hot query path (sub-10ms benchmarked on local FTS5) or write path. It is deferred to session transitions or the dream phase.
+   * *Strictly Bounded Scope (4 Questions Only)*:
      1. **Multi-File Causal Attribution**: Given a multi-file diff, which edit caused the pass? (`decision="attribute"`)
      2. **Content-Dependency Re-Verification**: Given $D$'s claim and $C$'s update, is $D$ still valid? (`decision="valid"` or `"stale"`)
      3. **UNKNOWN Conflict Disambiguation**: Given two equal-authority claims, are they contradictory or distinct in scope? (`decision="distinct_scope"` or `"resolve_conflict"`)
-   * Anything outside these 3 questions is retained in `pending_adjudication` for human review.
-   * *Proven Traceable Provenance (`verified_by`)*:
-     - `compiler`: L1 machine exit code
-     - `filesystem`: L1 git hash / AST symbol presence
-     - `host_agent:<name>`: L2 host agent adjudication via MCP tool
-     - `transcript_miner`: L2 deterministic pattern match
-     - `human`: L3 explicit user directive
-   * *Lifecycle State `pending_adjudication`*: When a candidate cannot be resolved deterministically and no host agent is active, it sits in `pending_adjudication`. It is retrievable for review via `memory_pending_adjudication`, but **never injected as fact into agent prompt contexts**.
+     4. **Unpatterned Advice Validation**: Is an actionable unpatterned resolution valid for the codebase? (`decision="validate_advice"`)
+   * Anything outside these 4 questions is retained in `pending_adjudication` for human review.
+   * *Authority Split for L2*:
+     | Provenance | Authority | Trust Score | Rationale |
+     | :--- | :--- | :--- | :--- |
+     | `compiler` | **L1** | 1.00 / 0.95 | Ground truth machine exit codes |
+     | `filesystem` | **L1** | 0.95 | Git blob SHA and AST symbol structural verification |
+     | `host_agent:<name>` | **L2a** | 0.75 | Contextual LLM judgment (high reasoning, non-deterministic) |
+     | `transcript_miner` | **L2b** | 0.70 | Sequential machine inference (deterministic pattern match, reproducible) |
+     | `human` | **L3** | 0.85 | User explicit directive and final disambiguation |
+     *When L2a and L2b contradict, neither automatically wins*: The memory is marked `CONFLICTED` (UNKNOWN decision), and the dual-claim directive preserves both perspectives until adjudicated.
+   * *Recovery Path for Bad Host-Agent Adjudications (7-Day Provisional Trial Window)*:
+     - Host-agent adjudicated memories enter `active` under a 7-day `trial_until` timestamp (`is_provisional = true`).
+     - Prompt blocks tag them with `⚠️ [PROVISIONAL TRIAL]` so agents know they represent contextual inferences.
+     - If a subsequent compiler run or session refutes the atom during its trial period, the atom is immediately **demoted to `pending_adjudication` for human review** rather than remaining active.
+     - If the 7-day trial expires without contradiction, the Dream Phase solidifies the memory by clearing the provisional flag.
+   * *Lifecycle State `pending_adjudication`*: When a candidate is unverified, it sits in `pending_adjudication`. It is retrievable for review via `memory_pending_adjudication` or `ecs pending`, but **never injected as an active fact into agent prompt contexts**.
 
 ---
 

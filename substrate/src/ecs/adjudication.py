@@ -1,7 +1,7 @@
 """Write-Side Adjudication & Contradiction Engine (CUPMem Protocol & Two-Stage Adjudication)."""
 
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import re
 from typing import Sequence
 
@@ -25,7 +25,7 @@ class AdjudicationEngine:
         self.db = db
 
     CODE_IDENTIFIER_PATTERN = re.compile(
-        r'(\.[a-zA-Z_][a-zA-Z0-9_]*|`[^`]+`|[a-zA-Z_][a-zA-Z0-9_]*\([^\)]*\)|--[a-z0-9-]+|[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+|\b[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+\b|\b[A-Z][a-zA-Z0-9]+(?:\.[A-Z][a-zA-Z0-9]+)*\b)'
+        r'(\.[a-zA-Z_][a-zA-Z0-9_]*|`[^`]+`|[a-zA-Z_][a-zA-Z0-9_]*\([^\)]*\)|--[a-z0-9-]+|[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+|\b[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+\b|\b(?:[A-Z][a-z0-9]+[A-Z][a-zA-Z0-9]*|[A-Z]{2,}[a-z0-9]+[A-Z][a-zA-Z0-9]*|[A-Z][a-zA-Z0-9]+(?:\.[A-Z][a-zA-Z0-9]+)+)\b)'
     )
 
     def verify_candidate(self, atom: MemoryAtom) -> VerifierSignal:
@@ -63,9 +63,9 @@ class AdjudicationEngine:
                 view_set=["full"],
             )
 
-        # 4. Mined transcript hypotheses (source: transcript_miner) enter as candidate L2
+        # 4. Mined transcript hypotheses (source: transcript_miner) enter as candidate L2b
         if atom.source == "transcript_miner":
-            atom.authority = AuthorityLevel.L2
+            atom.authority = AuthorityLevel.L2b
             atom.verified_by = "transcript_miner"
 
             # Check for ambiguous multi-file causal attribution (Gate 2 attribution guard)
@@ -91,7 +91,9 @@ class AdjudicationEngine:
                 view_set=["full"],
             )
 
-        # 5. Agent operational observation (L2)
+        # 5. Agent operational observation (L2a)
+        if atom.authority == AuthorityLevel.L2:
+            atom.authority = AuthorityLevel.L2a
         if not atom.verified_by or atom.verified_by == "compiler":
             atom.verified_by = atom.agent_id or "host_agent:claude_code"
 
@@ -124,13 +126,33 @@ class AdjudicationEngine:
                     view_set=["risk"],
                 )
 
-        # Check 5c: Structural Code Identifier Requirement in Resolution
+        # Check 5c: Structural Code Identifier & Content Specificity
         has_code_identifier = bool(self.CODE_IDENTIFIER_PATTERN.search(atom.resolution)) if atom.resolution else False
-        if not has_code_identifier:
+        res_clean = atom.resolution.strip().lower() if atom.resolution else ""
+        words = res_clean.split()
+        is_pure_platitude = (
+            len(res_clean) < 10
+            or len(words) < 3
+            or res_clean in {"try again", "be careful", "fix the code", "fix it", "make it work", "check the code", "try again and be careful"}
+        )
+
+        # Discard outright ONLY if empty or a trivial non-specific platitude
+        if is_pure_platitude:
             return VerifierSignal(
-                reward=0.40,
-                confidence=0.35,
-                label="vague_resolution_lacks_identifier",
+                reward=0.30,
+                confidence=0.25,
+                label="trivial_platitude_discarded",
+                view_set=["risk"],
+            )
+
+        # If resolution lacks standard regex code identifiers, DO NOT DISCARD:
+        # Route to pending_adjudication for Gate 4 host-agent evaluation!
+        if not has_code_identifier:
+            atom.state = LifecycleState.PENDING_ADJUDICATION
+            return VerifierSignal(
+                reward=0.60,
+                confidence=0.55,
+                label="unpatterned_resolution_pending_adjudication",
                 view_set=["risk"],
             )
 
@@ -158,10 +180,13 @@ class AdjudicationEngine:
                     return ContradictionKind.DIRECT_VALUE_CONFLICT
 
         # Check semantic contradiction on resolution text
-        res_a = new_atom.resolution.lower()
-        res_b = existing_atom.resolution.lower()
-        if res_a != res_b and self._is_contradictory_text(res_a, res_b):
-            return ContradictionKind.DIRECT_VALUE_CONFLICT
+        res_a = new_atom.resolution.lower().strip()
+        res_b = existing_atom.resolution.lower().strip()
+        if res_a != res_b:
+            if self._is_contradictory_text(res_a, res_b):
+                return ContradictionKind.DIRECT_VALUE_CONFLICT
+            if new_atom.trigger_pattern.strip().lower() == existing_atom.trigger_pattern.strip().lower():
+                return ContradictionKind.DIRECT_VALUE_CONFLICT
 
         return None
 
@@ -282,13 +307,22 @@ class AdjudicationEngine:
             decision = self._decide_conflict(candidate, old, contradiction=contra_kind)
 
             if decision == AdjudicationDecision.REPLACE:
-                # Invalidate old memory atom
-                old.valid_until = now
-                old.invalidated_by = candidate.id
-                old.state = LifecycleState.SUPERSEDED
-                old.updated_at = now
-                self.db.save_atom(old)
-                affected.append(old)
+                if old.is_provisional:
+                    old.state = LifecycleState.PENDING_ADJUDICATION
+                    old.conflict_note = (
+                        f"⚠️ Demoted from provisional active to pending_adjudication due to contradiction by {candidate.id} ({candidate.authority.value})."
+                    )
+                    old.updated_at = now
+                    self.db.save_atom(old)
+                    affected.append(old)
+                else:
+                    # Invalidate old memory atom
+                    old.valid_until = now
+                    old.invalidated_by = candidate.id
+                    old.state = LifecycleState.SUPERSEDED
+                    old.updated_at = now
+                    self.db.save_atom(old)
+                    affected.append(old)
 
                 # Explicit SUPERSEDES edge
                 edge = MemoryEdge(
@@ -342,9 +376,34 @@ class AdjudicationEngine:
         old_atom: MemoryAtom,
         contradiction: ContradictionKind | None = None,
     ) -> AdjudicationDecision:
-        """CUPMem Authority Hierarchy Resolution."""
+        """CUPMem Authority Hierarchy Resolution with Provisional Atom Recovery."""
+        # 0. Provisional atom recovery rule:
+        # If an atom is under its 7-day host-agent provisional trial and is contradicted,
+        # it is immediately demoted to pending_adjudication rather than fighting to stay active.
+        if old_atom.is_provisional and contradiction is not None:
+            old_atom.state = LifecycleState.PENDING_ADJUDICATION
+            old_atom.conflict_note = (
+                f"Provisional adjudication challenged by {new_atom.source} ({new_atom.authority.value}). Demoted for human review."
+            )
+            old_atom.updated_at = datetime.now(timezone.utc)
+            self.db.save_atom(old_atom)
+            return AdjudicationDecision.REPLACE
+
         # 1. Higher authority always supersedes lower authority
-        # e.g., L1 (compiler) supersedes L2 (agent observation)
+        # e.g., L1 (compiler) supersedes L2a/L2b (agent/miner observation)
+        # Note: L2a (0.75) and L2b (0.70) are equal peer tiers for conflict resolution
+        is_l2_peer_new = new_atom.authority in (AuthorityLevel.L2a, AuthorityLevel.L2b, AuthorityLevel.L2)
+        is_l2_peer_old = old_atom.authority in (AuthorityLevel.L2a, AuthorityLevel.L2b, AuthorityLevel.L2)
+
+        if is_l2_peer_new and is_l2_peer_old:
+            # When L2a (host agent) and L2b (transcript miner) disagree on contradiction,
+            # neither automatically wins: mark UNKNOWN -> CONFLICTED with dual claim
+            if contradiction is not None:
+                return AdjudicationDecision.UNKNOWN
+            if new_atom.confidence >= old_atom.confidence:
+                return AdjudicationDecision.REPLACE
+            return AdjudicationDecision.KEEP
+
         if new_atom.authority.trust_score > old_atom.authority.trust_score:
             return AdjudicationDecision.REPLACE
 
@@ -400,39 +459,50 @@ class AdjudicationEngine:
         dec = decision.lower().strip()
         now = datetime.now(timezone.utc)
         provenance = f"host_agent:{host_agent}"
+        provisional_trial = now + timedelta(days=7)
 
         if dec in ("attribute", "attributed"):
             # Question 1: Given multi-file diff, which edit caused the pass?
             if target_file:
                 atom.file_path = target_file
             atom.state = LifecycleState.ACTIVE
+            atom.authority = AuthorityLevel.L2a
             atom.verified_by = provenance
             atom.confidence = max(atom.confidence, 0.85)
-            atom.conflict_note = f"✓ Causally attributed by {provenance}: {reason}".strip()
+            atom.trial_until = provisional_trial
+            atom.conflict_note = f"✓ Causally attributed by {provenance} (provisional trial): {reason}".strip()
             atom.updated_at = now
             self.db.save_atom(atom)
             return {
                 "status": "ADJUDICATED",
                 "atom_id": atom.id,
                 "state": atom.state.value,
+                "authority": atom.authority.value,
                 "verified_by": atom.verified_by,
                 "confidence": atom.confidence,
+                "trial_until": atom.trial_until.isoformat(),
+                "is_provisional": atom.is_provisional,
                 "note": atom.conflict_note,
             }
 
         elif dec in ("valid", "verified"):
             # Question 2: Content-dependency re-verification (D still holds given C')
             atom.state = LifecycleState.ACTIVE
+            atom.authority = AuthorityLevel.L2a
             atom.verified_by = provenance
             atom.confidence = max(atom.confidence, 0.85)
-            atom.conflict_note = f"✓ Content dependency re-verified by {provenance}: {reason}".strip()
+            atom.trial_until = provisional_trial
+            atom.conflict_note = f"✓ Content dependency re-verified by {provenance} (provisional trial): {reason}".strip()
             atom.updated_at = now
             self.db.save_atom(atom)
             return {
                 "status": "ADJUDICATED",
                 "atom_id": atom.id,
                 "state": atom.state.value,
+                "authority": atom.authority.value,
                 "verified_by": atom.verified_by,
+                "trial_until": atom.trial_until.isoformat(),
+                "is_provisional": atom.is_provisional,
                 "note": atom.conflict_note,
             }
 
@@ -440,6 +510,7 @@ class AdjudicationEngine:
             # Question 2 (refuted): Content dependency broken by C'
             atom.state = LifecycleState.STALE
             atom.valid_until = now
+            atom.trial_until = None
             atom.conflict_note = f"Refuted by {provenance}: {reason}".strip()
             atom.updated_at = now
             self.db.save_atom(atom)
@@ -453,36 +524,68 @@ class AdjudicationEngine:
         elif dec in ("distinct_scope", "scope_disambiguated"):
             # Question 3: Not contradictory, just different in scope
             atom.state = LifecycleState.ACTIVE
+            atom.authority = AuthorityLevel.L2a
             atom.verified_by = provenance
-            atom.conflict_note = f"✓ Distinct scope confirmed by {provenance}: {reason}".strip()
+            atom.trial_until = provisional_trial
+            atom.conflict_note = f"✓ Distinct scope confirmed by {provenance} (provisional trial): {reason}".strip()
             atom.updated_at = now
             self.db.save_atom(atom)
             return {
                 "status": "ADJUDICATED",
                 "atom_id": atom.id,
                 "state": atom.state.value,
+                "authority": atom.authority.value,
                 "verified_by": atom.verified_by,
+                "trial_until": atom.trial_until.isoformat(),
+                "is_provisional": atom.is_provisional,
                 "note": atom.conflict_note,
             }
 
         elif dec in ("resolve_conflict", "supersede"):
             # Question 3: Semantically contradictory, candidate chosen as winner
             atom.state = LifecycleState.ACTIVE
+            atom.authority = AuthorityLevel.L2a
             atom.verified_by = provenance
             atom.confidence = max(atom.confidence, 0.85)
-            atom.conflict_note = f"✓ Conflict resolved in favor of {atom.id} by {provenance}: {reason}".strip()
+            atom.trial_until = provisional_trial
+            atom.conflict_note = f"✓ Conflict resolved in favor of {atom.id} by {provenance} (provisional trial): {reason}".strip()
             atom.updated_at = now
             self.db.save_atom(atom)
             return {
                 "status": "ADJUDICATED",
                 "atom_id": atom.id,
                 "state": atom.state.value,
+                "authority": atom.authority.value,
                 "verified_by": atom.verified_by,
+                "trial_until": atom.trial_until.isoformat(),
+                "is_provisional": atom.is_provisional,
+                "note": atom.conflict_note,
+            }
+
+        elif dec in ("validate_advice", "valid_advice", "approve_advice"):
+            # Question 4: Structural verification failure review (actionable unpatterned resolution)
+            atom.state = LifecycleState.ACTIVE
+            atom.authority = AuthorityLevel.L2a
+            atom.verified_by = provenance
+            atom.confidence = max(atom.confidence, 0.85)
+            atom.trial_until = provisional_trial
+            atom.conflict_note = f"✓ Unpatterned resolution validated by {provenance} (provisional trial): {reason}".strip()
+            atom.updated_at = now
+            self.db.save_atom(atom)
+            return {
+                "status": "ADJUDICATED",
+                "atom_id": atom.id,
+                "state": atom.state.value,
+                "authority": atom.authority.value,
+                "verified_by": atom.verified_by,
+                "confidence": atom.confidence,
+                "trial_until": atom.trial_until.isoformat(),
+                "is_provisional": atom.is_provisional,
                 "note": atom.conflict_note,
             }
 
         else:
-            # Outside the 3 bounded questions: hold in pending_adjudication for human review
+            # Outside the 4 bounded questions: hold in pending_adjudication for human review
             atom.state = LifecycleState.PENDING_ADJUDICATION
             atom.conflict_note = f"Pending human review (unsupported decision '{decision}'): {reason}".strip()
             atom.updated_at = now

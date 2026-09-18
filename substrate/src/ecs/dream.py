@@ -25,6 +25,7 @@ class DreamAuditReport:
     dead_edges: int
     pending_candidates: int = 0
     pending_adjudications: int = 0
+    provisional_atoms: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -39,6 +40,7 @@ class DreamAuditReport:
             "dead_edges": self.dead_edges,
             "pending_candidates": self.pending_candidates,
             "pending_adjudications": self.pending_adjudications,
+            "provisional_atoms": self.provisional_atoms,
         }
 
 
@@ -86,6 +88,9 @@ class DreamEngine:
 
         pending_candidates = len(self.db.fetch_atoms(project=project, state=LifecycleState.CANDIDATE, active_only=False))
         pending_adjudications = len(self.db.fetch_atoms(project=project, state=LifecycleState.PENDING_ADJUDICATION, active_only=False))
+        
+        cur.execute("SELECT COUNT(*) FROM memory_atoms WHERE state = 'active' AND trial_until IS NOT NULL")
+        provisional_atoms = cur.fetchone()[0]
 
         return DreamAuditReport(
             total_atoms=stats["total_atoms"],
@@ -99,6 +104,7 @@ class DreamEngine:
             dead_edges=dead_edges,
             pending_candidates=pending_candidates,
             pending_adjudications=pending_adjudications,
+            provisional_atoms=provisional_atoms,
         )
 
     def apply(self, project: str | None = None) -> dict[str, Any]:
@@ -159,9 +165,23 @@ class DreamEngine:
             adjudicator.adjudicate_write(cand)
             reconciled_candidates += 1
 
+        # 5. Clear expired trial_until on active provisional atoms (trial period completed safely)
+        cur = self.db._conn.cursor()
+        cur.execute(
+            "SELECT id FROM memory_atoms WHERE state = 'active' AND trial_until IS NOT NULL AND trial_until <= ?",
+            (now.isoformat(),),
+        )
+        expired_trial_ids = [r[0] for r in cur.fetchall()]
+        for atom_id in expired_trial_ids:
+            atom = self.db.get_atom(atom_id)
+            if atom and atom.state == LifecycleState.ACTIVE:
+                atom.trial_until = None
+                self.db.save_atom(atom)
+
         return {
             "status": "APPLIED",
             "compacted_tombstones": res["deleted"],
             "flagged_conflicts": flagged_conflicts,
             "reconciled_candidates": reconciled_candidates,
+            "promoted_provisional": len(expired_trial_ids),
         }
