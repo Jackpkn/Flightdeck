@@ -690,3 +690,364 @@ public struct CausalMemoryEngine: Sendable {
         return (recovered: recoveredCount, remainedStale: remainedCount)
     }
 }
+
+// MARK: - Memory Federation & Git Team Sync
+
+public struct MemoryFederation: Sendable {
+    public static let defaultFederationPath = ".flightdeck/memory"
+
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let isoFallbackFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    public static func parseDate(_ val: Any?) -> Date? {
+        guard let s = val as? String else { return nil }
+        if let d = isoFormatter.date(from: s) { return d }
+        if let d = isoFallbackFormatter.date(from: s) { return d }
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
+        if let d = df.date(from: s) { return d }
+        df.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZZZZZ"
+        return df.date(from: s)
+    }
+
+    /// Exports verified active and conflicted memory capsules and causal edges to line-delimited JSON (JSONL).
+    /// Deterministically sorted to ensure minimal, noise-free Git diffs.
+    /// Uses atomic writes (.tmp -> atomic replace) to prevent corruption.
+    @discardableResult
+    static func exportAtoms(
+        to dirPath: String,
+        project: String? = nil,
+        in db: ActivityDatabase
+    ) throws -> (atoms: Int, edges: Int) {
+        let fm = FileManager.default
+        let outUrl = URL(fileURLWithPath: dirPath)
+        try fm.createDirectory(at: outUrl, withIntermediateDirectories: true)
+
+        let allCapsules = db.fetchMemoryCapsules(project: project, filePath: nil, status: nil)
+        var exportable = allCapsules.filter {
+            ($0.status == .active || $0.status == .conflicted) && $0.authority != .L4
+        }
+
+        // Deterministic sort: filePath ASC, symbol ASC, triggerPattern ASC, id ASC
+        exportable.sort { a, b in
+            if a.filePath != b.filePath { return a.filePath < b.filePath }
+            if (a.symbol ?? "") != (b.symbol ?? "") { return (a.symbol ?? "") < (b.symbol ?? "") }
+            if a.triggerPattern != b.triggerPattern { return a.triggerPattern < b.triggerPattern }
+            return a.id < b.id
+        }
+
+        let atomsUrl = outUrl.appendingPathComponent("atoms.jsonl")
+        let tmpAtomsUrl = outUrl.appendingPathComponent("atoms.jsonl.tmp")
+
+        var atomsOutput = ""
+        for capsule in exportable {
+            var dict: [String: Any] = [
+                "id": capsule.id,
+                "project": capsule.project,
+                "file_path": capsule.filePath,
+                "filePath": capsule.filePath,
+                "kind": capsule.kind.rawValue,
+                "authority": capsule.authority.rawValue,
+                "trigger_pattern": capsule.triggerPattern,
+                "triggerPattern": capsule.triggerPattern,
+                "resolution": capsule.resolution,
+                "source": capsule.source,
+                "verified_by": capsule.verifiedBy,
+                "occurrence_count": capsule.occurrenceCount,
+                "git_sha": capsule.gitSha,
+                "confidence": capsule.confidence,
+                "hit_count": capsule.hitCount,
+                "state": capsule.status.rawValue,
+                "status": capsule.status.rawValue,
+                "anchor_status": capsule.anchorStatus.rawValue,
+                "valid_from": isoFormatter.string(from: capsule.validFrom),
+                "recorded_at": isoFormatter.string(from: capsule.recordedAt),
+                "created_at": isoFormatter.string(from: capsule.createdAt),
+                "updated_at": isoFormatter.string(from: capsule.updatedAt),
+            ]
+            if let sym = capsule.symbol { dict["symbol"] = sym }
+            if let subj = capsule.subject { dict["subject"] = subj }
+            if let pred = capsule.predicate { dict["predicate"] = pred }
+            if let obj = capsule.objectValue { dict["object_value"] = obj; dict["objectValue"] = obj }
+            if let sig = capsule.failureSignature { dict["failure_signature"] = sig; dict["failureSignature"] = sig }
+            if let note = capsule.conflictNote { dict["conflict_note"] = note; dict["conflictNote"] = note }
+            if let hash = capsule.fileHash { dict["file_hash"] = hash; dict["fileHash"] = hash }
+            if let sess = capsule.originSessionId { dict["session_id"] = sess; dict["sessionId"] = sess }
+            if let until = capsule.validUntil { dict["valid_until"] = isoFormatter.string(from: until); dict["validUntil"] = isoFormatter.string(from: until) }
+            if let trial = capsule.trialUntil { dict["trial_until"] = isoFormatter.string(from: trial); dict["trialUntil"] = isoFormatter.string(from: trial) }
+            if let inv = capsule.invalidatedBy { dict["invalidated_by"] = inv; dict["invalidatedBy"] = inv }
+
+            let data = try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys, .withoutEscapingSlashes])
+            if let str = String(data: data, encoding: .utf8) {
+                atomsOutput.append(str + "\n")
+            }
+        }
+        try atomsOutput.write(to: tmpAtomsUrl, atomically: true, encoding: .utf8)
+        _ = try? fm.removeItem(at: atomsUrl)
+        try fm.moveItem(at: tmpAtomsUrl, to: atomsUrl)
+
+        // Export active causal edges
+        let exportableIds = Set(exportable.map { $0.id })
+        let allEdges = db.fetchMemoryEdges()
+        var exportableEdges = allEdges.filter {
+            $0.validUntil == nil && exportableIds.contains($0.fromCapsuleId) && exportableIds.contains($0.toCapsuleId)
+        }
+        exportableEdges.sort { a, b in
+            if a.fromCapsuleId != b.fromCapsuleId { return a.fromCapsuleId < b.fromCapsuleId }
+            if a.toCapsuleId != b.toCapsuleId { return a.toCapsuleId < b.toCapsuleId }
+            if a.edgeType.rawValue != b.edgeType.rawValue { return a.edgeType.rawValue < b.edgeType.rawValue }
+            return a.id < b.id
+        }
+
+        let edgesUrl = outUrl.appendingPathComponent("edges.jsonl")
+        let tmpEdgesUrl = outUrl.appendingPathComponent("edges.jsonl.tmp")
+        var edgesOutput = ""
+        for edge in exportableEdges {
+            var dict: [String: Any] = [
+                "id": edge.id,
+                "from_atom_id": edge.fromCapsuleId,
+                "fromCapsuleId": edge.fromCapsuleId,
+                "to_atom_id": edge.toCapsuleId,
+                "toCapsuleId": edge.toCapsuleId,
+                "edge_type": edge.edgeType.rawValue,
+                "edgeType": edge.edgeType.rawValue,
+                "valid_from": isoFormatter.string(from: edge.validFrom),
+                "recorded_at": isoFormatter.string(from: edge.recordedAt),
+            ]
+            if let until = edge.validUntil { dict["valid_until"] = isoFormatter.string(from: until); dict["validUntil"] = isoFormatter.string(from: until) }
+            if let inv = edge.invalidatedBy { dict["invalidated_by"] = inv; dict["invalidatedBy"] = inv }
+
+            let data = try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys, .withoutEscapingSlashes])
+            if let str = String(data: data, encoding: .utf8) {
+                edgesOutput.append(str + "\n")
+            }
+        }
+        try edgesOutput.write(to: tmpEdgesUrl, atomically: true, encoding: .utf8)
+        _ = try? fm.removeItem(at: edgesUrl)
+        try fm.moveItem(at: tmpEdgesUrl, to: edgesUrl)
+
+        return (exportable.count, exportableEdges.count)
+    }
+
+    /// Imports memory capsules and causal edges from .flightdeck/memory JSONL files.
+    /// Runs write-side adjudication on incoming atoms so slot conflicts are preserved safely.
+    static func importAtoms(
+        from dirPath: String,
+        project: String? = nil,
+        in db: ActivityDatabase
+    ) throws -> (imported: Int, updated: Int, conflicts: Int, skipped: Int, edges: Int) {
+        let fm = FileManager.default
+        let inUrl = URL(fileURLWithPath: dirPath)
+        let atomsUrl = inUrl.appendingPathComponent("atoms.jsonl")
+        let edgesUrl = inUrl.appendingPathComponent("edges.jsonl")
+
+        guard fm.fileExists(atPath: atomsUrl.path) else {
+            return (0, 0, 0, 0, 0)
+        }
+
+        let atomsContent = try String(contentsOf: atomsUrl, encoding: .utf8)
+        let lines = atomsContent.components(separatedBy: .newlines)
+
+        var imported = 0
+        var updated = 0
+        var conflicts = 0
+        var skipped = 0
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+
+            let atomProject = dict["project"] as? String ?? "default"
+            if let project, !project.isEmpty, atomProject != project {
+                skipped += 1
+                continue
+            }
+
+            let id = dict["id"] as? String ?? UUID().uuidString
+            let filePath = dict["file_path"] as? String ?? dict["filePath"] as? String ?? ""
+            let symbol = dict["symbol"] as? String
+            let subject = dict["subject"] as? String
+            let predicate = dict["predicate"] as? String
+            let objectValue = dict["object_value"] as? String ?? dict["objectValue"] as? String
+            let kind = MemoryKind(rawValue: dict["kind"] as? String ?? "rule") ?? .rule
+            let authority = AuthorityLevel(rawValue: dict["authority"] as? String ?? "L2") ?? .L2
+            let triggerPattern = dict["trigger_pattern"] as? String ?? dict["triggerPattern"] as? String ?? ""
+            let failureSignature = dict["failure_signature"] as? String ?? dict["failureSignature"] as? String
+            let resolution = dict["resolution"] as? String ?? ""
+            let originSessionId = dict["session_id"] as? String ?? dict["sessionId"] as? String ?? dict["originSessionId"] as? String
+            let source = dict["source"] as? String ?? "agent"
+            let verifiedBy = dict["verified_by"] as? String ?? dict["verifiedBy"] as? String ?? "compiler"
+            let occurrenceCount = dict["occurrence_count"] as? Int ?? dict["occurrenceCount"] as? Int ?? 1
+            let gitSha = dict["git_sha"] as? String ?? dict["gitSha"] as? String ?? "HEAD"
+            let fileHash = dict["file_hash"] as? String ?? dict["fileHash"] as? String
+            let confidence = (dict["confidence"] as? NSNumber)?.doubleValue ?? 1.0
+            let hitCount = dict["hit_count"] as? Int ?? dict["hitCount"] as? Int ?? 0
+            let status = MemoryStatus(rawValue: dict["state"] as? String ?? dict["status"] as? String ?? "active") ?? .active
+            let anchorStatus = AnchorStatus(rawValue: dict["anchor_status"] as? String ?? dict["anchorStatus"] as? String ?? "unverified") ?? .unverified
+            let conflictNote = dict["conflict_note"] as? String ?? dict["conflictNote"] as? String
+            let validFrom = parseDate(dict["valid_from"] ?? dict["validFrom"]) ?? Date()
+            let validUntil = parseDate(dict["valid_until"] ?? dict["validUntil"])
+            let trialUntil = parseDate(dict["trial_until"] ?? dict["trialUntil"])
+            let recordedAt = parseDate(dict["recorded_at"] ?? dict["recordedAt"]) ?? Date()
+            let invalidatedBy = dict["invalidated_by"] as? String ?? dict["invalidatedBy"] as? String
+            let createdAt = parseDate(dict["created_at"] ?? dict["createdAt"]) ?? Date()
+            let updatedAt = parseDate(dict["updated_at"] ?? dict["updatedAt"]) ?? Date()
+
+            var capsule = MemoryCapsule(
+                id: id,
+                project: atomProject,
+                filePath: filePath,
+                symbol: symbol,
+                subject: subject,
+                predicate: predicate,
+                objectValue: objectValue,
+                kind: kind,
+                authority: authority,
+                triggerPattern: triggerPattern,
+                failureSignature: failureSignature,
+                resolution: resolution,
+                originSessionId: originSessionId,
+                source: source,
+                verifiedBy: verifiedBy,
+                occurrenceCount: occurrenceCount,
+                gitSha: gitSha,
+                fileHash: fileHash,
+                confidence: confidence,
+                hitCount: hitCount,
+                status: status,
+                anchorStatus: anchorStatus,
+                conflictNote: conflictNote,
+                validFrom: validFrom,
+                validUntil: validUntil,
+                trialUntil: trialUntil,
+                recordedAt: recordedAt,
+                invalidatedBy: invalidatedBy,
+                createdAt: createdAt,
+                updatedAt: updatedAt
+            )
+
+            if let existing = db.fetchMemoryCapsule(id: id) {
+                if capsule.authority.trustScore > existing.authority.trustScore || capsule.updatedAt > existing.updatedAt {
+                    db.saveMemoryCapsule(capsule)
+                    updated += 1
+                } else {
+                    skipped += 1
+                }
+            } else {
+                let (persisted, _) = CausalMemoryEngine.adjudicate(newCapsule: &capsule, in: db)
+                if persisted.status == .conflicted {
+                    conflicts += 1
+                } else {
+                    imported += 1
+                }
+            }
+        }
+
+        // Import edges
+        var edgesImported = 0
+        if fm.fileExists(atPath: edgesUrl.path),
+           let edgesContent = try? String(contentsOf: edgesUrl, encoding: .utf8) {
+            let edgeLines = edgesContent.components(separatedBy: .newlines)
+            for line in edgeLines {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty,
+                      let data = trimmed.data(using: .utf8),
+                      let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    continue
+                }
+
+                let id = dict["id"] as? String ?? UUID().uuidString
+                let fromId = dict["from_atom_id"] as? String ?? dict["fromCapsuleId"] as? String ?? ""
+                let toId = dict["to_atom_id"] as? String ?? dict["toCapsuleId"] as? String ?? ""
+                let edgeTypeRaw = dict["edge_type"] as? String ?? dict["edgeType"] as? String ?? "SOLVES"
+                let edgeType = CausalEdgeType(rawValue: edgeTypeRaw) ?? .solves
+                let validFrom = parseDate(dict["valid_from"] ?? dict["validFrom"]) ?? Date()
+                let validUntil = parseDate(dict["valid_until"] ?? dict["validUntil"])
+                let recordedAt = parseDate(dict["recorded_at"] ?? dict["recordedAt"]) ?? Date()
+                let invalidatedBy = dict["invalidated_by"] as? String ?? dict["invalidatedBy"] as? String
+
+                if db.fetchMemoryCapsule(id: fromId) != nil && db.fetchMemoryCapsule(id: toId) != nil {
+                    let edge = MemoryEdge(
+                        id: id,
+                        fromCapsuleId: fromId,
+                        toCapsuleId: toId,
+                        edgeType: edgeType,
+                        validFrom: validFrom,
+                        validUntil: validUntil,
+                        recordedAt: recordedAt,
+                        invalidatedBy: invalidatedBy
+                    )
+                    db.saveMemoryEdge(edge)
+                    edgesImported += 1
+                }
+            }
+        }
+
+        return (imported, updated, conflicts, skipped, edgesImported)
+    }
+
+    /// Two-way sync: imports team memories from .flightdeck/memory and exports local verified memories.
+    static func sync(
+        repoRoot: String = ".",
+        project: String? = nil,
+        in db: ActivityDatabase
+    ) throws -> (imported: Int, updated: Int, conflicts: Int, exportedAtoms: Int, exportedEdges: Int) {
+        let federationDir = (repoRoot as NSString).appendingPathComponent(defaultFederationPath)
+        let importRes = try importAtoms(from: federationDir, project: project, in: db)
+        let exportRes = try exportAtoms(to: federationDir, project: project, in: db)
+        return (importRes.imported, importRes.updated, importRes.conflicts, exportRes.atoms, exportRes.edges)
+    }
+
+    /// Installs git post-merge and post-checkout hooks to automatically sync causal memories on pull/checkout.
+    @discardableResult
+    public static func installGitHooks(in repoRoot: String = ".") throws -> Bool {
+        let fm = FileManager.default
+        let hooksDir = (repoRoot as NSString).appendingPathComponent(".git/hooks")
+        guard fm.fileExists(atPath: hooksDir) else {
+            return false
+        }
+
+        let script = """
+        #!/bin/sh
+        # Flightdeck Causal Memory Sync Hook
+        if [ -d ".flightdeck/memory" ]; then
+            if command -v flightdeck >/dev/null 2>&1; then
+                flightdeck memory import >/dev/null 2>&1 || true
+            elif [ -f "substrate/src/ecs/cli.py" ] && command -v python3 >/dev/null 2>&1; then
+                python3 -m substrate.src.ecs.cli import >/dev/null 2>&1 || true
+            fi
+        fi
+        """
+
+        let hookNames = ["post-merge", "post-checkout"]
+        for hook in hookNames {
+            let hookPath = (hooksDir as NSString).appendingPathComponent(hook)
+            if fm.fileExists(atPath: hookPath) {
+                let existing = (try? String(contentsOfFile: hookPath, encoding: .utf8)) ?? ""
+                if !existing.contains("Flightdeck Causal Memory") {
+                    let updated = existing + "\n" + script + "\n"
+                    try updated.write(toFile: hookPath, atomically: true, encoding: .utf8)
+                }
+            } else {
+                try script.write(toFile: hookPath, atomically: true, encoding: .utf8)
+            }
+            // Set executable permission 0755
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hookPath)
+        }
+        return true
+    }
+}

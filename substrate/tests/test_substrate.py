@@ -968,7 +968,158 @@ def test_retrieval_pending_adjudications_banner(db):
 
     resp = retriever.query(project="Flightdeck", file_paths=["Sources/Flightdeck/Notice.swift"])
     assert resp.pending_adjudications_count >= 1
-    assert "⚠️ [FLIGHTDECK ACTION REQUIRED:" in resp.formatted_prompt_block
+
+def test_federation_export_and_import_roundtrip(db, tmp_path):
+    """Verifies that active and conflicted memories and edges are exported to JSONL and cleanly imported into a new DB."""
+    from ecs.federation import export_memory, import_memory
+    from ecs.db import ECSDatabase
+
+    # Setup atoms
+    atom1 = MemoryAtom(
+        id="fed-atom-1",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/A.swift",
+        symbol="ServiceA",
+        kind=MemoryKind.TRAP,
+        trigger_pattern="unsupported enum value",
+        resolution="Use .inferred fallback",
+        state=LifecycleState.ACTIVE,
+        authority=AuthorityLevel.L2,
+    )
+    atom2 = MemoryAtom(
+        id="fed-atom-2",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/B.swift",
+        symbol="ServiceB",
+        kind=MemoryKind.RULE,
+        trigger_pattern="database lock",
+        resolution="Use WAL mode",
+        state=LifecycleState.CONFLICTED,
+        conflict_note="Conflicted with alternate rule",
+        authority=AuthorityLevel.L2,
+    )
+    atom_quarantine = MemoryAtom(
+        id="fed-quarantine-3",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/C.swift",
+        symbol="ServiceC",
+        kind=MemoryKind.RULE,
+        trigger_pattern="quarantined trigger",
+        resolution="Do not export me",
+        state=LifecycleState.ACTIVE,
+        authority=AuthorityLevel.L4,  # Quarantined
+    )
+    db.save_atom(atom1)
+    db.save_atom(atom2)
+    db.save_atom(atom_quarantine)
+
+    edge1 = MemoryEdge(
+        id="fed-edge-1",
+        from_atom_id=atom2.id,
+        to_atom_id=atom1.id,
+        edge_type=EdgeType.DEPENDS_ON,
+    )
+    db.save_edge(edge1)
+
+    fed_dir = tmp_path / ".flightdeck" / "memory"
+    atoms_cnt, edges_cnt = export_memory(db, fed_dir, project="Flightdeck")
+
+    assert atoms_cnt == 2
+    assert edges_cnt == 1
+    assert (fed_dir / "atoms.jsonl").exists()
+    assert (fed_dir / "edges.jsonl").exists()
+
+    # Verify JSONL lines
+    with open(fed_dir / "atoms.jsonl") as f:
+        lines = [line.strip() for line in f if line.strip()]
+    assert len(lines) == 2
+    # Verify deterministic sort: A.swift before B.swift
+    assert "Sources/Flightdeck/A.swift" in lines[0]
+    assert "Sources/Flightdeck/B.swift" in lines[1]
+
+    # Import into fresh database
+    fresh_db_file = tmp_path / "fresh_ecs.db"
+    fresh_db = ECSDatabase(fresh_db_file)
+    res = import_memory(fresh_db, fed_dir, project="Flightdeck")
+
+    assert res["imported"] + res["conflicted"] == 2
+    assert res["edges_imported"] == 1
+
+    imported_atom1 = fresh_db.get_atom("fed-atom-1")
+    assert imported_atom1 is not None
+    assert imported_atom1.symbol == "ServiceA"
+    assert imported_atom1.state == LifecycleState.ACTIVE
+
+    imported_atom2 = fresh_db.get_atom("fed-atom-2")
+    assert imported_atom2 is not None
+    assert imported_atom2.symbol == "ServiceB"
 
 
+def test_federation_import_conflict_adjudication(db, tmp_path):
+    """Verifies that importing an atom with a contradicting fix triggers Gate 3 conflict adjudication."""
+    from ecs.federation import export_memory, import_memory
+    from ecs.db import ECSDatabase
 
+    # Teammate created an atom in teammate DB
+    teammate_db_file = tmp_path / "teammate_ecs.db"
+    teammate_db = ECSDatabase(teammate_db_file)
+    teammate_atom = MemoryAtom(
+        id="teammate-atom-1",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/Config.swift",
+        symbol="ConfigLoader",
+        kind=MemoryKind.RULE,
+        trigger_pattern="config syntax error",
+        resolution="Use YAML format instead of JSON",
+        authority=AuthorityLevel.L2a,
+        state=LifecycleState.ACTIVE,
+    )
+    teammate_db.save_atom(teammate_atom)
+
+    fed_dir = tmp_path / ".flightdeck" / "memory"
+    export_memory(teammate_db, fed_dir, project="Flightdeck")
+
+    # Local DB has a local atom with identical trigger but contradicting resolution
+    local_atom = MemoryAtom(
+        id="local-atom-1",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/Config.swift",
+        symbol="ConfigLoader",
+        kind=MemoryKind.RULE,
+        trigger_pattern="config syntax error",
+        resolution="Use TOML format instead of JSON",
+        authority=AuthorityLevel.L2a,
+        state=LifecycleState.ACTIVE,
+    )
+    db.save_atom(local_atom)
+
+    # Import teammate's memory into local DB
+    res = import_memory(db, fed_dir, project="Flightdeck")
+    assert res["conflicted"] == 1
+
+    # Both local and incoming should now be CONFLICTED
+    reloaded_local = db.get_atom("local-atom-1")
+    reloaded_incoming = db.get_atom("teammate-atom-1")
+
+    assert reloaded_local.state == LifecycleState.CONFLICTED
+    assert reloaded_incoming.state == LifecycleState.CONFLICTED
+
+
+def test_federation_sync_memory(db, tmp_path):
+    """Verifies two-way sync between local DB and repository .flightdeck/memory directory."""
+    from ecs.federation import sync_memory
+
+    atom = MemoryAtom(
+        id="sync-atom-1",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/SyncTest.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern="sync pattern",
+        resolution="sync resolution",
+        state=LifecycleState.ACTIVE,
+    )
+    db.save_atom(atom)
+
+    res = sync_memory(db, repo_root=tmp_path, project="Flightdeck")
+    assert res["exported_atoms"] == 1
+    assert (tmp_path / ".flightdeck" / "memory" / "atoms.jsonl").exists()

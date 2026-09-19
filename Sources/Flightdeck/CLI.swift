@@ -1467,8 +1467,115 @@ enum CLI {
             print("  Purged tombstones (>7d):        \(res.purgedTombstones)")
             print("  Archived conflicts (>90d old):  \(res.archivedConflicts)")
 
+        case "export":
+            var outputDir = MemoryFederation.defaultFederationPath
+            var project: String? = nil
+            var i = 1
+            while i < subargs.count {
+                let arg = subargs[i]
+                if (arg == "--output" || arg == "-o") && i + 1 < subargs.count {
+                    outputDir = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--project" || arg == "-p") && i + 1 < subargs.count {
+                    project = subargs[i + 1]
+                    i += 2
+                } else {
+                    i += 1
+                }
+            }
+            do {
+                let res = try MemoryFederation.exportAtoms(to: outputDir, project: project, in: db)
+                print("✓ Exported \(res.atoms) memory atom(s) and \(res.edges) edge(s) to \(outputDir)")
+            } catch {
+                fputs("Export failed: \(error)\n", stderr)
+                exit(1)
+            }
+
+        case "import":
+            var inputDir = MemoryFederation.defaultFederationPath
+            var project: String? = nil
+            var i = 1
+            while i < subargs.count {
+                let arg = subargs[i]
+                if (arg == "--input" || arg == "-i") && i + 1 < subargs.count {
+                    inputDir = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--project" || arg == "-p") && i + 1 < subargs.count {
+                    project = subargs[i + 1]
+                    i += 2
+                } else {
+                    i += 1
+                }
+            }
+            do {
+                let res = try MemoryFederation.importAtoms(from: inputDir, project: project, in: db)
+                print("✓ Import completed:")
+                print("  Imported:       \(res.imported)")
+                print("  Updated:        \(res.updated)")
+                print("  Conflicts:      \(res.conflicts)")
+                print("  Edges Imported: \(res.edges)")
+                print("  Skipped:        \(res.skipped)")
+            } catch {
+                fputs("Import failed: \(error)\n", stderr)
+                exit(1)
+            }
+
+        case "sync":
+            var repoRoot = "."
+            var project: String? = nil
+            var i = 1
+            while i < subargs.count {
+                let arg = subargs[i]
+                if (arg == "--repo") && i + 1 < subargs.count {
+                    repoRoot = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--project" || arg == "-p") && i + 1 < subargs.count {
+                    project = subargs[i + 1]
+                    i += 2
+                } else {
+                    i += 1
+                }
+            }
+            do {
+                let res = try MemoryFederation.sync(repoRoot: repoRoot, project: project, in: db)
+                print("⚡️ MEMORY FEDERATION SYNC COMPLETED")
+                print("  Directory:      \((repoRoot as NSString).appendingPathComponent(MemoryFederation.defaultFederationPath))")
+                print("  Imported:       \(res.imported)")
+                print("  Updated:        \(res.updated)")
+                print("  Conflicts:      \(res.conflicts)")
+                print("  Exported Atoms: \(res.exportedAtoms)")
+                print("  Exported Edges: \(res.exportedEdges)")
+            } catch {
+                fputs("Sync failed: \(error)\n", stderr)
+                exit(1)
+            }
+
+        case "install-git-hooks":
+            var repoRoot = "."
+            var i = 1
+            while i < subargs.count {
+                let arg = subargs[i]
+                if (arg == "--repo") && i + 1 < subargs.count {
+                    repoRoot = subargs[i + 1]
+                    i += 2
+                } else {
+                    i += 1
+                }
+            }
+            do {
+                let installed = try MemoryFederation.installGitHooks(in: repoRoot)
+                if installed {
+                    print("✓ Installed Flightdeck memory git hooks in \(repoRoot)/.git/hooks/ (post-merge, post-checkout)")
+                } else {
+                    print("⚠️ Could not find .git/hooks directory in \(repoRoot)")
+                }
+            } catch {
+                fputs("Hook installation failed: \(error)\n", stderr)
+                exit(1)
+            }
+
         default:
-            print("Usage: flightdeck memory <check|list|status|reverify|compact> [options]")
+            print("Usage: flightdeck memory <check|record|list|status|reverify|compact|export|import|sync|install-git-hooks> [options]")
         }
         exit(0)
     }

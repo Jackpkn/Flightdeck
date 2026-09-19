@@ -305,6 +305,55 @@ class MemoryAtom:
             "updated_at": self.updated_at.isoformat(),
         }
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MemoryAtom":
+        def _parse_dt(val: Any) -> datetime | None:
+            if not val:
+                return None
+            if isinstance(val, datetime):
+                return val
+            return datetime.fromisoformat(val)
+
+        anchor_obj = MemoryAnchor.from_dict(data.get("anchor"))
+
+        return cls(
+            id=data.get("id") or str(uuid.uuid4()),
+            project=data.get("project", "default"),
+            file_path=data.get("file_path") or data.get("filePath", ""),
+            symbol=data.get("symbol"),
+            subject=data.get("subject"),
+            predicate=data.get("predicate"),
+            object_value=data.get("object_value") or data.get("objectValue"),
+            kind=MemoryKind(data.get("kind", "rule")),
+            authority=AuthorityLevel.from_str(data.get("authority", "L2")),
+            verified_by=data.get("verified_by") or data.get("verifiedBy", "compiler"),
+            occurrence_count=int(data.get("occurrence_count") or data.get("occurrenceCount", 1)),
+            trigger_pattern=data.get("trigger_pattern") or data.get("triggerPattern", ""),
+            failure_signature=data.get("failure_signature") or data.get("failureSignature"),
+            resolution=data.get("resolution", ""),
+            state=LifecycleState(data.get("state") or data.get("status", "active")),
+            anchor_status=AnchorStatus(data.get("anchor_status") or data.get("anchorStatus", "unverified")),
+            anchor=anchor_obj,
+            conflict_note=data.get("conflict_note") or data.get("conflictNote"),
+            git_sha=data.get("git_sha") or data.get("gitSha", "HEAD"),
+            file_hash=data.get("file_hash") or data.get("fileHash"),
+            agent_id=data.get("agent_id") or data.get("agentId"),
+            session_id=data.get("session_id") or data.get("sessionId") or data.get("originSessionId"),
+            evidence_refs=data.get("evidence_refs") or data.get("evidenceRefs") or [],
+            valid_from=_parse_dt(data.get("valid_from") or data.get("validFrom")) or datetime.now(timezone.utc),
+            valid_until=_parse_dt(data.get("valid_until") or data.get("validUntil")),
+            trial_until=_parse_dt(data.get("trial_until") or data.get("trialUntil")),
+            recorded_at=_parse_dt(data.get("recorded_at") or data.get("recordedAt")) or datetime.now(timezone.utc),
+            invalidated_by=data.get("invalidated_by") or data.get("invalidatedBy"),
+            reward=float(data.get("reward", 1.0)),
+            confidence=float(data.get("confidence", 1.0)),
+            label=data.get("label", "verified_success"),
+            view_set=data.get("view_set") or ["full"],
+            hit_count=int(data.get("hit_count") or data.get("hitCount", 0)),
+            created_at=_parse_dt(data.get("created_at") or data.get("createdAt")) or datetime.now(timezone.utc),
+            updated_at=_parse_dt(data.get("updated_at") or data.get("updatedAt")) or datetime.now(timezone.utc),
+        )
+
 
 @dataclass
 class MemoryEdge:
@@ -329,6 +378,26 @@ class MemoryEdge:
             "recorded_at": self.recorded_at.isoformat(),
             "invalidated_by": self.invalidated_by,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MemoryEdge":
+        def _parse_dt(val: Any) -> datetime | None:
+            if not val:
+                return None
+            if isinstance(val, datetime):
+                return val
+            return datetime.fromisoformat(val)
+
+        return cls(
+            id=data.get("id") or str(uuid.uuid4()),
+            from_atom_id=data.get("from_atom_id") or data.get("fromCapsuleId", ""),
+            to_atom_id=data.get("to_atom_id") or data.get("toCapsuleId", ""),
+            edge_type=EdgeType(data.get("edge_type") or data.get("edgeType")),
+            valid_from=_parse_dt(data.get("valid_from") or data.get("validFrom")) or datetime.now(timezone.utc),
+            valid_until=_parse_dt(data.get("valid_until") or data.get("validUntil")),
+            recorded_at=_parse_dt(data.get("recorded_at") or data.get("recordedAt")) or datetime.now(timezone.utc),
+            invalidated_by=data.get("invalidated_by") or data.get("invalidatedBy"),
+        )
 
 
 @dataclass

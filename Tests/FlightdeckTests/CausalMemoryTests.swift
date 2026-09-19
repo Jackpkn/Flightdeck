@@ -730,6 +730,165 @@ struct CausalMemoryTests {
         #expect(reloaded?.verifiedBy == "host_agent:claude_code")
         #expect(reloaded?.microDirective.contains("[PENDING ADJUDICATION:") == true)
     }
+
+    @Test("MemoryFederation exports and imports round-trip with deterministic sort")
+    func memoryFederationExportAndImportRoundTrip() throws {
+        let db1 = try ActivityDatabase.inMemory()
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fed_test_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cap1 = MemoryCapsule(
+            id: "fed-swift-1",
+            project: "Flightdeck",
+            filePath: "Sources/A.swift",
+            symbol: "Alpha",
+            kind: .rule,
+            authority: .L2,
+            triggerPattern: "alpha pattern",
+            resolution: "use alpha",
+            status: .active
+        )
+        let cap2 = MemoryCapsule(
+            id: "fed-swift-2",
+            project: "Flightdeck",
+            filePath: "Sources/B.swift",
+            symbol: "Beta",
+            kind: .trap,
+            authority: .L2,
+            triggerPattern: "beta trap",
+            resolution: "avoid beta",
+            status: .conflicted,
+            conflictNote: "Disagreement on beta"
+        )
+        let capQuarantine = MemoryCapsule(
+            id: "fed-swift-quarantine",
+            project: "Flightdeck",
+            filePath: "Sources/C.swift",
+            kind: .rule,
+            authority: .L4, // Quarantined: should NOT be exported
+            triggerPattern: "quarantine pattern",
+            resolution: "skip",
+            status: .active
+        )
+        db1.saveMemoryCapsule(cap1)
+        db1.saveMemoryCapsule(cap2)
+        db1.saveMemoryCapsule(capQuarantine)
+
+        let edge = MemoryEdge(
+            id: "fed-edge-swift-1",
+            fromCapsuleId: cap2.id,
+            toCapsuleId: cap1.id,
+            edgeType: .dependsOn
+        )
+        db1.saveMemoryEdge(edge)
+
+        let fedDir = tempDir.appendingPathComponent(".flightdeck/memory").path
+        let exportRes = try MemoryFederation.exportAtoms(to: fedDir, project: "Flightdeck", in: db1)
+        #expect(exportRes.atoms == 2)
+        #expect(exportRes.edges == 1)
+
+        let atomsPath = (fedDir as NSString).appendingPathComponent("atoms.jsonl")
+        let edgesPath = (fedDir as NSString).appendingPathComponent("edges.jsonl")
+        #expect(FileManager.default.fileExists(atPath: atomsPath))
+        #expect(FileManager.default.fileExists(atPath: edgesPath))
+
+        // Deterministic sort: Sources/A.swift before Sources/B.swift
+        let atomsContent = try String(contentsOfFile: atomsPath, encoding: .utf8)
+        let lines = atomsContent.components(separatedBy: .newlines).filter { !$0.isEmpty }
+        #expect(lines.count == 2)
+        #expect(lines[0].contains("Sources/A.swift"))
+        #expect(lines[1].contains("Sources/B.swift"))
+
+        // Import into fresh database
+        let db2 = try ActivityDatabase.inMemory()
+        let importRes = try MemoryFederation.importAtoms(from: fedDir, project: "Flightdeck", in: db2)
+        #expect(importRes.imported + importRes.conflicts == 2)
+        #expect(importRes.edges == 1)
+
+        let reloaded1 = db2.fetchMemoryCapsule(id: "fed-swift-1")
+        #expect(reloaded1?.symbol == "Alpha")
+        #expect(reloaded1?.status == .active)
+
+        let reloaded2 = db2.fetchMemoryCapsule(id: "fed-swift-2")
+        #expect(reloaded2?.symbol == "Beta")
+
+        let reloadedEdge = db2.fetchMemoryEdges(fromId: "fed-swift-2", toId: "fed-swift-1", type: .dependsOn)
+        #expect(reloadedEdge.count == 1)
+    }
+
+    @Test("MemoryFederation import detects slot conflict and flags CONFLICTED")
+    func memoryFederationImportConflictAdjudication() throws {
+        let tempDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("fed_conflict_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        // Teammate DB
+        let dbTeammate = try ActivityDatabase.inMemory()
+        let teammateAtom = MemoryCapsule(
+            id: "teammate-cap-1",
+            project: "Flightdeck",
+            filePath: "Sources/Config.swift",
+            symbol: "Config",
+            kind: .rule,
+            authority: .L2,
+            triggerPattern: "config format",
+            resolution: "Use YAML",
+            status: .active
+        )
+        dbTeammate.saveMemoryCapsule(teammateAtom)
+
+        let fedDir = tempDir.appendingPathComponent(".flightdeck/memory").path
+        try MemoryFederation.exportAtoms(to: fedDir, project: "Flightdeck", in: dbTeammate)
+
+        // Local DB has competing claim with same trigger but different fix
+        let dbLocal = try ActivityDatabase.inMemory()
+        let localAtom = MemoryCapsule(
+            id: "local-cap-1",
+            project: "Flightdeck",
+            filePath: "Sources/Config.swift",
+            symbol: "Config",
+            kind: .rule,
+            authority: .L2,
+            triggerPattern: "config format",
+            resolution: "Use TOML",
+            status: .active
+        )
+        dbLocal.saveMemoryCapsule(localAtom)
+
+        // Import teammate memory into local DB
+        let importRes = try MemoryFederation.importAtoms(from: fedDir, project: "Flightdeck", in: dbLocal)
+        #expect(importRes.conflicts == 1)
+
+        let reloadedLocal = dbLocal.fetchMemoryCapsule(id: "local-cap-1")
+        let reloadedTeammate = dbLocal.fetchMemoryCapsule(id: "teammate-cap-1")
+        #expect(reloadedLocal?.status == .conflicted)
+        #expect(reloadedTeammate?.status == .conflicted)
+    }
+
+    @Test("MemoryFederation installGitHooks creates post-merge and post-checkout hooks")
+    func memoryFederationInstallGitHooks() throws {
+        let tempRepo = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("git_repo_\(UUID().uuidString)")
+        let hooksDir = tempRepo.appendingPathComponent(".git/hooks")
+        try FileManager.default.createDirectory(at: hooksDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRepo) }
+
+        let installed = try MemoryFederation.installGitHooks(in: tempRepo.path)
+        #expect(installed == true)
+
+        let postMerge = hooksDir.appendingPathComponent("post-merge").path
+        let postCheckout = hooksDir.appendingPathComponent("post-checkout").path
+        #expect(FileManager.default.fileExists(atPath: postMerge))
+        #expect(FileManager.default.fileExists(atPath: postCheckout))
+
+        let content = try String(contentsOfFile: postMerge, encoding: .utf8)
+        #expect(content.contains("Flightdeck Causal Memory Sync Hook"))
+
+        // Check executable permission
+        let attrs = try FileManager.default.attributesOfItem(atPath: postMerge)
+        let perms = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
+        #expect((perms & 0o111) != 0)
+    }
 }
 
 

@@ -81,6 +81,21 @@ def main() -> None:
     # 8. serve
     serve_p = subparsers.add_parser("serve", help="Run MCP stdio server for Claude Code / Cursor")
 
+    # 9. export
+    export_p = subparsers.add_parser("export", help="Export verified memory atoms to .flightdeck/memory JSONL")
+    export_p.add_argument("--output", "-o", default=".flightdeck/memory", help="Output directory path")
+    export_p.add_argument("--project", default=None, help="Filter by project")
+
+    # 10. import
+    import_p = subparsers.add_parser("import", help="Import memory atoms from .flightdeck/memory JSONL")
+    import_p.add_argument("--input", "-i", default=".flightdeck/memory", help="Input directory path")
+    import_p.add_argument("--project", default=None, help="Filter by project")
+
+    # 11. sync
+    sync_p = subparsers.add_parser("sync", help="Two-way sync between local DB and .flightdeck/memory")
+    sync_p.add_argument("--repo", default=".", help="Repository root directory")
+    sync_p.add_argument("--project", default=None, help="Filter by project")
+
     args = parser.parse_args()
     db_path = args.db or get_default_db_path()
 
@@ -218,6 +233,33 @@ def main() -> None:
             print(f"  Contradiction Pairs:     {audit.potential_contradictions}")
             print(f"  Dead Edges:              {audit.dead_edges}")
             print("\nRun with --apply to compact tombstones past the 7-day retention floor.")
+
+    elif args.subcommand == "export":
+        from .federation import export_memory
+        atoms_cnt, edges_cnt = export_memory(db, args.output, project=args.project)
+        print(f"✓ Exported {atoms_cnt} memory atom(s) and {edges_cnt} edge(s) to {args.output}")
+
+    elif args.subcommand == "import":
+        from .federation import import_memory
+        res = import_memory(db, args.input, project=args.project)
+        print("✓ Import completed:")
+        print(f"  Imported:       {res['imported']}")
+        print(f"  Updated:        {res['updated']}")
+        print(f"  Conflicts:      {res['conflicted']}")
+        print(f"  Edges Imported: {res['edges_imported']}")
+        print(f"  Skipped:        {res['skipped']}")
+
+    elif args.subcommand == "sync":
+        from .federation import sync_memory
+        res = sync_memory(db, repo_root=args.repo, project=args.project)
+        print("⚡️ MEMORY FEDERATION SYNC COMPLETED")
+        print(f"  Directory:      {res['federation_dir']}")
+        print(f"  Imported:       {res['imported']}")
+        print(f"  Updated:        {res['updated']}")
+        print(f"  Conflicts:      {res['conflicts']}")
+        print(f"  Edges Imported: {res['edges_imported']}")
+        print(f"  Exported Atoms: {res['exported_atoms']}")
+        print(f"  Exported Edges: {res['exported_edges']}")
 
 
 if __name__ == "__main__":

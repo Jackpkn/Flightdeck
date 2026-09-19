@@ -346,6 +346,48 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
             audit = dreamer.audit(project=project if project else None)
             return json.dumps(audit.to_dict(), indent=2)
 
+    @server.tool()
+    def memory_export(project: str = "", output_dir: str = ".flightdeck/memory") -> str:
+        """
+        Exports active verified memory atoms and causal edges to .flightdeck/memory/ JSONL files.
+        Enables team and CI synchronization via Git commits without cloud dependencies.
+        """
+        from .federation import export_memory
+        atoms_cnt, edges_cnt = export_memory(db, output_dir=output_dir, project=project if project else None)
+        return json.dumps({
+            "status": "EXPORTED",
+            "output_dir": output_dir,
+            "atoms_count": atoms_cnt,
+            "edges_count": edges_cnt,
+        }, indent=2)
+
+    @server.tool()
+    def memory_import(project: str = "", input_dir: str = ".flightdeck/memory") -> str:
+        """
+        Imports memory atoms and causal edges from .flightdeck/memory/ JSONL files.
+        Applies write-side adjudication (Gate 3) against existing local memories.
+        """
+        from .federation import import_memory
+        res = import_memory(db, input_dir=input_dir, project=project if project else None)
+        return json.dumps({
+            "status": "IMPORTED",
+            "input_dir": input_dir,
+            **res,
+        }, indent=2)
+
+    @server.tool()
+    def memory_sync(project: str = "", repo_root: str = ".") -> str:
+        """
+        Two-way synchronization between local SQLite database and Git repository .flightdeck/memory/ JSONL.
+        Imports teammate memories and exports local verified atoms back.
+        """
+        from .federation import sync_memory
+        res = sync_memory(db, repo_root=repo_root, project=project if project else None)
+        return json.dumps({
+            "status": "SYNCED",
+            **res,
+        }, indent=2)
+
     return server
 
 

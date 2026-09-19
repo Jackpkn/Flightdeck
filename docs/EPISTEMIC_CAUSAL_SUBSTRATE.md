@@ -419,6 +419,45 @@ After accumulating 50–200 real memories over 1–2 weeks of live coding, three
 3. **Conflict Rate Gate**:
    * If unresolved equal-authority conflicts exceed **$> 5\%$** of total atoms, the 90-day aging policy will be tightened and tie-breaking heuristics beyond authority level will be introduced.
 
+### Decentralized Git Federation & Team Sync (`.flightdeck/memory/`)
+
+To enable seamless multi-developer and CI coordination without cloud dependencies, telemetry egress, or external databases, Flightdeck federates causal memories directly through Git repositories:
+
+```
+<repo-root>/
+├── .flightdeck/
+│   └── memory/
+│       ├── atoms.jsonl       # Deterministically sorted active & conflicted memory capsules
+│       └── edges.jsonl       # Active typed causal graph edges (SOLVES, CAUSES, DEPENDS_ON)
+```
+
+#### Deterministic Serialization & Diff Minimization
+* **Format**: Pure line-delimited JSON (JSONL) with ISO-8601 timestamps and lexicographically sorted keys.
+* **Ordering**: Memory atoms are sorted deterministically by `(file_path ASC, symbol ASC, trigger_pattern ASC, id ASC)`. Causal edges are sorted by `(from_atom_id ASC, to_atom_id ASC, edge_type ASC, id ASC)`.
+* **Atomic Writes**: Written to `.tmp` files and atomically renamed via POSIX replace to prevent partial writes.
+* **Diff Quality**: Concurrent additions append clean single lines to Git commits without array-reflow merge conflicts.
+
+#### Epistemic Import Adjudication (Gate 3 Enforcement)
+When importing memories from teammates or upstream branches via `flightdeck memory import` or `ecs import`:
+1. **Identical ID**: Updates the existing atom if the incoming atom has higher authority trust score or newer `updated_at`.
+2. **New ID with Identical Trigger (Slot Collision)**: Incoming atom passes through `AdjudicationEngine.adjudicate_write` (or `CausalMemoryEngine.adjudicate`). If both claims share equal authority (e.g. `L2a` vs `L2a`) but offer contradicting fixes, **both local and incoming atoms are marked `CONFLICTED`** with bidirectional `CONTRADICTS` causal edges, preserving epistemic safety until explicitly reconciled.
+3. **Quarantine Filter**: `L4` (unverified external web/doc) atoms are never exported into repository federation files.
+
+#### CLI & MCP Interface
+* **Swift CLI**:
+  * `flightdeck memory export [--output <dir>] [--project <proj>]`
+  * `flightdeck memory import [--input <dir>] [--project <proj>]`
+  * `flightdeck memory sync [--repo <dir>] [--project <proj>]`
+  * `flightdeck memory install-git-hooks [--repo <dir>]`
+* **Python Substrate CLI**:
+  * `python -m ecs.cli export [--output <dir>] [--project <proj>]`
+  * `python -m ecs.cli import [--input <dir>] [--project <proj>]`
+  * `python -m ecs.cli sync [--repo <dir>] [--project <proj>]`
+* **MCP Tools**:
+  * `memory_export(project, output_dir)`
+  * `memory_import(project, input_dir)`
+  * `memory_sync(project, repo_root)`
+
 ---
 
 *Authored for Flightdeck — Zero-Cloud macOS Cockpit & Epistemic Substrate for Autonomous Coding Agents.*
