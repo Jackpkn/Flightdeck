@@ -208,6 +208,15 @@ final class ActivityDatabase {
             }
         }
 
+        // Add efficacy counters and feedback tracking for closed-loop self-calibration
+        migrator.registerMigration("addCapsuleEfficacyAndFeedback") { db in
+            try db.alter(table: MemoryCapsule.databaseTableName) { t in
+                t.add(column: "successCount", .integer).notNull().defaults(to: 0)
+                t.add(column: "failureCount", .integer).notNull().defaults(to: 0)
+                t.add(column: "lastFeedbackAt", .datetime)
+            }
+        }
+
         return migrator
     }
 
@@ -434,6 +443,60 @@ final class ActivityDatabase {
         } catch {
             print("ActivityDatabase: recordMemoryHit failed — \(error)")
         }
+    }
+
+    struct FeedbackResult: Equatable {
+        let updatedCount: Int
+        let demotedCount: Int
+        let demotedIds: [String]
+    }
+
+    /// Records outcome feedback (success or failure) for retrieved memory capsules.
+    /// Adjusts confidence, increments success/failure counts, and demotes low-efficacy capsules.
+    @discardableResult
+    func recordFeedback(
+        atomIds: [String],
+        outcome: String,
+        errorSignature: String? = nil,
+        note: String? = nil
+    ) -> FeedbackResult {
+        let clean = outcome.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isSuccess = (clean == "success" || clean == "pass" || clean == "passed" || clean == "true" || clean == "1")
+        var updatedCount = 0
+        var demotedIds: [String] = []
+
+        do {
+            try dbQueue.write { db in
+                for id in atomIds {
+                    guard var capsule = try MemoryCapsule.fetchOne(db, key: id) else { continue }
+                    if isSuccess {
+                        capsule.successCount += 1
+                        capsule.confidence = min(1.0, ((capsule.confidence + 0.05) * 100).rounded() / 100)
+                    } else {
+                        capsule.failureCount += 1
+                        capsule.confidence = max(0.1, ((capsule.confidence - 0.15) * 100).rounded() / 100)
+                        if capsule.confidence < 0.35 || (capsule.failureCount >= 3 && capsule.successCount == 0) {
+                            capsule.status = .pendingAdjudication
+                            let msg = "Demoted due to low efficacy: \(capsule.failureCount) failure(s), confidence \(capsule.confidence)"
+                            if let errorSignature, !errorSignature.isEmpty {
+                                capsule.conflictNote = (capsule.conflictNote != nil) ? "\(capsule.conflictNote!); \(msg) (Error: \(errorSignature.prefix(80)))" : "\(msg) (Error: \(errorSignature.prefix(80)))"
+                            } else {
+                                capsule.conflictNote = (capsule.conflictNote != nil) ? "\(capsule.conflictNote!); \(msg)" : msg
+                            }
+                            demotedIds.append(capsule.id)
+                        }
+                    }
+                    capsule.lastFeedbackAt = Date()
+                    capsule.updatedAt = Date()
+                    try capsule.update(db)
+                    updatedCount += 1
+                }
+            }
+        } catch {
+            print("ActivityDatabase: recordFeedback failed — \(error)")
+        }
+
+        return FeedbackResult(updatedCount: updatedCount, demotedCount: demotedIds.count, demotedIds: demotedIds)
     }
 
     /// Deletes a memory capsule by ID.

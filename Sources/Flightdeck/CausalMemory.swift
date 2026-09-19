@@ -181,6 +181,9 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
     public var fileHash: String?
     public var confidence: Double
     public var hitCount: Int
+    public var successCount: Int
+    public var failureCount: Int
+    public var lastFeedbackAt: Date?
     public var status: MemoryStatus
     public var anchorStatus: AnchorStatus
     public var conflictNote: String?
@@ -191,6 +194,10 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
     public var invalidatedBy: String?
     public var createdAt: Date
     public var updatedAt: Date
+
+    public var efficacyScore: Double {
+        Double(successCount + 1) / Double(successCount + failureCount + 2)
+    }
 
     public var isProvisional: Bool {
         guard let trialUntil else { return false }
@@ -218,6 +225,9 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
         fileHash: String? = nil,
         confidence: Double = 1.0,
         hitCount: Int = 0,
+        successCount: Int = 0,
+        failureCount: Int = 0,
+        lastFeedbackAt: Date? = nil,
         status: MemoryStatus = .active,
         anchorStatus: AnchorStatus = .unverified,
         conflictNote: String? = nil,
@@ -249,6 +259,9 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
         self.fileHash = fileHash
         self.confidence = confidence
         self.hitCount = hitCount
+        self.successCount = successCount
+        self.failureCount = failureCount
+        self.lastFeedbackAt = lastFeedbackAt
         self.status = status
         self.anchorStatus = anchorStatus
         self.conflictNote = conflictNote
@@ -300,6 +313,10 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
             out += "\n  Failure: \(failureSignature)"
         }
         out += "\n  Fix: \(resolution)"
+        if failureCount > 0 {
+            let pct = Int(efficacyScore * 100)
+            out += "\n  ⚠️ Efficacy Warning: \(failureCount) reported failure(s) (\(pct)% pass rate)"
+        }
         if isProvisional, let trialUntil {
             let df = ISO8601DateFormatter()
             df.formatOptions = [.withFullDate]

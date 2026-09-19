@@ -26,6 +26,7 @@ class DreamAuditReport:
     pending_candidates: int = 0
     pending_adjudications: int = 0
     provisional_atoms: int = 0
+    low_efficacy_atoms: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +42,7 @@ class DreamAuditReport:
             "pending_candidates": self.pending_candidates,
             "pending_adjudications": self.pending_adjudications,
             "provisional_atoms": self.provisional_atoms,
+            "low_efficacy_atoms": self.low_efficacy_atoms,
         }
 
 
@@ -92,6 +94,9 @@ class DreamEngine:
         cur.execute("SELECT COUNT(*) FROM memory_atoms WHERE state = 'active' AND trial_until IS NOT NULL")
         provisional_atoms = cur.fetchone()[0]
 
+        cur.execute("SELECT COUNT(*) FROM memory_atoms WHERE state = 'active' AND failure_count > success_count AND confidence < 0.5")
+        low_efficacy_atoms = cur.fetchone()[0]
+
         return DreamAuditReport(
             total_atoms=stats["total_atoms"],
             active_atoms=stats["active_atoms"],
@@ -105,6 +110,7 @@ class DreamEngine:
             pending_candidates=pending_candidates,
             pending_adjudications=pending_adjudications,
             provisional_atoms=provisional_atoms,
+            low_efficacy_atoms=low_efficacy_atoms,
         )
 
     def apply(self, project: str | None = None) -> dict[str, Any]:
@@ -178,10 +184,24 @@ class DreamEngine:
                 atom.trial_until = None
                 self.db.save_atom(atom)
 
+        # 6. Demote low-efficacy atoms to pending adjudication
+        cur.execute(
+            "SELECT id FROM memory_atoms WHERE state = 'active' AND failure_count > success_count AND confidence < 0.5"
+        )
+        toxic_ids = [r[0] for r in cur.fetchall()]
+        for atom_id in toxic_ids:
+            atom = self.db.get_atom(atom_id)
+            if atom and atom.state == LifecycleState.ACTIVE:
+                atom.state = LifecycleState.PENDING_ADJUDICATION
+                msg = f"Quarantined by Dream Phase: low efficacy rating ({atom.failure_count} failures vs {atom.success_count} successes)"
+                atom.conflict_note = f"{atom.conflict_note}; {msg}" if atom.conflict_note else msg
+                self.db.save_atom(atom)
+
         return {
             "status": "APPLIED",
             "compacted_tombstones": res["deleted"],
             "flagged_conflicts": flagged_conflicts,
             "reconciled_candidates": reconciled_candidates,
             "promoted_provisional": len(expired_trial_ids),
+            "demoted_low_efficacy": len(toxic_ids),
         }

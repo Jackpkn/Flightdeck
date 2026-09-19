@@ -962,6 +962,61 @@ struct CausalMemoryTests {
         let occurrences = formatted.components(separatedBy: "[✕ DEAD END: `Sources/Storage.swift`]").count - 1
         #expect(occurrences == 0) // child dead ends are subsumed into parent block
     }
+
+    @Test("Efficacy scoring and closed-loop feedback in Swift")
+    func efficacyScoringAndFeedback() throws {
+        let db = try ActivityDatabase.inMemory()
+
+        let atom1 = MemoryCapsule(
+            id: "fb-atom-swift-1",
+            project: "Flightdeck",
+            filePath: "Sources/Storage.swift",
+            kind: .rule,
+            authority: .L2,
+            triggerPattern: "busy timeout",
+            resolution: "Use WAL mode",
+            confidence: 0.70
+        )
+        let atom2 = MemoryCapsule(
+            id: "fb-atom-swift-2",
+            project: "Flightdeck",
+            filePath: "Sources/Network.swift",
+            kind: .rule,
+            authority: .L2,
+            triggerPattern: "timeout retry",
+            resolution: "Retry immediately without backoff",
+            confidence: 0.40
+        )
+        db.saveMemoryCapsule(atom1)
+        db.saveMemoryCapsule(atom2)
+
+        // 1. Record success on atom1
+        let resSuccess = db.recordFeedback(atomIds: [atom1.id], outcome: "success")
+        #expect(resSuccess.updatedCount == 1)
+        #expect(resSuccess.demotedCount == 0)
+
+        let reloaded1 = db.fetchMemoryCapsule(id: atom1.id)
+        #expect(reloaded1?.successCount == 1)
+        #expect(reloaded1?.failureCount == 0)
+        #expect(reloaded1?.confidence == 0.75)
+        #expect(reloaded1?.status == .active)
+
+        // 2. Record failure on atom2 -> drops confidence from 0.40 to 0.25 (< 0.35 threshold) -> demotes to pendingAdjudication
+        let resFail = db.recordFeedback(atomIds: [atom2.id], outcome: "failure", errorSignature: "Network timeout: Connection reset")
+        #expect(resFail.updatedCount == 1)
+        #expect(resFail.demotedCount == 1)
+        #expect(resFail.demotedIds.contains(atom2.id))
+
+        let reloaded2 = db.fetchMemoryCapsule(id: atom2.id)
+        #expect(reloaded2?.failureCount == 1)
+        #expect(reloaded2?.status == .pendingAdjudication)
+        #expect(reloaded2?.conflictNote?.contains("Demoted due to low efficacy") == true)
+        #expect(reloaded2?.conflictNote?.contains("Network timeout") == true)
+
+        // 3. Verify microDirective shows pending adjudication tag
+        let directive = reloaded2?.microDirective ?? ""
+        #expect(directive.contains("[PENDING ADJUDICATION"))
+    }
 }
 
 

@@ -248,6 +248,32 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
         }, indent=2)
 
     @server.tool()
+    def memory_feedback(
+        atom_ids: list[str] | str,
+        outcome: str,
+        error_signature: str = "",
+        note: str = "",
+    ) -> str:
+        """
+        Records turn execution outcome (success or failure) for retrieved memory atoms.
+        Adjusts Bayesian efficacy and confidence scores, and automatically demotes counter-productive rules.
+        atom_ids can be a list of string IDs or a comma-separated string.
+        outcome can be 'success' ('pass') or 'failure' ('fail').
+        """
+        if isinstance(atom_ids, str):
+            ids = [x.strip() for x in atom_ids.split(",") if x.strip()]
+        else:
+            ids = [str(x).strip() for x in atom_ids if str(x).strip()]
+
+        res = db.record_feedback(
+            atom_ids=ids,
+            outcome=outcome,
+            error_signature=error_signature,
+            note=note,
+        )
+        return json.dumps(res, indent=2)
+
+    @server.tool()
     def memory_search(
         project: str,
         file_path: str = "",

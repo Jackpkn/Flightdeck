@@ -105,6 +105,13 @@ def main() -> None:
     dead_end_p.add_argument("--parent", default=None, help="Optional parent problem/trap atom ID to link via LEADS_TO_DEAD_END")
     dead_end_p.add_argument("--project", default="default", help="Project identifier")
 
+    # 13. feedback
+    feedback_p = subparsers.add_parser("feedback", help="Record execution outcome (success/failure) for memory atoms")
+    feedback_p.add_argument("--ids", required=True, help="Comma-separated memory atom IDs")
+    feedback_p.add_argument("--outcome", required=True, help="Outcome of agent turn (success, pass, failure, fail)")
+    feedback_p.add_argument("--error", default="", help="Optional compiler error or failure signature")
+    feedback_p.add_argument("--note", default="", help="Optional context note")
+
     args = parser.parse_args()
     db_path = args.db or get_default_db_path()
 
@@ -286,6 +293,22 @@ def main() -> None:
             print(f"  Failure:   {atom.failure_signature}")
         if edge:
             print(f"  Linked to parent {args.parent[:8]}... via LEADS_TO_DEAD_END")
+
+    elif args.subcommand == "feedback":
+        ids = [x.strip() for x in args.ids.split(",") if x.strip()]
+        res = db.record_feedback(
+            atom_ids=ids,
+            outcome=args.outcome,
+            error_signature=args.error,
+            note=args.note,
+        )
+        print("✓ Feedback recorded:")
+        print(f"  Outcome:  {res['outcome'].upper()}")
+        print(f"  Updated:  {res['updated_count']} atom(s)")
+        if res['demoted_count'] > 0:
+            print(f"  Demoted:  {res['demoted_count']} atom(s) (dropped below threshold)")
+        for a in res['updated_atoms']:
+            print(f"  • Atom {a['id'][:8]}... -> Confidence: {a['confidence']:.2f}, Efficacy: {int(a['efficacy_score'] * 100)}% ({a['success_count']}W / {a['failure_count']}L), State: {a['state']}")
 
 
 if __name__ == "__main__":

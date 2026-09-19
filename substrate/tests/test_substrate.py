@@ -1240,3 +1240,119 @@ def test_mcp_memory_record_dead_end(db):
     assert data["kind"] == "dead_end"
     assert "✕ DEAD END" in data["directive"]
 
+
+def test_feedback_success_boosts_confidence_and_counts(db):
+    """Success feedback increments success_count, increases confidence, and recalculates efficacy_score."""
+    atom = MemoryAtom(
+        id="fb-atom-1",
+        project="Flightdeck",
+        file_path="Sources/Network.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern="retry logic",
+        resolution="Use exponential backoff with jitter",
+        confidence=0.70,
+    )
+    db.save_atom(atom)
+
+    res = db.record_feedback(atom_ids=["fb-atom-1"], outcome="success")
+    assert res["status"] == "FEEDBACK_RECORDED"
+    assert res["outcome"] == "success"
+    assert res["updated_count"] == 1
+
+    reloaded = db.get_atom("fb-atom-1")
+    assert reloaded.success_count == 1
+    assert reloaded.failure_count == 0
+    assert reloaded.confidence == 0.75
+    # Laplace smoothing: (1 + 1) / (1 + 0 + 2) = 2/3 = 0.667
+    assert round(reloaded.efficacy_score, 3) == 0.667
+    assert reloaded.last_feedback_at is not None
+
+
+def test_feedback_failure_penalizes_and_demotes_low_efficacy_atom(db):
+    """Repeated failures penalize confidence and demote low-efficacy atoms to pending_adjudication."""
+    atom = MemoryAtom(
+        id="fb-atom-2",
+        project="Flightdeck",
+        file_path="Sources/Network.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern="timeout",
+        resolution="Ignore timeout errors",
+        confidence=0.45,
+    )
+    db.save_atom(atom)
+
+    # First failure
+    db.record_feedback(atom_ids=["fb-atom-2"], outcome="failure")
+    reloaded = db.get_atom("fb-atom-2")
+    assert reloaded.failure_count == 1
+    # 0.45 - 0.15 = 0.30 -> confidence < 0.35 triggers demotion!
+    assert reloaded.confidence == 0.30
+    assert reloaded.state == LifecycleState.PENDING_ADJUDICATION
+    assert "Demoted due to low efficacy" in (reloaded.conflict_note or "")
+
+
+def test_mcp_memory_feedback_tool(tmp_path):
+    """Verifies the memory_feedback MCP tool."""
+    db_file = tmp_path / "mcp_fb.db"
+    test_db = ECSDatabase(db_file)
+    atom = MemoryAtom(
+        id="fb-atom-mcp",
+        project="Flightdeck",
+        file_path="Sources/Cache.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern="eviction",
+        resolution="Use LRU cache with 100 item limit",
+        confidence=0.80,
+    )
+    test_db.save_atom(atom)
+
+    from ecs.server import create_mcp_server
+    server = create_mcp_server(db_file)
+
+    tool = server._tool_manager.get_tool("memory_feedback")
+    assert tool is not None
+
+    import json
+    res_json = tool.fn(
+        atom_ids="fb-atom-mcp",
+        outcome="success",
+        note="Passed all cache tests",
+    )
+    data = json.loads(res_json)
+    assert data["status"] == "FEEDBACK_RECORDED"
+    assert data["outcome"] == "success"
+    assert data["updated_count"] == 1
+
+    reloaded = test_db.get_atom("fb-atom-mcp")
+    assert reloaded.success_count == 1
+    assert reloaded.confidence == 0.85
+
+
+def test_dream_audit_and_apply_handles_low_efficacy_atoms(db):
+    """Dream consolidation identifies and quarantines low-efficacy atoms."""
+    atom = MemoryAtom(
+        id="fb-toxic-atom",
+        project="Flightdeck",
+        file_path="Sources/Legacy.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern="legacy init",
+        resolution="Call private init directly",
+        confidence=0.40,
+        state=LifecycleState.ACTIVE,
+    )
+    atom.failure_count = 3
+    atom.success_count = 0
+    db.save_atom(atom)
+
+    from ecs.dream import DreamEngine
+    dreamer = DreamEngine(db)
+    audit = dreamer.audit(project="Flightdeck")
+    assert audit.low_efficacy_atoms == 1
+
+    apply_res = dreamer.apply(project="Flightdeck")
+    assert apply_res["demoted_low_efficacy"] == 1
+
+    reloaded = db.get_atom("fb-toxic-atom")
+    assert reloaded.state == LifecycleState.PENDING_ADJUDICATION
+    assert "Quarantined by Dream Phase" in (reloaded.conflict_note or "")
+

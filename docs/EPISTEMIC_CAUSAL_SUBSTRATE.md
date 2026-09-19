@@ -317,6 +317,37 @@ Because session logs and hook events record every tool argument and command, str
 
 ---
 
+## 6. Closed-Loop Efficacy Tracking & Credit Assignment
+
+To prevent counter-productive or obsolete directives ("zombie rules") from repeatedly misleading agents, ECS implements a **closed-loop Bayesian credit assignment engine**:
+
+### 1. Efficacy Formulation
+Memory atoms track turn outcomes (`success_count`, `failure_count`, `last_feedback_at`). To maintain stable priors even with small sample sizes, ECS applies **Laplace-smoothed Bayesian efficacy**:
+
+$$\text{efficacy\_score} = \frac{\text{success\_count} + 1.0}{\text{success\_count} + \text{failure\_count} + 2.0}$$
+
+### 2. Reinforcement Updates & Confidence Adjustment
+When an agent turn completes:
+* **Success Feedback** (`outcome = "success"` / `"pass"`):
+  - `success_count += 1`
+  - $\text{confidence} = \min(1.0, \text{confidence} + 0.05)$
+* **Failure Feedback** (`outcome = "failure"` / `"fail"`):
+  - `failure_count += 1`
+  - $\text{confidence} = \max(0.10, \text{confidence} - 0.15)$
+
+### 3. Automatic Demotion Guardrails
+If a directive proves actively harmful or repeatedly ineffective:
+* **Trigger Condition**: If $\text{confidence} < 0.35$, or if $\text{failure\_count} \ge 3 \land \text{success\_count} = 0$:
+  - The atom is automatically evicted from active injection and transitioned to **`pending_adjudication`**.
+  - A descriptive diagnostic note is appended (`conflict_note = "Demoted due to low efficacy: N failure(s)"`).
+* **Micro-Directive Warning**: While active, if an atom has `failure_count > 0`, it renders an imperative warning badge in prompt blocks:
+  > `⚠️ Efficacy Warning: 1 reported failure(s) (66% pass rate)`
+
+### 4. Dream Phase Toxic Rule Quarantining
+During offline consolidation (`memory_dream` / `flightdeck memory compact`), the Dream Phase identifies all active atoms where $\text{failures} > \text{successes} \land \text{confidence} < 0.50$ and quarantines them to `pending_adjudication`.
+
+---
+
 ## 7. Dream Phase Consolidation & Safety Guardrails
 
 Offline consolidation (`memory_dream` tool / `flightdeck memory compact`) runs in two phases:

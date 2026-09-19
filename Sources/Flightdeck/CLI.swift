@@ -1432,6 +1432,43 @@ enum CLI {
                 print("  Linked:    \(edge.fromCapsuleId) via \(edge.edgeType.rawValue)")
             }
 
+        case "feedback":
+            var idsStr = ""
+            var outcome = ""
+            var error: String? = nil
+            var note: String? = nil
+            var i = 1
+            while i < subargs.count {
+                let arg = subargs[i]
+                if (arg == "--ids" || arg == "-i") && i + 1 < subargs.count {
+                    idsStr = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--outcome" || arg == "-o") && i + 1 < subargs.count {
+                    outcome = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--error" || arg == "-e") && i + 1 < subargs.count {
+                    error = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--note" || arg == "-n") && i + 1 < subargs.count {
+                    note = subargs[i + 1]
+                    i += 2
+                } else {
+                    i += 1
+                }
+            }
+            if idsStr.isEmpty || outcome.isEmpty {
+                fputs("Usage: flightdeck memory feedback --ids <id1,id2> --outcome <success|failure> [--error <signature>]\n", stderr)
+                exit(1)
+            }
+            let ids = idsStr.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespaces)) }.filter { !$0.isEmpty }
+            let res = db.recordFeedback(atomIds: ids, outcome: outcome, errorSignature: error, note: note)
+            print("✓ Feedback recorded:")
+            print("  Outcome:  \(outcome.uppercased())")
+            print("  Updated:  \(res.updatedCount) capsule(s)")
+            if res.demotedCount > 0 {
+                print("  Demoted:  \(res.demotedCount) capsule(s) due to low efficacy (dropped below threshold)")
+            }
+
         case "record", "trap":
             var file = ""
             var trigger = ""
@@ -1634,7 +1671,7 @@ enum CLI {
             }
 
         default:
-            print("Usage: flightdeck memory <check|record|dead-end|list|status|reverify|compact|export|import|sync|install-git-hooks> [options]")
+            print("Usage: flightdeck memory <check|record|dead-end|feedback|list|status|reverify|compact|export|import|sync|install-git-hooks> [options]")
         }
         exit(0)
     }

@@ -98,6 +98,9 @@ class ECSDatabase:
                 label TEXT NOT NULL,
                 view_set TEXT,
                 hit_count INTEGER NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                last_feedback_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -106,11 +109,13 @@ class ECSDatabase:
         # Safe migrations for pre-existing databases
         cur.execute("PRAGMA table_info(memory_atoms);")
         existing_cols = {row[1] for row in cur.fetchall()}
-        for col_name in ["subject", "predicate", "object_value", "anchor_status", "anchor_json", "conflict_note", "source", "verified_by", "occurrence_count", "trial_until"]:
+        for col_name in ["subject", "predicate", "object_value", "anchor_status", "anchor_json", "conflict_note", "source", "verified_by", "occurrence_count", "trial_until", "success_count", "failure_count", "last_feedback_at"]:
             if col_name not in existing_cols:
                 try:
-                    if col_name == "occurrence_count":
+                    if col_name in ("occurrence_count",):
                         col_type = "INTEGER DEFAULT 1"
+                    elif col_name in ("success_count", "failure_count"):
+                        col_type = "INTEGER DEFAULT 0"
                     elif col_name == "anchor_status":
                         col_type = "TEXT DEFAULT 'unverified'"
                     elif col_name == "verified_by":
@@ -215,8 +220,9 @@ class ECSDatabase:
                 git_sha, file_hash, agent_id, session_id, source, verified_by, occurrence_count, evidence_refs,
                 valid_from, valid_until, trial_until, recorded_at, invalidated_by,
                 reward, confidence, label, view_set, hit_count,
+                success_count, failure_count, last_feedback_at,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 project=excluded.project,
                 file_path=excluded.file_path,
@@ -250,6 +256,9 @@ class ECSDatabase:
                 label=excluded.label,
                 view_set=excluded.view_set,
                 hit_count=excluded.hit_count,
+                success_count=excluded.success_count,
+                failure_count=excluded.failure_count,
+                last_feedback_at=excluded.last_feedback_at,
                 updated_at=?
         """, (
             atom.id,
@@ -286,6 +295,9 @@ class ECSDatabase:
             atom.label,
             json.dumps(atom.view_set),
             atom.hit_count,
+            atom.success_count,
+            atom.failure_count,
+            atom.last_feedback_at.isoformat() if atom.last_feedback_at else None,
             atom.created_at.isoformat(),
             atom.updated_at.isoformat(),
             now,
@@ -454,6 +466,68 @@ class ECSDatabase:
             WHERE id = ?
         """, (now, atom_id))
         self._conn.commit()
+
+    def record_feedback(
+        self,
+        atom_ids: list[str],
+        outcome: str,
+        error_signature: str = "",
+        note: str = "",
+    ) -> dict[str, Any]:
+        """
+        Records the execution outcome of an agent turn for the retrieved memory atoms.
+        Adjusts confidence, updates success/failure counters, and demotes failing atoms.
+        """
+        clean_outcome = outcome.strip().lower()
+        is_success = clean_outcome in ("success", "pass", "passed", "true", "1")
+        now = datetime.now(timezone.utc)
+
+        updated = []
+        demoted = []
+
+        cur = self._conn.cursor()
+        for atom_id in atom_ids:
+            cur.execute("SELECT * FROM memory_atoms WHERE id = ?", (atom_id,))
+            row = cur.fetchone()
+            if not row:
+                continue
+            atom = self._row_to_atom(row)
+            if is_success:
+                atom.success_count += 1
+                atom.confidence = min(1.0, round(atom.confidence + 0.05, 3))
+            else:
+                atom.failure_count += 1
+                atom.confidence = max(0.1, round(atom.confidence - 0.15, 3))
+                # If failure is severe or repeated without success, demote to pending adjudication
+                if atom.confidence < 0.35 or (atom.failure_count >= 3 and atom.success_count == 0):
+                    atom.state = LifecycleState.PENDING_ADJUDICATION
+                    msg = f"Demoted due to low efficacy: {atom.failure_count} failure(s), confidence {atom.confidence}"
+                    if error_signature:
+                        msg += f" (Error: {error_signature[:80]})"
+                    atom.conflict_note = f"{atom.conflict_note}; {msg}" if atom.conflict_note else msg
+                    demoted.append(atom.id)
+
+            atom.last_feedback_at = now
+            atom.updated_at = now
+            self.save_atom(atom)
+            updated.append({
+                "id": atom.id,
+                "confidence": atom.confidence,
+                "efficacy_score": round(atom.efficacy_score, 3),
+                "success_count": atom.success_count,
+                "failure_count": atom.failure_count,
+                "state": atom.state.value,
+            })
+
+        self._conn.commit()
+        return {
+            "status": "FEEDBACK_RECORDED",
+            "outcome": "success" if is_success else "failure",
+            "updated_count": len(updated),
+            "updated_atoms": updated,
+            "demoted_count": len(demoted),
+            "demoted_atoms": demoted,
+        }
 
     # MARK: - Edges CRUD
 
@@ -738,6 +812,9 @@ class ECSDatabase:
             label=row["label"],
             view_set=view_set,
             hit_count=row["hit_count"],
+            success_count=row["success_count"] if "success_count" in row.keys() and row["success_count"] is not None else 0,
+            failure_count=row["failure_count"] if "failure_count" in row.keys() and row["failure_count"] is not None else 0,
+            last_feedback_at=_parse_dt(row["last_feedback_at"]) if "last_feedback_at" in row.keys() else None,
             created_at=_parse_dt(row["created_at"]) or datetime.now(timezone.utc),
             updated_at=_parse_dt(row["updated_at"]) or datetime.now(timezone.utc),
         )

@@ -207,8 +207,16 @@ class MemoryAtom:
     view_set: list[str] = field(default_factory=lambda: ["full"])
 
     hit_count: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+    last_feedback_at: datetime | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @property
+    def efficacy_score(self) -> float:
+        """Bayesian Laplace-smoothed efficacy rate in [0.0, 1.0]."""
+        return (self.success_count + 1.0) / (self.success_count + self.failure_count + 2.0)
 
     @property
     def is_provisional(self) -> bool:
@@ -268,6 +276,8 @@ class MemoryAtom:
         if self.failure_signature:
             lines.append(f"  Failure: {self.failure_signature}")
         lines.append(f"  Fix: {self.resolution}")
+        if self.failure_count > 0:
+            lines.append(f"  ⚠️ Efficacy Warning: {self.failure_count} reported failure(s) ({int(self.efficacy_score * 100)}% pass rate)")
         if self.is_provisional and self.trial_until:
             lines.append(f"  ⚠️ [PROVISIONAL TRIAL]: Adjudicated by host agent until {self.trial_until.strftime('%Y-%m-%d')}; subject to demotion if contradiction occurs.")
         return "\n".join(lines)
@@ -313,6 +323,10 @@ class MemoryAtom:
             "label": self.label,
             "view_set": self.view_set,
             "hit_count": self.hit_count,
+            "success_count": self.success_count,
+            "failure_count": self.failure_count,
+            "efficacy_score": self.efficacy_score,
+            "last_feedback_at": self.last_feedback_at.isoformat() if self.last_feedback_at else None,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -362,6 +376,9 @@ class MemoryAtom:
             label=data.get("label", "verified_success"),
             view_set=data.get("view_set") or ["full"],
             hit_count=int(data.get("hit_count") or data.get("hitCount", 0)),
+            success_count=int(data.get("success_count") or data.get("successCount", 0)),
+            failure_count=int(data.get("failure_count") or data.get("failureCount", 0)),
+            last_feedback_at=_parse_dt(data.get("last_feedback_at") or data.get("lastFeedbackAt")),
             created_at=_parse_dt(data.get("created_at") or data.get("createdAt")) or datetime.now(timezone.utc),
             updated_at=_parse_dt(data.get("updated_at") or data.get("updatedAt")) or datetime.now(timezone.utc),
         )
