@@ -486,6 +486,55 @@ final class ActivityDatabase {
         }
     }
 
+    /// Records a falsified hypothesis (dead end) and optionally links to a parent trap or rule
+    /// via a typed LEADS_TO_DEAD_END causal edge.
+    @discardableResult
+    func recordDeadEnd(
+        parentId: String? = nil,
+        filePath: String,
+        attemptedFix: String,
+        failureSignature: String? = nil,
+        triggerPattern: String = "",
+        symbol: String? = nil,
+        project: String = "Flightdeck",
+        authority: AuthorityLevel = .L2
+    ) -> (capsule: MemoryCapsule, edge: MemoryEdge?) {
+        let deadEnd = MemoryCapsule(
+            id: UUID().uuidString,
+            project: project,
+            filePath: filePath,
+            symbol: symbol,
+            kind: .deadEnd,
+            authority: authority,
+            triggerPattern: triggerPattern.isEmpty ? "Attempted: \(attemptedFix)" : triggerPattern,
+            failureSignature: failureSignature,
+            resolution: attemptedFix,
+            verifiedBy: "compiler",
+            status: .active,
+            anchorStatus: .verified
+        )
+        saveMemoryCapsule(deadEnd)
+
+        var edge: MemoryEdge? = nil
+        if let parentId, !parentId.isEmpty {
+            let createdEdge = MemoryEdge(
+                id: UUID().uuidString,
+                fromCapsuleId: parentId,
+                toCapsuleId: deadEnd.id,
+                edgeType: .leadsToDeadEnd
+            )
+            saveMemoryEdge(createdEdge)
+            edge = createdEdge
+        }
+        return (deadEnd, edge)
+    }
+
+    /// Fetches all dead ends linked to a parent memory capsule via LEADS_TO_DEAD_END edges.
+    func fetchDeadEnds(for parentCapsuleId: String) -> [MemoryCapsule] {
+        let edges = fetchMemoryEdges(fromId: parentCapsuleId, type: .leadsToDeadEnd)
+        return edges.compactMap { fetchMemoryCapsule(id: $0.toCapsuleId) }
+    }
+
     struct BlastRadiusResult: Equatable {
         let nodes: [String]
         let truncated: Bool
@@ -508,11 +557,11 @@ final class ActivityDatabase {
                 WITH RECURSIVE blast(id, depth) AS (
                     SELECT ? as id, 0 as depth
                     UNION
-                    -- Forward causal, dependency, and solution propagation
+                    -- Forward causal, dependency, solution, and dead-end propagation
                     SELECT e.toCapsuleId, blast.depth + 1
                     FROM memory_edges e
                     JOIN blast ON e.fromCapsuleId = blast.id
-                    WHERE e.edgeType IN ('DEPENDS_ON', 'CAUSES', 'SOLVES')
+                    WHERE e.edgeType IN ('DEPENDS_ON', 'CAUSES', 'SOLVES', 'LEADS_TO_DEAD_END')
                       AND (e.validUntil IS NULL OR e.validUntil > datetime('now'))
                       AND blast.depth < ?
                     UNION

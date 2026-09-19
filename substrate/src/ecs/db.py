@@ -505,6 +505,52 @@ class ECSDatabase:
         cur.execute(query, params)
         return [self._row_to_edge(row) for row in cur.fetchall()]
 
+    def record_dead_end(
+        self,
+        parent_id: str | None,
+        file_path: str,
+        attempted_fix: str,
+        failure_signature: str = "",
+        trigger_pattern: str = "",
+        symbol: str | None = None,
+        project: str = "default",
+        authority: AuthorityLevel = AuthorityLevel.L2,
+    ) -> tuple[MemoryAtom, MemoryEdge | None]:
+        """
+        Records a falsified hypothesis (dead end) and links it to parent atom via LEADS_TO_DEAD_END edge.
+        """
+        dead_end_atom = MemoryAtom(
+            project=project,
+            file_path=file_path,
+            symbol=symbol,
+            kind=MemoryKind.DEAD_END,
+            authority=authority,
+            trigger_pattern=trigger_pattern,
+            failure_signature=failure_signature,
+            resolution=attempted_fix,
+            state=LifecycleState.ACTIVE,
+        )
+        self.save_atom(dead_end_atom)
+        edge = None
+        if parent_id and self.get_atom(parent_id):
+            edge = MemoryEdge(
+                from_atom_id=parent_id,
+                to_atom_id=dead_end_atom.id,
+                edge_type=EdgeType.LEADS_TO_DEAD_END,
+            )
+            self.save_edge(edge)
+        return dead_end_atom, edge
+
+    def fetch_dead_ends(self, parent_id: str) -> list[MemoryAtom]:
+        """Fetches active dead-end atoms linked from parent atom via LEADS_TO_DEAD_END."""
+        edges = self.fetch_edges(from_id=parent_id, edge_type=EdgeType.LEADS_TO_DEAD_END, active_only=True)
+        dead_ends: list[MemoryAtom] = []
+        for edge in edges:
+            atom = self.get_atom(edge.to_atom_id)
+            if atom and atom.state == LifecycleState.ACTIVE:
+                dead_ends.append(atom)
+        return dead_ends
+
     # MARK: - Recursive CTE Blast Radius
 
     def compute_blast_radius(
@@ -522,10 +568,10 @@ class ECSDatabase:
         WITH RECURSIVE blast(id, depth) AS (
             SELECT id, 0 FROM memory_atoms WHERE id = ?
             UNION
-            -- Outgoing forward causal / dependency / solution propagation
+            -- Outgoing forward causal / dependency / solution / dead-end propagation
             SELECT e.to_atom_id, blast.depth + 1
             FROM memory_edges e JOIN blast ON e.from_atom_id = blast.id
-            WHERE e.edge_type IN ('DEPENDS_ON', 'CAUSES', 'SOLVES')
+            WHERE e.edge_type IN ('DEPENDS_ON', 'CAUSES', 'SOLVES', 'LEADS_TO_DEAD_END')
               AND (e.valid_until IS NULL OR e.valid_until > datetime('now'))
               AND blast.depth < ?
             UNION

@@ -120,6 +120,26 @@ The core differentiator of ECS is that memory is structured as a **bitemporal ca
 * `DEPENDS_ON`: Links an architectural deduction or rule to its foundational premise (`derived --DEPENDS_ON--> premise`).
 * `CONTRADICTS`: Links opposing claims at equal authority levels (`claim_A --CONTRADICTS--> claim_B`).
 * `SUPERSEDES`: Links a higher-authority fact to an invalidated prior assumption (`new_L1 --SUPERSEDES--> old_L2`).
+* `LEADS_TO_DEAD_END`: Links a problem or rule node to a falsified hypothesis / failed attempt (`problem --LEADS_TO_DEAD_END--> dead_end`).
+
+### Negative Tree-Pruning & Dead-End Trajectory Memory
+Coding agents frequently suffer from looping behaviors where multiple sessions explore identical failed fixes. ECS explicitly prevents this with negative trajectory pruning:
+* **Falsified Hypothesis Recording**: Failed solutions are captured as `kind == MemoryKind.DEAD_END` (`badge: "✕ DEAD END"`), recording both the attempted resolution and the exact compiler/runtime `failure_signature`.
+* **Subsumptive In-Line Retrieval**: Linked dead ends are decorated directly underneath their parent directive during budget-aware packing:
+  ```markdown
+  ⚠️ TRAP: `Sources/Storage.swift` (symbol: `commitTransaction`)
+    Trigger: sqlite busy timeout
+    Failure: database locked error on concurrent writes
+    Fix: Use SQLite WAL mode and wrap in write transaction block
+    ✕ KNOWN DEAD ENDS (Do not attempt):
+      • Attempted: Increase busy timeout to 30000ms -> Failed: Still blocks UI thread indefinitely
+      • Attempted: Spawn detached background thread -> Failed: Thread race condition corrupts DB connection
+  ```
+* **Child Subsumption**: Linked child dead-end nodes are subsumed into parent items, preventing context-window token bloat and avoiding duplicate top-level retrieval results.
+* **CLI & MCP Tool Access**:
+  - Python CLI: `ecs dead-end --parent <id> --file <path> --attempt <fix> [--failure <err>]`
+  - Swift CLI: `flightdeck memory dead-end --file <path> --attempt <fix> [--failure <err>] [--parent <id>]`
+  - MCP Tool: `memory_record_dead_end(file_path, attempted_fix, failure_signature, parent_atom_id)`
 
 ### Bidirectional Blast Radius & Resolution CTE
 A naive outgoing CTE cannot find the solution when querying a problem node (since the edge points `fix -> problem`). ECS implements **bidirectional causal traversal** directly in SQLite:
@@ -128,11 +148,11 @@ A naive outgoing CTE cannot find the solution when querying a problem node (sinc
 WITH RECURSIVE blast(id, depth) AS (
     SELECT ? as id, 0 as depth
     UNION ALL
-    -- Outgoing forward causal / dependency / solution propagation:
+    -- Outgoing forward causal / dependency / solution / dead-end propagation:
     SELECT e.toCapsuleId, blast.depth + 1
     FROM memory_edges e
     JOIN blast ON e.fromCapsuleId = blast.id
-    WHERE e.edgeType IN ('DEPENDS_ON', 'CAUSES', 'SOLVES')
+    WHERE e.edgeType IN ('DEPENDS_ON', 'CAUSES', 'SOLVES', 'LEADS_TO_DEAD_END')
       AND (e.validUntil IS NULL OR e.validUntil > datetime('now'))
       AND blast.depth < ?
     UNION ALL

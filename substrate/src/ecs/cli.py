@@ -96,6 +96,15 @@ def main() -> None:
     sync_p.add_argument("--repo", default=".", help="Repository root directory")
     sync_p.add_argument("--project", default=None, help="Filter by project")
 
+    # 12. dead-end
+    dead_end_p = subparsers.add_parser("dead-end", help="Record a falsified hypothesis (dead end) to prune search loops")
+    dead_end_p.add_argument("--file", required=True, help="File path associated with the dead end")
+    dead_end_p.add_argument("--attempted", required=True, help="Hypothesis / fix that was attempted and failed")
+    dead_end_p.add_argument("--failure", default="", help="Error message / failure result produced by attempt")
+    dead_end_p.add_argument("--trigger", default="", help="Optional trigger pattern or error context")
+    dead_end_p.add_argument("--parent", default=None, help="Optional parent problem/trap atom ID to link via LEADS_TO_DEAD_END")
+    dead_end_p.add_argument("--project", default="default", help="Project identifier")
+
     args = parser.parse_args()
     db_path = args.db or get_default_db_path()
 
@@ -260,6 +269,23 @@ def main() -> None:
         print(f"  Edges Imported: {res['edges_imported']}")
         print(f"  Exported Atoms: {res['exported_atoms']}")
         print(f"  Exported Edges: {res['exported_edges']}")
+
+    elif args.subcommand == "dead-end":
+        atom, edge = db.record_dead_end(
+            parent_id=args.parent,
+            file_path=args.file,
+            attempted_fix=args.attempted,
+            failure_signature=args.failure,
+            trigger_pattern=args.trigger,
+            project=args.project,
+        )
+        print(f"✕ Recorded Dead End (ID: {atom.id[:8]}...)")
+        print(f"  File:      {atom.file_path}")
+        print(f"  Attempted: {atom.resolution}")
+        if atom.failure_signature:
+            print(f"  Failure:   {atom.failure_signature}")
+        if edge:
+            print(f"  Linked to parent {args.parent[:8]}... via LEADS_TO_DEAD_END")
 
 
 if __name__ == "__main__":

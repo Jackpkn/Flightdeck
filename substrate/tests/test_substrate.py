@@ -1123,3 +1123,120 @@ def test_federation_sync_memory(db, tmp_path):
     res = sync_memory(db, repo_root=tmp_path, project="Flightdeck")
     assert res["exported_atoms"] == 1
     assert (tmp_path / ".flightdeck" / "memory" / "atoms.jsonl").exists()
+
+
+def test_dead_end_atom_creation_and_leads_to_dead_end_edge(db):
+    """Verifies that falsified hypotheses are saved as DEAD_END atoms and linked via LEADS_TO_DEAD_END."""
+    # 1. Parent trap atom
+    trap = MemoryAtom(
+        id="parent-trap-001",
+        project="Flightdeck",
+        file_path="Sources/Flightdeck/DevCleaner.swift",
+        symbol="ContextWindowSource",
+        kind=MemoryKind.TRAP,
+        trigger_pattern=".measured",
+        failure_signature="type ContextWindowSource has no member 'measured'",
+        resolution="Valid cases are .statusline, .inferred, .fallback",
+        state=LifecycleState.ACTIVE,
+    )
+    db.save_atom(trap)
+
+    # 2. Record a dead end (failed attempt)
+    de_atom, edge = db.record_dead_end(
+        parent_id="parent-trap-001",
+        file_path="Sources/Flightdeck/DevCleaner.swift",
+        attempted_fix="Add .measured enum case to extension",
+        failure_signature="cannot extend enum with new stored cases in external module",
+        trigger_pattern=".measured",
+        project="Flightdeck",
+    )
+
+    assert de_atom.kind == MemoryKind.DEAD_END
+    assert edge is not None
+    assert edge.edge_type == EdgeType.LEADS_TO_DEAD_END
+    assert edge.from_atom_id == "parent-trap-001"
+    assert edge.to_atom_id == de_atom.id
+
+    # 3. Query dead ends
+    dead_ends = db.fetch_dead_ends("parent-trap-001")
+    assert len(dead_ends) == 1
+    assert dead_ends[0].id == de_atom.id
+    assert "cannot extend enum" in dead_ends[0].failure_signature
+
+    # 4. Recursive blast radius traverses LEADS_TO_DEAD_END
+    blast = db.compute_blast_radius("parent-trap-001")
+    assert de_atom.id in blast.nodes
+
+
+def test_retrieval_surfaces_known_dead_ends(db, tmp_path):
+    """Verifies that retrieval decorates active traps with KNOWN DEAD ENDS to prevent circular loops."""
+    from ecs.retrieval import BudgetAwareRetriever
+
+    # Create dummy source file in tmp_path
+    storage_file = tmp_path / "Storage.swift"
+    storage_file.write_text("// DatabaseQueue\nclass DatabaseQueue {}", encoding="utf-8")
+
+    # 1. Store trap
+    trap = MemoryAtom(
+        id="parent-trap-002",
+        project="Flightdeck",
+        file_path="Storage.swift",
+        symbol="DatabaseQueue",
+        kind=MemoryKind.TRAP,
+        trigger_pattern="database lock error",
+        failure_signature="SQLite error 5: database is locked",
+        resolution="Use in-memory lock coordinator and WAL journal mode",
+        state=LifecycleState.ACTIVE,
+        authority=AuthorityLevel.L1,
+    )
+    db.save_atom(trap)
+
+    # 2. Record two dead ends
+    db.record_dead_end(
+        parent_id="parent-trap-002",
+        file_path="Storage.swift",
+        attempted_fix="Increase WAL busy timeout to 30000ms",
+        failure_signature="Still hangs UI thread under write bursts",
+        project="Flightdeck",
+    )
+    db.record_dead_end(
+        parent_id="parent-trap-002",
+        file_path="Storage.swift",
+        attempted_fix="Spawn separate background write thread with shared queue",
+        failure_signature="Produced concurrency race condition",
+        project="Flightdeck",
+    )
+
+    # 3. Retrieve
+    retriever = BudgetAwareRetriever(db, repo_root=tmp_path)
+    resp = retriever.query(project="Flightdeck", file_paths=["Storage.swift"])
+
+    assert len(resp.results) == 1
+    prompt = resp.formatted_prompt_block
+    assert "✕ KNOWN DEAD ENDS (Do not attempt):" in prompt
+    assert "Attempted: Increase WAL busy timeout to 30000ms" in prompt
+    assert "Failed: Still hangs UI thread under write bursts" in prompt
+    assert "Attempted: Spawn separate background write thread with shared queue" in prompt
+
+
+def test_mcp_memory_record_dead_end(db):
+    """Verifies the memory_record_dead_end MCP tool."""
+    from ecs.server import create_mcp_server
+    server = create_mcp_server(db.db_path)
+
+    tool = server._tool_manager.get_tool("memory_record_dead_end")
+    assert tool is not None
+
+    res_json = tool.fn(
+        file_path="Sources/Flightdeck/App.swift",
+        attempted_fix="Force unwrap optional config pointer",
+        failure_signature="Fatal error: unexpectedly found nil while unwrapping an Optional value",
+        trigger_pattern="config loading",
+        project="Flightdeck",
+    )
+    import json
+    data = json.loads(res_json)
+    assert data["status"] == "RECORDED"
+    assert data["kind"] == "dead_end"
+    assert "✕ DEAD END" in data["directive"]
+

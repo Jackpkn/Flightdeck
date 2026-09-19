@@ -91,6 +91,7 @@ class EdgeType(str, Enum):
     CONTRADICTS = "CONTRADICTS"    # Mutually exclusive claims
     SUPERSEDES = "SUPERSEDES"      # New atom supersedes old
     EVIDENCE_FOR = "EVIDENCE_FOR"  # Provenance link
+    LEADS_TO_DEAD_END = "LEADS_TO_DEAD_END"  # Attempted resolution hypothesis led to failure
 
 
 class AdjudicationDecision(str, Enum):
@@ -233,7 +234,18 @@ class MemoryAtom:
             lines.append("  Review code before proceeding.")
             return "\n".join(lines)
 
-        # 2. Stale State — Code changed, but symbol persists
+        # 2. Dead End State — Falsified hypothesis that failed (Pruning directive)
+        if self.kind == MemoryKind.DEAD_END:
+            header = f"[✕ DEAD END: {self.symbol or self.file_path}] (Falsified Hypothesis - Do NOT attempt)"
+            lines = [header]
+            if self.trigger_pattern:
+                lines.append(f"  Context: {self.trigger_pattern}")
+            lines.append(f"  Attempted Fix: {self.resolution}")
+            if self.failure_signature:
+                lines.append(f"  Failure Result: {self.failure_signature}")
+            return "\n".join(lines)
+
+        # 3. Stale State — Code changed, but symbol persists
         if self.anchor_status == AnchorStatus.STALE or self.state == LifecycleState.STALE:
             header = f"[STALE: {self.symbol or self.file_path}]"
             lines = [

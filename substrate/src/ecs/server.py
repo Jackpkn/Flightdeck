@@ -130,10 +130,12 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
         agent_id: str = "",
         session_id: str = "",
         verified_by: str = "",
+        parent_id: str = "",
     ) -> str:
         """
         Stores a verified memory atom after running write-side adjudication (CUPMem protocol).
         Quarantines L4 external documents and handles superseding of older memories.
+        Optionally links to parent_id (LEADS_TO_DEAD_END if kind == 'dead_end', DEPENDS_ON otherwise).
         """
         t_store_start = time.perf_counter()
         try:
@@ -161,6 +163,14 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
         )
 
         persisted, affected, edges = adjudicator.adjudicate_write(atom)
+
+        # Link to parent if provided
+        if parent_id and db.get_atom(parent_id):
+            link_edge_type = EdgeType.LEADS_TO_DEAD_END if mem_kind == MemoryKind.DEAD_END else EdgeType.DEPENDS_ON
+            edge = MemoryEdge(from_atom_id=parent_id, to_atom_id=persisted.id, edge_type=link_edge_type)
+            db.save_edge(edge)
+            edges.append(edge)
+
         store_latency_ms = (time.perf_counter() - t_store_start) * 1000
 
         superseded_ids = [a.id for a in affected if a.state == LifecycleState.SUPERSEDED]
@@ -199,9 +209,43 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
             "adjudication_result": adj_res,
             "superseded_atoms": superseded_ids,
             "conflicted_atoms": conflicted_ids,
-            "edges_created": [e.id for e in edges],
+            "causal_edges_created": len(edges),
+            "micro_directive": persisted.micro_directive,
         }
         return json.dumps(res, indent=2)
+
+    @server.tool()
+    def memory_record_dead_end(
+        file_path: str,
+        attempted_fix: str,
+        failure_signature: str = "",
+        trigger_pattern: str = "",
+        symbol: str = "",
+        parent_atom_id: str = "",
+        project: str = "default",
+    ) -> str:
+        """
+        Records a falsified hypothesis (dead end) to prevent coding agents from repeating failed approaches.
+        Optionally links to a parent problem or trap atom via a LEADS_TO_DEAD_END causal edge.
+        """
+        dead_end_atom, edge = db.record_dead_end(
+            parent_id=parent_atom_id if parent_atom_id else None,
+            file_path=file_path,
+            attempted_fix=attempted_fix,
+            failure_signature=failure_signature,
+            trigger_pattern=trigger_pattern,
+            symbol=symbol if symbol else None,
+            project=project,
+        )
+        return json.dumps({
+            "status": "RECORDED",
+            "atom_id": dead_end_atom.id,
+            "kind": dead_end_atom.kind.value,
+            "linked_parent_id": parent_atom_id if parent_atom_id else None,
+            "edge_id": edge.id if edge else None,
+            "edge_type": edge.edge_type.value if edge else None,
+            "directive": dead_end_atom.micro_directive,
+        }, indent=2)
 
     @server.tool()
     def memory_search(

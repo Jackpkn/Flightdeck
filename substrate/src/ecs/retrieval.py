@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .models import MemoryAtom, AnchorStatus, LifecycleState
+from .models import MemoryAtom, AnchorStatus, LifecycleState, MemoryKind
 from .db import ECSDatabase
 from .git_probe import GitProbe, DriftReport
 
@@ -227,9 +227,29 @@ class BudgetAwareRetriever:
         blast_radius_total_estimate = 0
         has_more = False
 
+        # Identify dead-end atoms that are already subsumed under a retrieved parent candidate
+        subsumed_dead_end_ids: set[str] = set()
+        for atom, _ in verified_candidates:
+            if atom.kind != MemoryKind.DEAD_END:
+                for de in self.db.fetch_dead_ends(atom.id):
+                    subsumed_dead_end_ids.add(de.id)
+
         for atom, score in verified_candidates:
+            if atom.id in subsumed_dead_end_ids:
+                continue
+
             directive = atom.micro_directive
-            tokens = atom.token_estimate
+
+            # If parent atom has linked dead-end falsified hypotheses, decorate with negative guidance
+            if atom.kind != MemoryKind.DEAD_END:
+                dead_ends = self.db.fetch_dead_ends(atom.id)
+                if dead_ends:
+                    directive += "\n  ✕ KNOWN DEAD ENDS (Do not attempt):"
+                    for de in dead_ends:
+                        reason = f" -> Failed: {de.failure_signature}" if de.failure_signature else ""
+                        directive += f"\n    • Attempted: {de.resolution}{reason}"
+
+            tokens = len(directive) // 4
 
             if len(packed_items) >= max_results or (total_tokens + tokens) > budget_tokens:
                 has_more = True

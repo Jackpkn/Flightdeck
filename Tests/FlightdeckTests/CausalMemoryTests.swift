@@ -889,6 +889,79 @@ struct CausalMemoryTests {
         let perms = (attrs[.posixPermissions] as? NSNumber)?.intValue ?? 0
         #expect((perms & 0o111) != 0)
     }
+
+    @Test("Negative tree pruning: dead ends linked via LEADS_TO_DEAD_END and formatted under parent directives")
+    func negativeTreePruningDeadEndMemory() throws {
+        let db = try ActivityDatabase.inMemory()
+
+        // 1. Create parent trap
+        let parentTrap = MemoryCapsule(
+            id: "parent-trap-001",
+            project: "Flightdeck",
+            filePath: "Sources/Storage.swift",
+            symbol: "commitTransaction",
+            kind: .trap,
+            authority: .L1,
+            triggerPattern: "sqlite busy timeout",
+            failureSignature: "database locked error on concurrent writes",
+            resolution: "Use SQLite WAL mode and wrap in write transaction block",
+            status: .active,
+            anchorStatus: .verified
+        )
+        db.saveMemoryCapsule(parentTrap)
+
+        // 2. Record two falsified hypotheses (dead ends)
+        let (de1, edge1) = db.recordDeadEnd(
+            parentId: parentTrap.id,
+            filePath: "Sources/Storage.swift",
+            attemptedFix: "Increase busy timeout to 30000ms",
+            failureSignature: "Still blocks UI thread indefinitely",
+            triggerPattern: "sqlite busy timeout",
+            symbol: "commitTransaction",
+            project: "Flightdeck"
+        )
+        #expect(de1.kind == .deadEnd)
+        #expect(edge1?.edgeType == .leadsToDeadEnd)
+        #expect(edge1?.fromCapsuleId == parentTrap.id)
+        #expect(edge1?.toCapsuleId == de1.id)
+
+        let (de2, edge2) = db.recordDeadEnd(
+            parentId: parentTrap.id,
+            filePath: "Sources/Storage.swift",
+            attemptedFix: "Spawn detached background thread without shared lock",
+            failureSignature: "Thread race condition corrupts database connection",
+            triggerPattern: "sqlite busy timeout",
+            symbol: "commitTransaction",
+            project: "Flightdeck"
+        )
+        #expect(de2.kind == .deadEnd)
+        #expect(edge2?.edgeType == .leadsToDeadEnd)
+
+        // 3. fetchDeadEnds
+        let deadEnds = db.fetchDeadEnds(for: parentTrap.id)
+        #expect(deadEnds.count == 2)
+        #expect(deadEnds.contains(where: { $0.id == de1.id }))
+        #expect(deadEnds.contains(where: { $0.id == de2.id }))
+
+        // 4. Blast radius recursive CTE traversal includes dead ends
+        let blast = db.computeBlastRadius(capsuleId: parentTrap.id)
+        #expect(blast.contains(de1.id))
+        #expect(blast.contains(de2.id))
+
+        // 5. formatMicroCapsules decorates parent directive and subsumes child dead ends
+        let allCapsules = [parentTrap, de1, de2]
+        let formatted = CausalMemoryEngine.formatMicroCapsules(allCapsules, project: "Flightdeck", in: db)
+
+        #expect(formatted.contains("✕ KNOWN DEAD ENDS (Do not attempt):"))
+        #expect(formatted.contains("Attempted: Increase busy timeout to 30000ms"))
+        #expect(formatted.contains("Failed: Still blocks UI thread indefinitely"))
+        #expect(formatted.contains("Attempted: Spawn detached background thread without shared lock"))
+        #expect(formatted.contains("Failed: Thread race condition corrupts database connection"))
+
+        // Verify child dead ends were subsumed and not output as standalone top-level items
+        let occurrences = formatted.components(separatedBy: "[✕ DEAD END: `Sources/Storage.swift`]").count - 1
+        #expect(occurrences == 0) // child dead ends are subsumed into parent block
+    }
 }
 
 

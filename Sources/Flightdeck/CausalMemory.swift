@@ -91,6 +91,7 @@ public enum CausalEdgeType: String, Codable, Sendable, CaseIterable {
     case contradicts = "CONTRADICTS"    // Mutually exclusive claims
     case supersedes = "SUPERSEDES"      // New capsule supersedes old
     case evidenceFor = "EVIDENCE_FOR"  // Provenance link
+    case leadsToDeadEnd = "LEADS_TO_DEAD_END" // Failed solution attempt that led to error
 }
 
 /// A typed, bitemporal causal edge between memory capsules.
@@ -271,6 +272,20 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
         }
         if let conflictNote, !conflictNote.isEmpty {
             return "[CONFLICT: \(subject ?? symbol ?? filePath)]\n⚠️ Two sources disagree on this code region:\n\(conflictNote)\n  Review code before proceeding."
+        }
+        if kind == .deadEnd {
+            var out = "[✕ DEAD END: `\(filePath)`] (Falsified Hypothesis - Do NOT attempt)"
+            if let symbol, !symbol.isEmpty {
+                out += " (symbol: `\(symbol)`)"
+            }
+            if !triggerPattern.isEmpty {
+                out += "\n  Context: \(triggerPattern)"
+            }
+            out += "\n  Attempted Fix: \(resolution)"
+            if let failureSignature, !failureSignature.isEmpty {
+                out += "\n  Failure Result: \(failureSignature)"
+            }
+            return out
         }
         if anchorStatus == .stale || status == .stale {
             return "[STALE: `\(filePath)`]\n  ⚠️ Code changed since this was written; verify before trusting.\n  Trigger: \(triggerPattern)\n  Prior Fix: \(resolution)"
@@ -579,12 +594,48 @@ public struct CausalMemoryEngine: Sendable {
         _ capsules: [MemoryCapsule],
         project: String
     ) -> String {
+        formatMicroCapsules(capsules, project: project, in: nil)
+    }
+
+    /// Formats a list of memory capsules into an ultra-dense Markdown block for agent injection,
+    /// decorating parent directives with linked dead ends and subsuming child dead ends.
+    static func formatMicroCapsules(
+        _ capsules: [MemoryCapsule],
+        project: String,
+        in database: ActivityDatabase? = nil
+    ) -> String {
         guard !capsules.isEmpty else { return "" }
         var lines: [String] = []
         lines.append("### FLIGHTDECK CAUSAL MEMORY [\(project.uppercased())]")
         lines.append("> Deterministic rules and hazard traps verified in previous sessions:\n")
+
+        // Subsume child dead-end capsules if parent capsules are present in the list
+        var subsumedIds = Set<String>()
+        if let db = database {
+            for c in capsules where c.kind != .deadEnd {
+                let deadEnds = db.fetchDeadEnds(for: c.id)
+                for de in deadEnds {
+                    subsumedIds.insert(de.id)
+                }
+            }
+        }
+
         for c in capsules {
-            lines.append(c.microDirective)
+            if subsumedIds.contains(c.id) {
+                continue
+            }
+            var directive = c.microDirective
+            if let db = database, c.kind != .deadEnd {
+                let deadEnds = db.fetchDeadEnds(for: c.id)
+                if !deadEnds.isEmpty {
+                    directive += "\n  ✕ KNOWN DEAD ENDS (Do not attempt):"
+                    for de in deadEnds {
+                        let reason = (de.failureSignature?.isEmpty == false) ? " -> Failed: \(de.failureSignature!)" : ""
+                        directive += "\n    • Attempted: \(de.resolution)\(reason)"
+                    }
+                }
+            }
+            lines.append(directive)
             lines.append("")
         }
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)

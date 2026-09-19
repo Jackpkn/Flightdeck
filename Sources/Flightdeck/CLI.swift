@@ -1370,7 +1370,66 @@ enum CLI {
             if hazards.isEmpty {
                 print("✓ No active hazard traps or warnings for \(files.joined(separator: ", "))")
             } else {
-                print(CausalMemoryEngine.formatMicroCapsules(hazards, project: "Flightdeck"))
+                print(CausalMemoryEngine.formatMicroCapsules(hazards, project: "Flightdeck", in: db))
+            }
+
+        case "dead-end":
+            var file = ""
+            var attempt = ""
+            var failure: String? = nil
+            var parentId: String? = nil
+            var trigger = ""
+            var symbol: String? = nil
+            var project = "Flightdeck"
+            var i = 1
+            while i < subargs.count {
+                let arg = subargs[i]
+                if (arg == "--file" || arg == "-f") && i + 1 < subargs.count {
+                    file = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--attempt" || arg == "-a") && i + 1 < subargs.count {
+                    attempt = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--failure") && i + 1 < subargs.count {
+                    failure = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--parent" || arg == "-p") && i + 1 < subargs.count {
+                    parentId = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--trigger" || arg == "-t") && i + 1 < subargs.count {
+                    trigger = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--symbol" || arg == "-s") && i + 1 < subargs.count {
+                    symbol = subargs[i + 1]
+                    i += 2
+                } else if (arg == "--project") && i + 1 < subargs.count {
+                    project = subargs[i + 1]
+                    i += 2
+                } else {
+                    i += 1
+                }
+            }
+            if file.isEmpty || attempt.isEmpty {
+                fputs("Usage: flightdeck memory dead-end --file <path> --attempt <failed_fix> [--failure <signature>] [--parent <parent_id>]\n", stderr)
+                exit(1)
+            }
+            let (deadEnd, edge) = db.recordDeadEnd(
+                parentId: parentId,
+                filePath: file,
+                attemptedFix: attempt,
+                failureSignature: failure,
+                triggerPattern: trigger,
+                symbol: symbol,
+                project: project
+            )
+            print("✓ Recorded falsified hypothesis (dead end) for \(file):")
+            print("  Atom ID:   \(deadEnd.id)")
+            print("  Attempted: \(attempt)")
+            if let failure {
+                print("  Failure:   \(failure)")
+            }
+            if let edge {
+                print("  Linked:    \(edge.fromCapsuleId) via \(edge.edgeType.rawValue)")
             }
 
         case "record", "trap":
@@ -1575,7 +1634,7 @@ enum CLI {
             }
 
         default:
-            print("Usage: flightdeck memory <check|record|list|status|reverify|compact|export|import|sync|install-git-hooks> [options]")
+            print("Usage: flightdeck memory <check|record|dead-end|list|status|reverify|compact|export|import|sync|install-git-hooks> [options]")
         }
         exit(0)
     }
