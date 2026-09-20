@@ -101,6 +101,7 @@ class ECSDatabase:
                 success_count INTEGER NOT NULL DEFAULT 0,
                 failure_count INTEGER NOT NULL DEFAULT 0,
                 last_feedback_at TEXT,
+                verification_cmd TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -109,7 +110,7 @@ class ECSDatabase:
         # Safe migrations for pre-existing databases
         cur.execute("PRAGMA table_info(memory_atoms);")
         existing_cols = {row[1] for row in cur.fetchall()}
-        for col_name in ["subject", "predicate", "object_value", "anchor_status", "anchor_json", "conflict_note", "source", "verified_by", "occurrence_count", "trial_until", "success_count", "failure_count", "last_feedback_at"]:
+        for col_name in ["subject", "predicate", "object_value", "anchor_status", "anchor_json", "conflict_note", "source", "verified_by", "occurrence_count", "trial_until", "success_count", "failure_count", "last_feedback_at", "verification_cmd"]:
             if col_name not in existing_cols:
                 try:
                     if col_name in ("occurrence_count",):
@@ -220,9 +221,9 @@ class ECSDatabase:
                 git_sha, file_hash, agent_id, session_id, source, verified_by, occurrence_count, evidence_refs,
                 valid_from, valid_until, trial_until, recorded_at, invalidated_by,
                 reward, confidence, label, view_set, hit_count,
-                success_count, failure_count, last_feedback_at,
+                success_count, failure_count, last_feedback_at, verification_cmd,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 project=excluded.project,
                 file_path=excluded.file_path,
@@ -259,6 +260,7 @@ class ECSDatabase:
                 success_count=excluded.success_count,
                 failure_count=excluded.failure_count,
                 last_feedback_at=excluded.last_feedback_at,
+                verification_cmd=excluded.verification_cmd,
                 updated_at=?
         """, (
             atom.id,
@@ -298,6 +300,7 @@ class ECSDatabase:
             atom.success_count,
             atom.failure_count,
             atom.last_feedback_at.isoformat() if atom.last_feedback_at else None,
+            atom.verification_cmd,
             atom.created_at.isoformat(),
             atom.updated_at.isoformat(),
             now,
@@ -815,6 +818,7 @@ class ECSDatabase:
             success_count=row["success_count"] if "success_count" in row.keys() and row["success_count"] is not None else 0,
             failure_count=row["failure_count"] if "failure_count" in row.keys() and row["failure_count"] is not None else 0,
             last_feedback_at=_parse_dt(row["last_feedback_at"]) if "last_feedback_at" in row.keys() else None,
+            verification_cmd=row["verification_cmd"] if "verification_cmd" in row.keys() else None,
             created_at=_parse_dt(row["created_at"]) or datetime.now(timezone.utc),
             updated_at=_parse_dt(row["updated_at"]) or datetime.now(timezone.utc),
         )

@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .models import LifecycleState, EdgeType, MemoryEdge
+from .models import LifecycleState, EdgeType, MemoryEdge, AnchorStatus
 from .db import ECSDatabase
 
 
@@ -27,6 +27,7 @@ class DreamAuditReport:
     pending_adjudications: int = 0
     provisional_atoms: int = 0
     low_efficacy_atoms: int = 0
+    verifiable_atoms: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +44,7 @@ class DreamAuditReport:
             "pending_adjudications": self.pending_adjudications,
             "provisional_atoms": self.provisional_atoms,
             "low_efficacy_atoms": self.low_efficacy_atoms,
+            "verifiable_atoms": self.verifiable_atoms,
         }
 
 
@@ -97,6 +99,9 @@ class DreamEngine:
         cur.execute("SELECT COUNT(*) FROM memory_atoms WHERE state = 'active' AND failure_count > success_count AND confidence < 0.5")
         low_efficacy_atoms = cur.fetchone()[0]
 
+        cur.execute("SELECT COUNT(*) FROM memory_atoms WHERE state = 'active' AND verification_cmd IS NOT NULL AND verification_cmd != ''")
+        verifiable_atoms = cur.fetchone()[0]
+
         return DreamAuditReport(
             total_atoms=stats["total_atoms"],
             active_atoms=stats["active_atoms"],
@@ -111,9 +116,10 @@ class DreamEngine:
             pending_adjudications=pending_adjudications,
             provisional_atoms=provisional_atoms,
             low_efficacy_atoms=low_efficacy_atoms,
+            verifiable_atoms=verifiable_atoms,
         )
 
-    def apply(self, project: str | None = None) -> dict[str, Any]:
+    def apply(self, project: str | None = None, run_verifications: bool = True, cwd: str | None = None) -> dict[str, Any]:
         """Phase 2: Executes consolidation plan with guardrails."""
         # Check kill-switch
         if os.environ.get("FLIGHTDECK_DREAM_DISABLE_APPLY") or os.environ.get("KHORA_DREAM_DISABLE_APPLY"):
@@ -197,6 +203,61 @@ class DreamEngine:
                 atom.conflict_note = f"{atom.conflict_note}; {msg}" if atom.conflict_note else msg
                 self.db.save_atom(atom)
 
+        # 7. Active Executable Test Harness Execution
+        verified_tests_passed = 0
+        verified_tests_failed = 0
+        if run_verifications:
+            import subprocess
+            sql = "SELECT id FROM memory_atoms WHERE state = 'active' AND verification_cmd IS NOT NULL AND verification_cmd != ''"
+            params: list[Any] = []
+            if project:
+                sql += " AND project = ?"
+                params.append(project)
+            cur.execute(sql, params)
+            test_ids = [r[0] for r in cur.fetchall()]
+            for atom_id in test_ids:
+                atom = self.db.get_atom(atom_id)
+                if not atom or not atom.verification_cmd:
+                    continue
+                try:
+                    proc = subprocess.run(
+                        ["/bin/sh", "-c", atom.verification_cmd],
+                        cwd=cwd or os.getcwd(),
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                    if proc.returncode == 0:
+                        atom.anchor_status = AnchorStatus.VERIFIED
+                        atom.success_count += 1
+                        atom.confidence = min(1.0, round(atom.confidence + 0.05, 2))
+                        atom.last_feedback_at = now
+                        verified_tests_passed += 1
+                    else:
+                        atom.anchor_status = AnchorStatus.CONTRADICTED
+                        atom.failure_count += 1
+                        atom.confidence = max(0.10, round(atom.confidence - 0.15, 2))
+                        atom.last_feedback_at = now
+                        err_snippet = (proc.stderr or proc.stdout or "").strip().splitlines()[:2]
+                        err_msg = " ".join(err_snippet)
+                        atom.conflict_note = f"[Verification Failed (exit {proc.returncode})]: {err_msg}"
+                        if atom.confidence < 0.35 or (atom.failure_count >= 3 and atom.success_count == 0):
+                            atom.state = LifecycleState.PENDING_ADJUDICATION
+                        verified_tests_failed += 1
+                    self.db.save_atom(atom)
+                except subprocess.TimeoutExpired:
+                    atom.anchor_status = AnchorStatus.CONTRADICTED
+                    atom.failure_count += 1
+                    atom.confidence = max(0.10, round(atom.confidence - 0.15, 2))
+                    atom.conflict_note = "[Verification Timed Out after 15s]"
+                    if atom.confidence < 0.35 or (atom.failure_count >= 3 and atom.success_count == 0):
+                        atom.state = LifecycleState.PENDING_ADJUDICATION
+                    verified_tests_failed += 1
+                    self.db.save_atom(atom)
+                except Exception as e:
+                    atom.conflict_note = f"[Verification Error]: {str(e)}"
+                    self.db.save_atom(atom)
+
         return {
             "status": "APPLIED",
             "compacted_tombstones": res["deleted"],
@@ -204,4 +265,6 @@ class DreamEngine:
             "reconciled_candidates": reconciled_candidates,
             "promoted_provisional": len(expired_trial_ids),
             "demoted_low_efficacy": len(toxic_ids),
+            "verified_tests_passed": verified_tests_passed,
+            "verified_tests_failed": verified_tests_failed,
         }

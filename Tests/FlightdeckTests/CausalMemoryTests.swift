@@ -1017,6 +1017,77 @@ struct CausalMemoryTests {
         let directive = reloaded2?.microDirective ?? ""
         #expect(directive.contains("[PENDING ADJUDICATION"))
     }
+
+    @Test("verificationCmd storage and SQLite roundtrip")
+    func verificationCmdStorageAndRoundtrip() throws {
+        let db = try ActivityDatabase.inMemory()
+        let capsule = MemoryCapsule(
+            id: "cmd-capsule-001",
+            project: "Flightdeck",
+            filePath: "Sources/Storage.swift",
+            kind: .rule,
+            triggerPattern: "storage check",
+            resolution: "Use SQLite pool",
+            verificationCmd: "echo 'verified storage pool'"
+        )
+        db.saveMemoryCapsule(capsule)
+
+        let reloaded = db.fetchMemoryCapsule(id: "cmd-capsule-001")
+        #expect(reloaded?.verificationCmd == "echo 'verified storage pool'")
+    }
+
+    @Test("verifyExecutableCommands executes passing and failing shell commands")
+    func verifyExecutableCommandsExecution() throws {
+        let db = try ActivityDatabase.inMemory()
+        let tmpDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let passCapsule = MemoryCapsule(
+            id: "pass-cmd-capsule",
+            project: "Flightdeck",
+            filePath: "Sources/Pass.swift",
+            kind: .rule,
+            triggerPattern: "pass pattern",
+            resolution: "Do Pass",
+            confidence: 0.80,
+            verificationCmd: "echo 'assertion successful'"
+        )
+        let failCapsule = MemoryCapsule(
+            id: "fail-cmd-capsule",
+            project: "Flightdeck",
+            filePath: "Sources/Fail.swift",
+            kind: .rule,
+            triggerPattern: "fail pattern",
+            resolution: "Do Fail",
+            confidence: 0.80,
+            verificationCmd: "sh -c 'echo \"assertion failed: exit code 2\" >&2; exit 2'"
+        )
+
+        db.saveMemoryCapsule(passCapsule)
+        db.saveMemoryCapsule(failCapsule)
+
+        let result = CausalMemoryEngine.verifyExecutableCommands(
+            project: "Flightdeck",
+            cwd: tmpDir.path,
+            in: db
+        )
+        #expect(result.passed == 1)
+        #expect(result.failed == 1)
+
+        let reloadedPass = db.fetchMemoryCapsule(id: "pass-cmd-capsule")
+        #expect(reloadedPass?.anchorStatus == .verified)
+        #expect(reloadedPass?.successCount == 1)
+        #expect(reloadedPass?.confidence == 0.85)
+
+        let reloadedFail = db.fetchMemoryCapsule(id: "fail-cmd-capsule")
+        #expect(reloadedFail?.anchorStatus == .contradicted)
+        #expect(reloadedFail?.failureCount == 1)
+        #expect(reloadedFail?.confidence == 0.65)
+        #expect(reloadedFail?.conflictNote?.contains("Verification Failed (exit 2)") == true)
+        #expect(reloadedFail?.conflictNote?.contains("assertion failed") == true)
+    }
 }
+
 
 

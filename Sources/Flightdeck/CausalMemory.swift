@@ -184,6 +184,7 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
     public var successCount: Int
     public var failureCount: Int
     public var lastFeedbackAt: Date?
+    public var verificationCmd: String?
     public var status: MemoryStatus
     public var anchorStatus: AnchorStatus
     public var conflictNote: String?
@@ -228,6 +229,7 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
         successCount: Int = 0,
         failureCount: Int = 0,
         lastFeedbackAt: Date? = nil,
+        verificationCmd: String? = nil,
         status: MemoryStatus = .active,
         anchorStatus: AnchorStatus = .unverified,
         conflictNote: String? = nil,
@@ -262,6 +264,7 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
         self.successCount = successCount
         self.failureCount = failureCount
         self.lastFeedbackAt = lastFeedbackAt
+        self.verificationCmd = verificationCmd
         self.status = status
         self.anchorStatus = anchorStatus
         self.conflictNote = conflictNote
@@ -757,6 +760,81 @@ public struct CausalMemoryEngine: Sendable {
 
         return (recovered: recoveredCount, remainedStale: remainedCount)
     }
+
+    /// Runs active executable test commands (verificationCmd) for capsules in the project.
+    /// Commands are run locally via Process in a subprocess.
+    /// Exit 0 confirms verification and updates efficacy (+0.05 confidence).
+    /// Non-zero exit transitions to contradicted/stale (-0.15 confidence) and records error snippet.
+    @discardableResult
+    static func verifyExecutableCommands(
+        project: String,
+        cwd: String,
+        in database: ActivityDatabase?,
+        timeoutSeconds: TimeInterval = 15.0
+    ) -> (passed: Int, failed: Int, skipped: Int) {
+        guard let db = database else { return (0, 0, 0) }
+        let allCapsules = db.fetchMemoryCapsules(project: project, filePath: nil, status: .active)
+        let verifiable = allCapsules.filter { $0.verificationCmd != nil && !($0.verificationCmd!.isEmpty) }
+
+        var passedCount = 0
+        var failedCount = 0
+        let skippedCount = allCapsules.count - verifiable.count
+
+        for var capsule in verifiable {
+            guard let cmd = capsule.verificationCmd else { continue }
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+            proc.arguments = ["-c", cmd]
+            proc.currentDirectoryURL = URL(fileURLWithPath: cwd)
+
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            proc.standardOutput = stdoutPipe
+            proc.standardError = stderrPipe
+
+            do {
+                try proc.run()
+                proc.waitUntilExit()
+
+                if proc.terminationStatus == 0 {
+                    capsule.anchorStatus = .verified
+                    capsule.successCount += 1
+                    capsule.confidence = min(1.0, ((capsule.confidence + 0.05) * 100).rounded() / 100)
+                    capsule.lastFeedbackAt = Date()
+                    capsule.updatedAt = Date()
+                    passedCount += 1
+                } else {
+                    capsule.anchorStatus = .contradicted
+                    capsule.failureCount += 1
+                    capsule.confidence = max(0.10, ((capsule.confidence - 0.15) * 100).rounded() / 100)
+                    capsule.lastFeedbackAt = Date()
+                    capsule.updatedAt = Date()
+
+                    let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    let outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    let combined = (String(data: errData, encoding: .utf8) ?? "") + " " + (String(data: outData, encoding: .utf8) ?? "")
+                    let snippet = combined.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .components(separatedBy: .newlines)
+                        .prefix(2)
+                        .joined(separator: " ")
+                    capsule.conflictNote = "[Verification Failed (exit \(proc.terminationStatus))]: \(snippet)"
+
+                    if capsule.confidence < 0.35 || (capsule.failureCount >= 3 && capsule.successCount == 0) {
+                        capsule.status = .pendingAdjudication
+                    }
+                    failedCount += 1
+                }
+                db.saveMemoryCapsule(capsule)
+            } catch {
+                capsule.conflictNote = "[Verification Error]: \(error.localizedDescription)"
+                capsule.updatedAt = Date()
+                db.saveMemoryCapsule(capsule)
+                failedCount += 1
+            }
+        }
+
+        return (passed: passedCount, failed: failedCount, skipped: skippedCount)
+    }
 }
 
 // MARK: - Memory Federation & Git Team Sync
@@ -854,6 +932,7 @@ public struct MemoryFederation: Sendable {
             if let until = capsule.validUntil { dict["valid_until"] = isoFormatter.string(from: until); dict["validUntil"] = isoFormatter.string(from: until) }
             if let trial = capsule.trialUntil { dict["trial_until"] = isoFormatter.string(from: trial); dict["trialUntil"] = isoFormatter.string(from: trial) }
             if let inv = capsule.invalidatedBy { dict["invalidated_by"] = inv; dict["invalidatedBy"] = inv }
+            if let cmd = capsule.verificationCmd { dict["verification_cmd"] = cmd; dict["verificationCmd"] = cmd }
 
             let data = try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys, .withoutEscapingSlashes])
             if let str = String(data: data, encoding: .utf8) {
@@ -972,6 +1051,7 @@ public struct MemoryFederation: Sendable {
             let trialUntil = parseDate(dict["trial_until"] ?? dict["trialUntil"])
             let recordedAt = parseDate(dict["recorded_at"] ?? dict["recordedAt"]) ?? Date()
             let invalidatedBy = dict["invalidated_by"] as? String ?? dict["invalidatedBy"] as? String
+            let verificationCmd = dict["verification_cmd"] as? String ?? dict["verificationCmd"] as? String
             let createdAt = parseDate(dict["created_at"] ?? dict["createdAt"]) ?? Date()
             let updatedAt = parseDate(dict["updated_at"] ?? dict["updatedAt"]) ?? Date()
 
@@ -996,6 +1076,7 @@ public struct MemoryFederation: Sendable {
                 fileHash: fileHash,
                 confidence: confidence,
                 hitCount: hitCount,
+                verificationCmd: verificationCmd,
                 status: status,
                 anchorStatus: anchorStatus,
                 conflictNote: conflictNote,

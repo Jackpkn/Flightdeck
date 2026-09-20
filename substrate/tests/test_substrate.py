@@ -1356,3 +1356,118 @@ def test_dream_audit_and_apply_handles_low_efficacy_atoms(db):
     assert reloaded.state == LifecycleState.PENDING_ADJUDICATION
     assert "Quarantined by Dream Phase" in (reloaded.conflict_note or "")
 
+
+def test_verification_cmd_storage_and_serialization(db):
+    """verification_cmd persists across SQLite round-trips and dict serialization."""
+    atom = MemoryAtom(
+        id="cmd-test-atom",
+        project="Flightdeck",
+        file_path="Sources/Network.swift",
+        kind=MemoryKind.INVARIANT,
+        trigger_pattern="timeout",
+        resolution="Timeout must be between 5s and 30s",
+        verification_cmd="echo 'testing timeout check'",
+    )
+    db.save_atom(atom)
+
+    reloaded = db.get_atom("cmd-test-atom")
+    assert reloaded is not None
+    assert reloaded.verification_cmd == "echo 'testing timeout check'"
+
+    d = reloaded.to_dict()
+    assert d["verification_cmd"] == "echo 'testing timeout check'"
+
+    from_d = MemoryAtom.from_dict(d)
+    assert from_d.verification_cmd == "echo 'testing timeout check'"
+
+
+def test_dream_executes_verification_cmd_success_and_failure(db):
+    """
+    Dream phase executes verification commands:
+    - Success (exit 0) marks VERIFIED, increments success_count, boosts confidence.
+    - Failure (exit != 0) marks CONTRADICTED, increments failure_count, reduces confidence, captures stderr.
+    """
+    atom_pass = MemoryAtom(
+        id="cmd-pass-atom",
+        project="Flightdeck",
+        file_path="Sources/A.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern="rule A",
+        resolution="Do A",
+        confidence=0.80,
+        verification_cmd="echo 'assertion passed'",
+    )
+    atom_fail = MemoryAtom(
+        id="cmd-fail-atom",
+        project="Flightdeck",
+        file_path="Sources/B.swift",
+        kind=MemoryKind.RULE,
+        trigger_pattern="rule B",
+        resolution="Do B",
+        confidence=0.80,
+        verification_cmd="sh -c 'echo \"assertion failed: syntax error\" >&2; exit 2'",
+    )
+
+    db.save_atom(atom_pass)
+    db.save_atom(atom_fail)
+
+    from ecs.dream import DreamEngine
+    dreamer = DreamEngine(db)
+
+    audit = dreamer.audit(project="Flightdeck")
+    assert audit.verifiable_atoms == 2
+
+    res = dreamer.apply(project="Flightdeck", run_verifications=True)
+    assert res["verified_tests_passed"] == 1
+    assert res["verified_tests_failed"] == 1
+
+    reloaded_pass = db.get_atom("cmd-pass-atom")
+    assert reloaded_pass.anchor_status == AnchorStatus.VERIFIED
+    assert reloaded_pass.success_count == 1
+    assert reloaded_pass.confidence == 0.85
+
+    reloaded_fail = db.get_atom("cmd-fail-atom")
+    assert reloaded_fail.anchor_status == AnchorStatus.CONTRADICTED
+    assert reloaded_fail.failure_count == 1
+    assert reloaded_fail.confidence == 0.65
+    assert "Verification Failed (exit 2)" in (reloaded_fail.conflict_note or "")
+    assert "syntax error" in (reloaded_fail.conflict_note or "")
+
+
+def test_mcp_memory_store_and_dream_verification(tmp_path):
+    """MCP server memory_store passes verification_cmd and memory_dream executes it."""
+    db_file = tmp_path / "mcp_verify.db"
+    from ecs.server import create_mcp_server
+    server = create_mcp_server(db_file)
+
+    store_tool = server._tool_manager.get_tool("memory_store")
+    assert store_tool is not None
+
+    import json
+    store_res = json.loads(store_tool.fn(
+        project="Flightdeck",
+        file_path="Sources/Tool.swift",
+        kind="rule",
+        trigger_pattern="testing mcp verify",
+        resolution="Always call server.get_tool() before running",
+        verification_cmd="echo 'mcp test pass'",
+    ))
+    assert "stored_atom_id" in store_res
+    atom_id = store_res["stored_atom_id"]
+
+    dream_tool = server._tool_manager.get_tool("memory_dream")
+    assert dream_tool is not None
+
+    dream_res = json.loads(dream_tool.fn(project="Flightdeck", apply=True, run_tests=True))
+    assert dream_res["verified_tests_passed"] == 1
+    assert dream_res["verified_tests_failed"] == 0
+
+    from ecs.db import ECSDatabase
+    db = ECSDatabase(db_file)
+    atom = db.get_atom(atom_id)
+    assert atom is not None
+    assert atom.verification_cmd == "echo 'mcp test pass'"
+    assert atom.anchor_status == AnchorStatus.VERIFIED
+    assert atom.success_count == 1
+
+

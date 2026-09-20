@@ -217,6 +217,13 @@ final class ActivityDatabase {
             }
         }
 
+        // Add verificationCmd for active executable test harness during dream consolidation
+        migrator.registerMigration("addCapsuleVerificationCmd") { db in
+            try db.alter(table: MemoryCapsule.databaseTableName) { t in
+                t.add(column: "verificationCmd", .text)
+            }
+        }
+
         return migrator
     }
 

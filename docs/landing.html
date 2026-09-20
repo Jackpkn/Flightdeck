@@ -368,6 +368,101 @@
   footer .wrap { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; }
   footer p { font-family: var(--mono); font-size: 11px; color: var(--ink3); letter-spacing: 0.05em; }
 
+  /* ---- ecs causal memory substrate ---- */
+  .ecs-pipeline {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    padding: 16px 18px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--hairline2);
+  }
+  @media (max-width: 760px) {
+    .ecs-pipeline { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 480px) {
+    .ecs-pipeline { grid-template-columns: 1fr; }
+  }
+  .pipeline-step {
+    padding: 10px 12px;
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    display: grid;
+    gap: 4px;
+  }
+  .pipeline-step .step-num {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .pipeline-step .step-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink1);
+  }
+  .pipeline-step .step-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink3);
+  }
+
+  .trap-card {
+    padding: 18px;
+    border-bottom: 1px solid var(--hairline2);
+    display: grid;
+    gap: 12px;
+  }
+  .trap-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .badge.trap { background: rgba(255,59,59,0.15); color: #ff6b6b; border: 1px solid rgba(255,59,59,0.3); }
+  .badge.good { background: rgba(16,185,129,0.15); color: var(--good); border: 1px solid rgba(16,185,129,0.3); }
+  .badge.edge { background: rgba(56,189,248,0.12); color: var(--sky); border: 1px solid rgba(56,189,248,0.25); }
+  .badge.cost { background: rgba(255,184,0,0.12); color: var(--cost); border: 1px solid rgba(255,184,0,0.25); }
+
+  .directive-box {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    background: var(--ground);
+    border: 1px solid var(--hairline);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    border-radius: 4px;
+    color: var(--ink1);
+  }
+  .dead-end-block {
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.6;
+    background: rgba(255,59,59,0.06);
+    border: 1px solid rgba(255,59,59,0.2);
+    border-left: 3px solid var(--critical);
+    padding: 10px 14px;
+    border-radius: 4px;
+    color: #fca5a5;
+  }
+  .dead-end-block .title {
+    color: var(--critical);
+    font-weight: 700;
+    margin-bottom: 4px;
+    letter-spacing: 0.04em;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .dot { animation: none; }
     * { transition: none !important; }
@@ -381,7 +476,7 @@
       <span>macOS 14+</span>
       <span>Apple silicon &amp; Intel</span>
       <span>MIT</span>
-      <span>239 tests</span>
+      <span>356 tests &middot; 48 suites</span>
     </div>
   </div>
 </header>
@@ -389,8 +484,8 @@
 <main>
   <div class="hero wrap">
     <div class="hero-grid">
-      <p class="eyebrow">Activity monitor &middot; AI spend cockpit &middot; macOS</p>
-      <h1>You already know what Claude Code cost. Flightdeck shows what it <span class="built">became</span>.</h1>
+      <p class="eyebrow">Local Causal Memory &middot; AI Spend Cockpit &middot; Activity Monitor &middot; macOS</p>
+      <h1>You already know what Claude Code cost. Flightdeck shows what it <span class="built">became</span> &mdash; and stops repeated mistakes.</h1>
       <div class="hero-sub">
         <p class="lede">
           A usage meter stops at the invoice. Flightdeck reads your Claude&nbsp;Code transcripts
@@ -399,9 +494,9 @@
           file actually cost.
         </p>
         <p class="lede">
-          It is also a full system monitor: CPU and memory straight from the Mach kernel, every
-          listening port, what is draining the battery, and where the disk went. One app for the
-          machine and the bill.
+          It is also a <strong>deterministic causal memory substrate (ECS)</strong>: a 4-gate ingestion
+          pipeline captures compiler errors and architecture traps, pruning dead-end trajectories so
+          future agent sessions never repeat them. Zero cloud dependencies, 10.84&nbsp;MB resident RAM.
         </p>
       </div>
       <div class="install">
@@ -486,6 +581,97 @@
 
   <section class="wrap">
     <div class="sec-head">
+      <p class="eyebrow">Epistemic Causal Substrate &middot; Local Cross-Session Memory</p>
+      <h2>Session 1 hits a compiler trap. Session 2 never repeats it.</h2>
+      <p class="body-copy">
+        LLM coding agents have no persistent memory: when a compiler error or dead end occurs,
+        the next session starts from a blank slate and hits the exact same wall. Flightdeck's
+        <strong>Epistemic Causal Substrate (ECS)</strong> intercepts failures through a 4-gate verification
+        pipeline, links them in a bitemporal causal graph, prunes known dead-end paths, and injects
+        micro-directives via MCP in &lt;50 tokens.
+      </p>
+    </div>
+
+    <div class="readout">
+      <div class="readout-bar">
+        <span class="sid">FD-ECS-ACTIVE</span>
+        <span class="proj">Epistemic Causal Engine &middot; MCP &amp; CLI</span>
+        <span class="sample">Deterministic &middot; Zero Cloud Egress</span>
+      </div>
+
+      <!-- 4-Gate Ingestion Pipeline -->
+      <div class="ecs-pipeline">
+        <div class="pipeline-step">
+          <span class="step-num">Gate 1</span>
+          <span class="step-name">Compiler Exit Code</span>
+          <span class="step-sub">Exit code &ne; 0 &rarr; compiler signal</span>
+        </div>
+        <div class="pipeline-step">
+          <span class="step-num">Gate 2</span>
+          <span class="step-name">Structural Verifier</span>
+          <span class="step-sub">AST sanity, token budget &lt;60 tok</span>
+        </div>
+        <div class="pipeline-step">
+          <span class="step-num">Gate 3</span>
+          <span class="step-name">CUPMem Adjudication</span>
+          <span class="step-sub">L2a/L2b authority &amp; bitemporal edges</span>
+        </div>
+        <div class="pipeline-step">
+          <span class="step-num">Gate 4</span>
+          <span class="step-name">Host-Agent MCP</span>
+          <span class="step-sub">Dynamic adjudication with trial</span>
+        </div>
+      </div>
+
+      <div class="tiles">
+        <div class="tile">
+          <p class="eyebrow">Resident RAM</p>
+          <p class="v good num">10.84 MB</p>
+          <p class="sub">SQLite WAL + FTS5 &middot; zero background lag</p>
+        </div>
+        <div class="tile">
+          <p class="eyebrow">Bayesian Efficacy</p>
+          <p class="v num" style="color:var(--accent)">92%</p>
+          <p class="sub">Laplace credit: +0.05 / -0.15</p>
+        </div>
+        <div class="tile">
+          <p class="eyebrow">Token Budget</p>
+          <p class="v plain num">&lt;500 tok</p>
+          <p class="sub">Micro-capsules &middot; zero context bloat</p>
+        </div>
+      </div>
+
+      <!-- Live Memory Capsule Readout with Dead End Pruning -->
+      <div class="trap-card">
+        <div class="trap-header">
+          <span class="badge trap">Hazard Trap</span>
+          <span class="num" style="font-size:12px; color:var(--ink1); font-weight:600;">FD-TRAP-0082</span>
+          <span class="badge good">Confidence 0.95</span>
+          <span class="badge edge">SOLVES FD-TRAP-0041</span>
+          <span class="badge cost">Git-Anchored: verified</span>
+        </div>
+
+        <div class="directive-box">
+          <b>DIRECTIVE:</b> Do not call <code class="num">ActivityDatabase.allActivities()</code> on main thread. Use async database pool with batching.
+        </div>
+
+        <div class="dead-end-block">
+          <div class="title">&times; KNOWN DEAD ENDS (Do not attempt):</div>
+          &bull; Dispatching synchronously to <code class="num">DispatchQueue.global().sync</code> deadlocks with GRDB write queue.<br>
+          &bull; Increasing timeout on main semaphore crashes watchdog timer.
+        </div>
+      </div>
+
+      <p class="footnote">
+        Stored in local SQLite WAL at <code>~/.flightdeck/activity.db</code> and optionally shared across
+        teams via decentralized Git federation in <code>.flightdeck/memory.jsonl</code>. No API keys, no
+        telemetry, no external servers.
+      </p>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <div class="sec-head">
       <p class="eyebrow">The part that took the longest</p>
       <h2>Nothing in this app is a plausible-looking guess.</h2>
       <p class="body-copy">
@@ -523,8 +709,8 @@
 
   <section class="wrap">
     <div class="sec-head">
-      <p class="eyebrow">Five decks &middot; &#8984;1 &ndash; &#8984;5</p>
-      <h2>The machine and the bill, in one window.</h2>
+      <p class="eyebrow">Six decks &middot; &#8984;1 &ndash; &#8984;6</p>
+      <h2>The machine, the bill, and the memory &mdash; in one window.</h2>
     </div>
     <div class="decks">
       <div class="deck lead">
@@ -575,6 +761,16 @@
           <li><b>Exact fractional cost</b> &mdash; no rounding into a wrong total</li>
         </ul>
       </div>
+      <div class="deck">
+        <p class="key">&#8984;6 &middot; Causal Memory (ECS)</p>
+        <h3>Stop repeating mistakes</h3>
+        <ul>
+          <li><b>4-Gate pipeline</b> &mdash; compiler exit codes, AST structural checks, CUPMem adjudication, host-agent MCP</li>
+          <li><b>Negative tree pruning</b> &mdash; known dead ends automatically decorated on parent hazard traps</li>
+          <li><b>Closed-loop Bayesian efficacy</b> &mdash; Laplace credit assignment and toxic trap quarantine during dream consolidation</li>
+          <li><b>Decentralized Git federation</b> &mdash; peer-to-peer team memory synchronization via <code class="num">.flightdeck/memory.jsonl</code></li>
+        </ul>
+      </div>
     </div>
   </section>
 
@@ -593,6 +789,8 @@
         <span class="r">read</span>  ~/.claude/projects/**/*.jsonl<br>
         <span class="r">read</span>  ~/.claude.json<br>
         <span class="r">read</span>  git history of repos a session touched<br>
+        <span class="w">write</span> ~/.flightdeck/activity.db <span class="r">&larr; local SQLite WAL</span><br>
+        <span class="w">write</span> .flightdeck/memory.jsonl <span class="r">&larr; optional team git federation</span><br>
         <span class="w">write</span> ~/.claude/settings.json <span class="r">&larr; backed up first</span>
       </div>
       <div>

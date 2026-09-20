@@ -131,11 +131,13 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
         session_id: str = "",
         verified_by: str = "",
         parent_id: str = "",
+        verification_cmd: str = "",
     ) -> str:
         """
         Stores a verified memory atom after running write-side adjudication (CUPMem protocol).
         Quarantines L4 external documents and handles superseding of older memories.
         Optionally links to parent_id (LEADS_TO_DEAD_END if kind == 'dead_end', DEPENDS_ON otherwise).
+        Optionally attaches verification_cmd for active executable verification during dream consolidation.
         """
         t_store_start = time.perf_counter()
         try:
@@ -160,6 +162,7 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
             agent_id=agent_id if agent_id else None,
             session_id=session_id if session_id else None,
             verified_by=verified_by if verified_by else ("compiler" if auth == AuthorityLevel.L1 else "host_agent:claude_code"),
+            verification_cmd=verification_cmd if verification_cmd else None,
         )
 
         persisted, affected, edges = adjudicator.adjudicate_write(atom)
@@ -404,13 +407,14 @@ def create_mcp_server(db_path: str | Path | None = None) -> MCPServer:
         return json.dumps(stats, indent=2)
 
     @server.tool()
-    def memory_dream(project: str = "", apply: bool = False) -> str:
+    def memory_dream(project: str = "", apply: bool = False, run_tests: bool = True) -> str:
         """
         Runs the Khora-style Dream Phase offline consolidation.
-        If apply=False (default), runs read-only audit. If apply=True, applies tombstone compaction.
+        If apply=False (default), runs read-only audit.
+        If apply=True, applies tombstone compaction and executes active test verification commands.
         """
         if apply:
-            res = dreamer.apply(project=project if project else None)
+            res = dreamer.apply(project=project if project else None, run_verifications=run_tests)
             return json.dumps(res, indent=2)
         else:
             audit = dreamer.audit(project=project if project else None)

@@ -210,6 +210,7 @@ class MemoryAtom:
     success_count: int = 0
     failure_count: int = 0
     last_feedback_at: datetime | None = None
+    verification_cmd: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -327,6 +328,7 @@ class MemoryAtom:
             "failure_count": self.failure_count,
             "efficacy_score": self.efficacy_score,
             "last_feedback_at": self.last_feedback_at.isoformat() if self.last_feedback_at else None,
+            "verification_cmd": self.verification_cmd,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
@@ -379,6 +381,7 @@ class MemoryAtom:
             success_count=int(data.get("success_count") or data.get("successCount", 0)),
             failure_count=int(data.get("failure_count") or data.get("failureCount", 0)),
             last_feedback_at=_parse_dt(data.get("last_feedback_at") or data.get("lastFeedbackAt")),
+            verification_cmd=data.get("verification_cmd") or data.get("verificationCmd"),
             created_at=_parse_dt(data.get("created_at") or data.get("createdAt")) or datetime.now(timezone.utc),
             updated_at=_parse_dt(data.get("updated_at") or data.get("updatedAt")) or datetime.now(timezone.utc),
         )
