@@ -21,3 +21,4 @@ xcuserdata/
 
 # Local Netlify folder
 .netlify
+.env
