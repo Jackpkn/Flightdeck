@@ -14,6 +14,8 @@ public enum MemoryKind: String, Codable, Sendable, CaseIterable {
     case invariant = "invariant"
     /// A falsified hypothesis (e.g., incorrect path or invalid assumption).
     case deadEnd = "dead_end"
+    /// A procedural blueprint or golden implementation recipe.
+    case recipe = "recipe"
 
     public var label: String {
         switch self {
@@ -21,6 +23,7 @@ public enum MemoryKind: String, Codable, Sendable, CaseIterable {
         case .rule: return "PROVEN RULE"
         case .invariant: return "INVARIANT"
         case .deadEnd: return "FALSIFIED HYPOTHESIS"
+        case .recipe: return "GOLDEN RECIPE"
         }
     }
 
@@ -30,6 +33,7 @@ public enum MemoryKind: String, Codable, Sendable, CaseIterable {
         case .rule: return "✓ RULE"
         case .invariant: return "⚓︎ INVARIANT"
         case .deadEnd: return "✕ DEAD END"
+        case .recipe: return "📋 RECIPE"
         }
     }
 }
@@ -300,6 +304,23 @@ public struct MemoryCapsule: Codable, FetchableRecord, PersistableRecord, Identi
             out += "\n  Attempted Fix: \(resolution)"
             if let failureSignature, !failureSignature.isEmpty {
                 out += "\n  Failure Result: \(failureSignature)"
+            }
+            return out
+        }
+        if kind == .recipe {
+            var out = "[📋 RECIPE: `\(filePath)`] (Golden Blueprint)"
+            if let symbol, !symbol.isEmpty {
+                out += " (symbol: `\(symbol)`)"
+            }
+            if !triggerPattern.isEmpty {
+                out += "\n  Intent: \(triggerPattern)"
+            }
+            out += "\n  Procedure:"
+            for line in resolution.components(separatedBy: .newlines) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty {
+                    out += "\n    \(trimmed)"
+                }
             }
             return out
         }

@@ -1087,7 +1087,42 @@ struct CausalMemoryTests {
         #expect(reloadedFail?.conflictNote?.contains("Verification Failed (exit 2)") == true)
         #expect(reloadedFail?.conflictNote?.contains("assertion failed") == true)
     }
+
+    @Test("Procedural Golden Recipe Memory formatting and persistence")
+    func proceduralRecipeMemory() throws {
+        let db = try ActivityDatabase.inMemory()
+        let procedure = """
+        Step 1: Define migration in ActivityDatabase.swift
+        Step 2: Add model properties in CausalMemory.swift
+        Step 3: Update microDirective rendering
+        """
+        let recipe = MemoryCapsule(
+            id: "recipe-001",
+            project: "Flightdeck",
+            filePath: "Sources/Flightdeck/CausalMemory.swift",
+            symbol: "add_migration",
+            kind: .recipe,
+            triggerPattern: "add database migration",
+            resolution: procedure
+        )
+
+        db.saveMemoryCapsule(recipe)
+
+        let reloaded = db.fetchMemoryCapsule(id: "recipe-001")
+        #expect(reloaded != nil)
+        #expect(reloaded?.kind == .recipe)
+        #expect(reloaded?.kind.badge == "📋 RECIPE")
+        #expect(reloaded?.kind.label == "GOLDEN RECIPE")
+
+        let directive = recipe.microDirective
+        #expect(directive.contains("[📋 RECIPE: `Sources/Flightdeck/CausalMemory.swift`] (Golden Blueprint) (symbol: `add_migration`)"))
+        #expect(directive.contains("Intent: add database migration"))
+        #expect(directive.contains("Procedure:"))
+        #expect(directive.contains("Step 1: Define migration in ActivityDatabase.swift"))
+        #expect(directive.contains("Step 2: Add model properties in CausalMemory.swift"))
+    }
 }
+
 
 
 

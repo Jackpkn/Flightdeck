@@ -58,6 +58,7 @@ class MemoryKind(str, Enum):
     INVARIANT = "invariant"# System constraint/dependency
     LESSON = "lesson"      # Dual-memory failure lesson
     DEAD_END = "dead_end"  # Falsified hypothesis
+    RECIPE = "recipe"      # Procedural multi-step blueprint / scaffolding recipe
 
     @property
     def badge(self) -> str:
@@ -67,6 +68,7 @@ class MemoryKind(str, Enum):
             MemoryKind.INVARIANT: "⚓︎ INVARIANT",
             MemoryKind.LESSON: "🛑 LESSON",
             MemoryKind.DEAD_END: "✕ DEAD END",
+            MemoryKind.RECIPE: "📋 RECIPE",
         }
         return badges[self]
 
@@ -254,7 +256,20 @@ class MemoryAtom:
                 lines.append(f"  Failure Result: {self.failure_signature}")
             return "\n".join(lines)
 
-        # 3. Stale State — Code changed, but symbol persists
+        # 3. Procedural Golden Recipe Blueprint
+        if self.kind == MemoryKind.RECIPE:
+            header = f"[📋 RECIPE: {self.symbol or self.file_path}] (Golden Blueprint)"
+            lines = [header]
+            if self.trigger_pattern:
+                lines.append(f"  Intent: {self.trigger_pattern}")
+            lines.append("  Procedure:")
+            for line in self.resolution.strip().splitlines():
+                clean_l = line.strip()
+                if clean_l:
+                    lines.append(f"    {clean_l}")
+            return "\n".join(lines)
+
+        # 4. Stale State — Code changed, but symbol persists
         if self.anchor_status == AnchorStatus.STALE or self.state == LifecycleState.STALE:
             header = f"[STALE: {self.symbol or self.file_path}]"
             lines = [

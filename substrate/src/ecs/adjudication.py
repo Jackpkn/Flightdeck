@@ -7,6 +7,7 @@ from typing import Sequence
 
 from .models import (
     AuthorityLevel,
+    MemoryKind,
     LifecycleState,
     EdgeType,
     AdjudicationDecision,
@@ -99,6 +100,23 @@ class AdjudicationEngine:
 
         has_resolution = bool(atom.resolution and len(atom.resolution.strip()) > 5)
         has_trigger = bool(atom.trigger_pattern and len(atom.trigger_pattern.strip()) > 3)
+
+        # Procedural Golden Recipe Blueprint
+        if atom.kind == MemoryKind.RECIPE:
+            if has_resolution:
+                return VerifierSignal(
+                    reward=0.92,
+                    confidence=0.90,
+                    label="verified_recipe",
+                    view_set=["full", "procedure"],
+                )
+            else:
+                return VerifierSignal(
+                    reward=0.40,
+                    confidence=0.30,
+                    label="empty_recipe_discarded",
+                    view_set=["risk"],
+                )
 
         # Check 5a: Trigger verbosity threshold -> Gate 4 deferred adjudication
         if atom.trigger_pattern and len(atom.trigger_pattern.strip()) > 120:

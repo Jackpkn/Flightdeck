@@ -1471,3 +1471,62 @@ def test_mcp_memory_store_and_dream_verification(tmp_path):
     assert atom.success_count == 1
 
 
+def test_procedural_golden_recipe_memory(tmp_path):
+    """Procedural golden recipe memories are verified, formatted as blueprints, and retrievable by intent."""
+    db_file = tmp_path / "recipe.db"
+    from ecs.server import create_mcp_server
+    server = create_mcp_server(db_file)
+
+    store_tool = server._tool_manager.get_tool("memory_store")
+    assert store_tool is not None
+
+    import json
+    recipe_proc = (
+        "Step 1: Define Pydantic schema in substrate/src/ecs/models.py\n"
+        "Step 2: Add database migration in substrate/src/ecs/db.py\n"
+        "Step 3: Expose tool handler in substrate/src/ecs/server.py"
+    )
+    store_res = json.loads(store_tool.fn(
+        project="Flightdeck",
+        file_path="substrate/src/ecs/server.py",
+        symbol="scaffold_tool",
+        kind="recipe",
+        trigger_pattern="scaffold mcp tool",
+        resolution=recipe_proc,
+    ))
+
+    assert "stored_atom_id" in store_res
+    atom_id = store_res["stored_atom_id"]
+
+    from ecs.db import ECSDatabase
+    db = ECSDatabase(db_file)
+    atom = db.get_atom(atom_id)
+    assert atom is not None
+    assert atom.kind == MemoryKind.RECIPE
+    assert atom.state == LifecycleState.ACTIVE
+    assert atom.label == "verified_recipe"
+    assert atom.confidence >= 0.90
+
+    # Verify micro-directive formatting
+    directive = atom.micro_directive
+    assert "[📋 RECIPE: scaffold_tool] (Golden Blueprint)" in directive
+    assert "Intent: scaffold mcp tool" in directive
+    assert "Procedure:" in directive
+    assert "Step 1: Define Pydantic schema" in directive
+    assert "Step 3: Expose tool handler" in directive
+
+    # Verify intent-based retrieval via memory_context
+    context_tool = server._tool_manager.get_tool("memory_context")
+    context_res = json.loads(context_tool.fn(
+        project="Flightdeck",
+        intent="scaffold mcp tool",
+    ))
+
+    assert context_res["status"] in ("KNOWN", "ADJACENT")
+    assert len(context_res["results"]) >= 1
+    found_recipe = any(r["kind"] == "recipe" for r in context_res["results"])
+    assert found_recipe
+    assert "[📋 RECIPE: scaffold_tool]" in context_res["prompt_block"]
+
+
+
